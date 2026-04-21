@@ -41,6 +41,10 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
   };
 
   const recurringTasks = goal.tasks.filter((task) => task.frequency !== "once");
+  const onceTasks = goal.tasks.filter((task) => task.frequency === "once");
+  const onceTaskHeatmapData = getHeatmapData(onceTasks.flatMap((task) => task.completions));
+  const onceTaskCompletionCount = Object.values(onceTaskHeatmapData).reduce((sum, count) => sum + count, 0);
+  const hasOnceTaskHistory = onceTaskCompletionCount > 0;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }} edges={['bottom', 'left', 'right']}>
@@ -65,7 +69,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
           >
             <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text }}>No recurring tasks yet</Text>
             <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-              Consistency charts only apply to daily, weekly, and custom tasks. One-off tasks are treated as one-and-done, so they do not appear in heatmaps or streak views.
+              Recurring charts apply to daily, weekly, and custom tasks. One-off tasks are shown separately below in a combined support-work heatmap when they exist.
             </Text>
           </View>
         ) : null}
@@ -196,6 +200,52 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
             {index < recurringTasks.length - 1 && <View style={{ height: 16 }} />}
           </View>
         ))}
+
+        {onceTasks.length > 0 ? (
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: theme.border,
+              borderRadius: 10,
+              padding: 12,
+              backgroundColor: theme.surface,
+              gap: 10,
+            }}
+          >
+            <View>
+              <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text }}>One-off task history</Text>
+              <Text style={{ color: theme.textSecondary, fontSize: 14, lineHeight: 20 }}>
+                One-off tasks
+              </Text>
+            </View>
+
+            <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
+              Once tasks in this goal: {onceTasks.length} • Completed one-off tasks: {onceTaskCompletionCount}
+            </Text>
+
+            {hasOnceTaskHistory ? (
+              <Heatmap
+                startOffsetDays={180}
+                values={onceTaskHeatmapData}
+                referenceDate={selectedDate}
+              />
+            ) : (
+              <View
+                style={{
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  borderRadius: 10,
+                  padding: 12,
+                  backgroundColor: theme.background,
+                }}
+              >
+                <Text style={{ color: theme.textSecondary, lineHeight: 20 }}>
+                  No completed one-off tasks yet for this goal.
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
