@@ -36,6 +36,18 @@ const normalizeGoal = (goal: PersistedGoal): Goal => ({
   tasks: (goal.tasks ?? goal.subGoals ?? []).map(normalizeTask),
 });
 
+const normalizeCompletionsForFrequencyChange = (task: Task, nextFrequency: Frequency): Date[] => {
+  if (task.frequency === nextFrequency || nextFrequency !== "once" || task.completions.length <= 1) {
+    return task.completions;
+  }
+
+  const latestCompletion = task.completions.reduce((latest, completion) =>
+    normalizeDate(completion) > normalizeDate(latest) ? completion : latest
+  );
+
+  return [normalizeDate(latestCompletion)];
+};
+
 // Helper functions for custom frequency calculations
 export const getCustomFrequencyProgress = (task: Task, referenceDate: Date = new Date()) => {
   if (task.frequency !== "custom" || !task.customFrequency) {
@@ -653,6 +665,10 @@ export const useStore = create<State>()(
                                             customFrequency: (updates.frequency ?? task.frequency) === "custom"
                                                 ? (updates.customFrequency ?? task.customFrequency)
                                                 : undefined,
+                                            completions: normalizeCompletionsForFrequencyChange(
+                                                task,
+                                                updates.frequency ?? task.frequency
+                                            ),
                                         }
                                         : task
                                 ),

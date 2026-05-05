@@ -180,3 +180,83 @@ describe('updateGoal', () => {
     expect(useStore.getState().goals[0].target).toBeUndefined();
   });
 });
+
+describe('updateTask', () => {
+  const originalState = useStore.getState();
+
+  afterEach(() => {
+    useStore.setState(originalState, true);
+  });
+
+  it('collapses recurring completion history to the latest day when changing a task to once', () => {
+    useStore.setState({
+      ...originalState,
+      goals: [
+        {
+          id: 'goal-1',
+          title: 'Fitness',
+          createdAt: Date.now(),
+          tasks: [
+            {
+              id: 'task-1',
+              title: 'Run',
+              frequency: 'daily',
+              completions: [
+                new Date('2026-04-20T18:00:00.000Z'),
+                new Date('2026-04-22T09:00:00.000Z'),
+                new Date('2026-04-21T12:00:00.000Z'),
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    useStore.getState().updateTask('goal-1', 'task-1', { frequency: 'once' });
+
+    const updatedTask = useStore.getState().goals[0].tasks[0];
+
+    expect(updatedTask.frequency).toBe('once');
+    expect(updatedTask.completions).toHaveLength(1);
+    expect(updatedTask.completions[0].toDateString()).toBe(
+      new Date('2026-04-22T12:00:00.000Z').toDateString()
+    );
+  });
+
+  it('keeps the normalized once completion when switching back to a recurring task', () => {
+    useStore.setState({
+      ...originalState,
+      goals: [
+        {
+          id: 'goal-2',
+          title: 'Admin',
+          createdAt: Date.now(),
+          tasks: [
+            {
+              id: 'task-2',
+              title: 'File paperwork',
+              frequency: 'daily',
+              completions: [
+                new Date('2026-04-20T12:00:00.000Z'),
+                new Date('2026-04-21T12:00:00.000Z'),
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    useStore.getState().updateTask('goal-2', 'task-2', { frequency: 'once' });
+    useStore.getState().updateTask('goal-2', 'task-2', { frequency: 'weekly' });
+    useStore.getState().toggleTaskCompletion('goal-2', 'task-2', new Date('2026-04-28T12:00:00.000Z'));
+
+    const updatedTask = useStore.getState().goals[0].tasks[0];
+
+    expect(updatedTask.frequency).toBe('weekly');
+    expect(updatedTask.completions).toHaveLength(2);
+    expect(updatedTask.completions.map((completion) => completion.toDateString())).toEqual([
+      new Date('2026-04-21T12:00:00.000Z').toDateString(),
+      new Date('2026-04-28T12:00:00.000Z').toDateString(),
+    ]);
+  });
+});
