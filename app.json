@@ -28,6 +28,8 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
+      "supabaseUrl": "https://plwzrlwwqyrcvhaehrzm.supabase.co",
+      "supabasePublishableKey": "sb_publishable_MbYlI9PzGg3g0wgKr2jlcQ__L09Qx6T",
       "eas": {
         "projectId": "7e81d3d1-2c34-4245-abbf-996719c1c022"
       }

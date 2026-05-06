@@ -215,7 +215,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
             <View>
               <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text }}>One-off task history</Text>
               <Text style={{ color: theme.textSecondary, fontSize: 14, lineHeight: 20 }}>
-                One-off tasks
+                All one-off completions for this goal are grouped into a single combined heatmap. This is separate from recurring consistency tracking.
               </Text>
             </View>
 
