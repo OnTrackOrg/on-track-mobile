@@ -560,6 +560,7 @@ interface State {
     seedDemoData: () => void;
     resetAppData: () => void;
     createAccount: (displayName: string, username?: string, email?: string) => void;
+    setAccount: (account: UserAccount | null) => void;
 }
 
 // Get initial goals based on store mode
@@ -769,6 +770,9 @@ export const useStore = create<State>()(
                         createdAt: Date.now(),
                     },
                 });
+            },
+            setAccount: (account) => {
+                set({ account });
             },
         }),
         {
