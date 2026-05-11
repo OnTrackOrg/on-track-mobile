@@ -51,8 +51,17 @@ describe("dataSync mappers", () => {
         target: 3,
       },
     });
-    expect(goals[0].tasks[0].completions[0]).toBeInstanceOf(Date);
-    expect(goals[0].tasks[0].completions[0].toISOString()).toBe("2026-05-03T00:00:00.000Z");
+    const completion = goals[0].tasks[0].completions[0];
+    expect(completion).toBeInstanceOf(Date);
+    expect(completion.getFullYear()).toBe(2026);
+    expect(completion.getMonth()).toBe(4);
+    expect(completion.getDate()).toBe(3);
+  });
+
+  it("serializes completion dates from the local calendar day", () => {
+    const completion = new Date(2026, 4, 3);
+
+    expect(__internal.toCompletedDay(completion)).toBe("2026-05-03");
   });
 
   it("keeps tasks ordered by explicit position first", () => {

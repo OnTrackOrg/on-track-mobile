@@ -69,13 +69,31 @@ const toCompletedAt = (completion: Date): string => (
   Number.isNaN(completion.getTime()) ? new Date().toISOString() : completion.toISOString()
 );
 
+const toCompletedDay = (completion: Date): string => {
+  if (Number.isNaN(completion.getTime())) {
+    return toCompletedDay(new Date());
+  }
+
+  const year = completion.getFullYear();
+  const month = String(completion.getMonth() + 1).padStart(2, "0");
+  const day = String(completion.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+};
+
 const toDate = (value: string): Date => {
+  const [year, month, day] = value.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return new Date(value);
+  }
+
   /**
-   * Supabase stores completion days as day-only values. Appending `Z` keeps the
-   * conversion stable across local machine time zones, which matters both in
-   * tests and when users travel between time zones.
+   * Supabase stores completion days as calendar dates without a timezone. Keep
+   * them as local calendar days in the app, otherwise users west of UTC see a
+   * completion shift to the previous day after rehydrating from the server.
    */
-  return new Date(`${value}T00:00:00.000Z`);
+  return new Date(year, month - 1, day);
 };
 
 const buildTasks = (taskRows: TaskRow[], completionRows: CompletionRow[]): Task[] => {
@@ -316,17 +334,34 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
     }))
   );
 
-  const completionPayload = preparedGoals.flatMap((goal) =>
-    goal.tasks.flatMap((task) =>
-      task.completions.map((completion) => ({
-        id: makeUuid(),
-        task_id: task.id,
-        completed_by_user_id: user.id,
-        completed_at: toCompletedAt(completion),
-        completed_day: completion.toISOString().slice(0, 10),
-      }))
-    )
-  );
+  const completionPayloadByTaskAndDay = new Map<string, {
+    id: string;
+    task_id: string;
+    completed_by_user_id: string;
+    completed_at: string;
+    completed_day: string;
+  }>();
+
+  for (const goal of preparedGoals) {
+    for (const task of goal.tasks) {
+      for (const completion of task.completions) {
+        const completedDay = toCompletedDay(completion);
+        const completionKey = `${task.id}:${completedDay}`;
+
+        if (!completionPayloadByTaskAndDay.has(completionKey)) {
+          completionPayloadByTaskAndDay.set(completionKey, {
+            id: makeUuid(),
+            task_id: task.id,
+            completed_by_user_id: user.id,
+            completed_at: toCompletedAt(completion),
+            completed_day: completedDay,
+          });
+        }
+      }
+    }
+  }
+
+  const completionPayload = Array.from(completionPayloadByTaskAndDay.values());
 
   const localGoalIds = preparedGoals.map((goal) => goal.id);
   const localTaskIds = taskPayload.map((task) => task.id);
@@ -400,5 +435,6 @@ export const __internal = {
   prepareGoalsForRemote,
   replaceRemoteGoalsForUser,
   toDate,
+  toCompletedDay,
   toTimestamp,
 };
