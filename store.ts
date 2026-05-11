@@ -563,7 +563,6 @@ interface State {
     toggleTaskCompletion: (goalId: string, taskId: string, date?: Date) => void;
     completionsByDate: () => Record<string, number>;
     deleteGoal: (goalId: string) => void;
-    seedDemoData: () => void;
     resetAppData: () => void;
     createAccount: (displayName: string, username?: string, email?: string) => void;
     setAccount: (account: UserAccount | null) => void;
@@ -805,19 +804,6 @@ export const useStore = create<State>()(
                         s.syncRevision
                     ),
                 }));
-            },
-            seedDemoData: () => {
-                set((s) => {
-                    if (s.goals.length > 0) {
-                        return s;
-                    }
-
-                    return {
-                        goals: getSampleGoals(),
-                        selectedDate: normalizeDate(new Date()),
-                        syncRevision: s.syncRevision + 1,
-                    };
-                });
             },
             resetAppData: () => {
                 set((s) => ({
