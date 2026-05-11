@@ -30,6 +30,13 @@ type ExistingRemoteGraph = {
   taskIds: string[];
 };
 
+type PreparedGoalGraph = {
+  goals: Goal[];
+  hadLegacyIds: boolean;
+};
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const toTimestamp = (value?: string | null): number => {
   if (!value) {
     return Date.now();
@@ -37,6 +44,24 @@ const toTimestamp = (value?: string | null): number => {
 
   const parsed = new Date(value).getTime();
   return Number.isNaN(parsed) ? Date.now() : parsed;
+};
+
+const isUuid = (value: string): boolean => UUID_PATTERN.test(value);
+
+const makeUuid = (): string => {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  /**
+   * Fallback for environments where `crypto.randomUUID()` is unavailable.
+   * This keeps import-time id upgrades working in tests and older runtimes.
+   */
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+    const randomNibble = Math.floor(Math.random() * 16);
+    const value = character === "x" ? randomNibble : (randomNibble & 0x3) | 0x8;
+    return value.toString(16);
+  });
 };
 
 const toDate = (value: string): Date => {
@@ -100,6 +125,46 @@ const buildGoals = (goalRows: GoalRow[], taskRows: TaskRow[], completionRows: Co
       createdAt: toTimestamp(goal.created_at),
       tasks: buildTasks(tasksByGoalId.get(goal.id) ?? [], completionRows),
     }));
+};
+
+/**
+ * Older local-only builds used a short custom id format instead of UUIDs.
+ * Supabase now expects UUID primary keys, so any legacy graph must be remapped
+ * before it can be uploaded. We do the rewrite here in one pass so the import
+ * flow can transparently upgrade existing device-only data.
+ */
+const prepareGoalsForRemote = (goals: Goal[]): PreparedGoalGraph => {
+  const goalIdMap = new Map<string, string>();
+  const taskIdMap = new Map<string, string>();
+  let hadLegacyIds = false;
+
+  for (const goal of goals) {
+    const nextGoalId = isUuid(goal.id) ? goal.id : makeUuid();
+    if (nextGoalId !== goal.id) {
+      hadLegacyIds = true;
+    }
+    goalIdMap.set(goal.id, nextGoalId);
+
+    for (const task of goal.tasks) {
+      const nextTaskId = isUuid(task.id) ? task.id : makeUuid();
+      if (nextTaskId !== task.id) {
+        hadLegacyIds = true;
+      }
+      taskIdMap.set(task.id, nextTaskId);
+    }
+  }
+
+  return {
+    hadLegacyIds,
+    goals: goals.map((goal) => ({
+      ...goal,
+      id: goalIdMap.get(goal.id) ?? goal.id,
+      tasks: goal.tasks.map((task) => ({
+        ...task,
+        id: taskIdMap.get(task.id) ?? task.id,
+      })),
+    })),
+  };
 };
 
 /**
@@ -210,10 +275,12 @@ const loadExistingRemoteGraph = async (user: User): Promise<ExistingRemoteGraph>
  * without introducing per-entity conflict resolution yet. Later slices can
  * make the queue more granular once the end-to-end behavior is stable.
  */
-export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Promise<void> => {
+export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Promise<PreparedGoalGraph> => {
+  const preparedGraph = prepareGoalsForRemote(goals);
+  const preparedGoals = preparedGraph.goals;
   const existingGraph = await loadExistingRemoteGraph(user);
 
-  const goalPayload = goals.map((goal) => ({
+  const goalPayload = preparedGoals.map((goal) => ({
     id: goal.id,
     owner_user_id: user.id,
     title: goal.title,
@@ -221,7 +288,7 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
     created_at: new Date(goal.createdAt).toISOString(),
   }));
 
-  const taskPayload = goals.flatMap((goal) =>
+  const taskPayload = preparedGoals.flatMap((goal) =>
     goal.tasks.map((task, index) => ({
       id: task.id,
       goal_id: goal.id,
@@ -233,7 +300,7 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
     }))
   );
 
-  const completionPayload = goals.flatMap((goal) =>
+  const completionPayload = preparedGoals.flatMap((goal) =>
     goal.tasks.flatMap((task) =>
       task.completions.map((completion) => ({
         task_id: task.id,
@@ -243,7 +310,7 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
     )
   );
 
-  const localGoalIds = goals.map((goal) => goal.id);
+  const localGoalIds = preparedGoals.map((goal) => goal.id);
   const localTaskIds = taskPayload.map((task) => task.id);
   const relevantTaskIds = Array.from(new Set([...existingGraph.taskIds, ...localTaskIds]));
 
@@ -296,20 +363,23 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
     }
   }
 
-  if (goals.length === 0 && existingGraph.goalIds.length > 0) {
+  if (preparedGoals.length === 0 && existingGraph.goalIds.length > 0) {
     /**
      * When the local graph becomes empty, the deletion blocks above remove the
      * entire remote graph. This branch exists only as explanatory scaffolding,
      * because the meaningful work was already done by the targeted deletes.
      */
-    return;
+    return preparedGraph;
   }
+
+  return preparedGraph;
 };
 
 export const __internal = {
   buildGoals,
   buildTasks,
   loadExistingRemoteGraph,
+  prepareGoalsForRemote,
   replaceRemoteGoalsForUser,
   toDate,
   toTimestamp,

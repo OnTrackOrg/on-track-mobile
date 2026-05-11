@@ -230,7 +230,11 @@ function ThemedNavigation() {
      * without making the app feel offline-hostile.
      */
     void replaceRemoteGoalsForUser(session.user, goalsToSync)
-      .then(() => {
+      .then(({ goals: syncedGoals, hadLegacyIds }) => {
+        if (hadLegacyIds) {
+          setGoals(syncedGoals);
+        }
+
         markGoalsSynced(revisionToSync);
       })
       .catch((error) => {
@@ -262,7 +266,17 @@ function ThemedNavigation() {
        * local-only copy of the user's data, we wait for a yes/no choice here
        * instead of silently uploading that history during sign-in.
        */
-      await replaceRemoteGoalsForUser(session.user, goals);
+      const { goals: importedGoals, hadLegacyIds } = await replaceRemoteGoalsForUser(session.user, goals);
+
+      if (hadLegacyIds) {
+        /**
+         * Once legacy local ids have been upgraded for the cloud import, we
+         * replace the in-memory/local store with the UUID-backed version so all
+         * future syncs continue using the server-compatible ids.
+         */
+        setGoals(importedGoals);
+      }
+
       setCloudSyncEnabled(true);
       markGoalsSynced(syncRevision);
       setHasDismissedImportPrompt(false);
@@ -272,7 +286,7 @@ function ThemedNavigation() {
     } finally {
       setIsImportingLocalData(false);
     }
-  }, [goals, markGoalsSynced, session, setCloudSyncEnabled, syncRevision]);
+  }, [goals, markGoalsSynced, session, setCloudSyncEnabled, setGoals, syncRevision]);
 
   const shouldShowImportPrompt = Boolean(
     session &&

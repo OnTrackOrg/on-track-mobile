@@ -80,4 +80,49 @@ describe("dataSync mappers", () => {
 
     expect(tasks.map((task) => task.id)).toEqual(["task-1", "task-2"]);
   });
+
+  it("remaps legacy local ids to UUIDs for import/sync", () => {
+    const prepared = __internal.prepareGoalsForRemote([
+      {
+        id: "legacy-goal-id",
+        title: "Fitness",
+        createdAt: 1,
+        tasks: [
+          {
+            id: "legacy-task-id",
+            title: "Run",
+            frequency: "daily",
+            completions: [new Date("2026-05-03T00:00:00.000Z")],
+          },
+        ],
+      },
+    ]);
+
+    expect(prepared.hadLegacyIds).toBe(true);
+    expect(prepared.goals[0].id).not.toBe("legacy-goal-id");
+    expect(prepared.goals[0].tasks[0].id).not.toBe("legacy-task-id");
+    expect(prepared.goals[0].tasks[0].completions[0].toISOString()).toBe("2026-05-03T00:00:00.000Z");
+  });
+
+  it("preserves ids that are already UUIDs", () => {
+    const prepared = __internal.prepareGoalsForRemote([
+      {
+        id: "75cfeb0f-8097-4bf2-9fa7-09c66d4d4aa7",
+        title: "Fitness",
+        createdAt: 1,
+        tasks: [
+          {
+            id: "519c2b3d-88fc-471b-9e59-12fb35df4e31",
+            title: "Run",
+            frequency: "daily",
+            completions: [],
+          },
+        ],
+      },
+    ]);
+
+    expect(prepared.hadLegacyIds).toBe(false);
+    expect(prepared.goals[0].id).toBe("75cfeb0f-8097-4bf2-9fa7-09c66d4d4aa7");
+    expect(prepared.goals[0].tasks[0].id).toBe("519c2b3d-88fc-471b-9e59-12fb35df4e31");
+  });
 });
