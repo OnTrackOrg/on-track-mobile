@@ -15,6 +15,7 @@ import PrivacyScreen from "./components/PrivacyScreen";
 import InstructionsScreen from "./components/InstructionsScreen";
 import IntroductionWizard from "./components/IntroductionWizard";
 import AuthScreen from "./components/AuthScreen";
+import ImportLocalDataScreen from "./components/ImportLocalDataScreen";
 import { ONBOARDING_STORAGE_KEY, shouldShowOnboarding } from "./onboarding";
 import { useStore } from "./store";
 import {
@@ -25,6 +26,8 @@ import {
   signInWithEmail,
   signUpWithEmail,
 } from "./lib/auth";
+import { fetchRemoteGoalsForUser } from "./lib/dataSync";
+import { replaceRemoteGoalsForUser } from "./lib/dataSync";
 import { supabase } from "./lib/supabase";
 
 type RootStackParamList = {
@@ -42,6 +45,12 @@ function ThemedNavigation() {
   const { theme, isDark } = useTheme();
   const goals = useStore((s) => s.goals);
   const setAccount = useStore((s) => s.setAccount);
+  const setGoals = useStore((s) => s.setGoals);
+  const cloudSyncEnabled = useStore((s) => s.cloudSyncEnabled);
+  const setCloudSyncEnabled = useStore((s) => s.setCloudSyncEnabled);
+  const syncRevision = useStore((s) => s.syncRevision);
+  const lastSyncedRevision = useStore((s) => s.lastSyncedRevision);
+  const markGoalsSynced = useStore((s) => s.markGoalsSynced);
   const [showIntroduction, setShowIntroduction] = React.useState(false);
   const [hasCheckedIntroduction, setHasCheckedIntroduction] = React.useState(false);
   const [hasCheckedSession, setHasCheckedSession] = React.useState(false);
@@ -51,6 +60,14 @@ function ThemedNavigation() {
   const [authInfoMessage, setAuthInfoMessage] = React.useState<string | null>(null);
   const [pendingVerificationEmail, setPendingVerificationEmail] = React.useState<string | null>(null);
   const [isSubmittingAuth, setIsSubmittingAuth] = React.useState(false);
+  const [isImportingLocalData, setIsImportingLocalData] = React.useState(false);
+  const [importErrorMessage, setImportErrorMessage] = React.useState<string | null>(null);
+  const [hasDismissedImportPrompt, setHasDismissedImportPrompt] = React.useState(false);
+  const syncInFlightRevisionRef = React.useRef<number | null>(null);
+  const totalLocalTaskCount = React.useMemo(
+    () => goals.reduce((count, goal) => count + goal.tasks.length, 0),
+    [goals]
+  );
 
   React.useEffect(() => {
     let isCancelled = false;
@@ -107,8 +124,23 @@ function ThemedNavigation() {
 
         if (persistedSession?.user) {
           const syncedAccount = await ensureProfileForUser(persistedSession.user);
+          const remoteGoals = await fetchRemoteGoalsForUser(persistedSession.user);
+          const existingLocalGoals = useStore.getState().goals;
+
           if (isActive) {
             setAccount(syncedAccount);
+
+            /**
+             * For now we only replace local goals when the server actually has
+             * a cloud copy. That protects users who already have purely local
+             * device data until the import flow lands in a later slice.
+             */
+            if (remoteGoals.length > 0) {
+              setGoals(remoteGoals);
+              setCloudSyncEnabled(true);
+            } else {
+              setCloudSyncEnabled(existingLocalGoals.length === 0);
+            }
           }
         }
       } catch (error) {
@@ -132,12 +164,27 @@ function ThemedNavigation() {
 
       if (!nextSession?.user) {
         setAccount(null);
+        setCloudSyncEnabled(false);
+        setHasDismissedImportPrompt(false);
         return;
       }
 
-      void ensureProfileForUser(nextSession.user)
-        .then((syncedAccount) => {
+      void Promise.all([
+        ensureProfileForUser(nextSession.user),
+        fetchRemoteGoalsForUser(nextSession.user),
+      ])
+        .then(([syncedAccount, remoteGoals]) => {
+          const existingLocalGoals = useStore.getState().goals;
+
           setAccount(syncedAccount);
+
+          if (remoteGoals.length > 0) {
+            setGoals(remoteGoals);
+            setCloudSyncEnabled(true);
+          } else {
+            setCloudSyncEnabled(existingLocalGoals.length === 0);
+          }
+
           setAuthErrorMessage(null);
           setPendingVerificationEmail(null);
           setAuthMode("sign-in");
@@ -152,12 +199,99 @@ function ThemedNavigation() {
       isActive = false;
       subscription.unsubscribe();
     };
-  }, [setAccount]);
+  }, [setAccount, setCloudSyncEnabled, setGoals]);
+
+  React.useEffect(() => {
+    if (!session?.user || !cloudSyncEnabled) {
+      return;
+    }
+
+    if (syncRevision <= lastSyncedRevision) {
+      return;
+    }
+
+    if (syncInFlightRevisionRef.current === syncRevision) {
+      return;
+    }
+
+    syncInFlightRevisionRef.current = syncRevision;
+    const goalsToSync = useStore.getState().goals;
+    const revisionToSync = syncRevision;
+
+    /**
+     * This effect is the first cloud write bridge. Every local mutation bumps a
+     * revision number in the store, and this effect best-effort flushes the
+     * latest revision to Supabase whenever cloud sync is enabled.
+     *
+     * We intentionally do not block the UI on this. AsyncStorage already holds
+     * the freshest local copy, so failed network writes can be retried later
+     * without making the app feel offline-hostile.
+     */
+    void replaceRemoteGoalsForUser(session.user, goalsToSync)
+      .then(({ goals: syncedGoals, hadLegacyIds }) => {
+        if (hadLegacyIds) {
+          setGoals(syncedGoals);
+        }
+
+        markGoalsSynced(revisionToSync);
+      })
+      .catch((error) => {
+        console.error("Failed to flush local goals to Supabase", error);
+      })
+      .finally(() => {
+        if (syncInFlightRevisionRef.current === revisionToSync) {
+          syncInFlightRevisionRef.current = null;
+        }
+      });
+  }, [cloudSyncEnabled, lastSyncedRevision, markGoalsSynced, session, syncRevision]);
 
   const handleIntroductionDone = React.useCallback(async () => {
     await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
     setShowIntroduction(false);
   }, []);
+
+  const handleImportLocalData = React.useCallback(async () => {
+    if (!session?.user) {
+      return;
+    }
+
+    setIsImportingLocalData(true);
+    setImportErrorMessage(null);
+
+    try {
+      /**
+       * The import flow is intentionally explicit. If the device already had a
+       * local-only copy of the user's data, we wait for a yes/no choice here
+       * instead of silently uploading that history during sign-in.
+       */
+      const { goals: importedGoals, hadLegacyIds } = await replaceRemoteGoalsForUser(session.user, goals);
+
+      if (hadLegacyIds) {
+        /**
+         * Once legacy local ids have been upgraded for the cloud import, we
+         * replace the in-memory/local store with the UUID-backed version so all
+         * future syncs continue using the server-compatible ids.
+         */
+        setGoals(importedGoals);
+      }
+
+      setCloudSyncEnabled(true);
+      markGoalsSynced(syncRevision);
+      setHasDismissedImportPrompt(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "We could not import this device's local data yet.";
+      setImportErrorMessage(message);
+    } finally {
+      setIsImportingLocalData(false);
+    }
+  }, [goals, markGoalsSynced, session, setCloudSyncEnabled, setGoals, syncRevision]);
+
+  const shouldShowImportPrompt = Boolean(
+    session &&
+    !cloudSyncEnabled &&
+    goals.length > 0 &&
+    !hasDismissedImportPrompt
+  );
 
   const handleAuthSubmit = React.useCallback(async ({
     displayName,
@@ -243,6 +377,25 @@ function ThemedNavigation() {
           }}
           onSubmit={handleAuthSubmit}
           onResendVerification={handleResendVerification}
+        />
+        <StatusBar style={isDark ? "light" : "dark"} />
+      </>
+    );
+  }
+
+  if (shouldShowImportPrompt) {
+    return (
+      <>
+        <ImportLocalDataScreen
+          goalCount={goals.length}
+          taskCount={totalLocalTaskCount}
+          isImporting={isImportingLocalData}
+          errorMessage={importErrorMessage}
+          onImport={handleImportLocalData}
+          onSkip={() => {
+            setImportErrorMessage(null);
+            setHasDismissedImportPrompt(true);
+          }}
         />
         <StatusBar style={isDark ? "light" : "dark"} />
       </>
