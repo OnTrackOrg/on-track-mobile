@@ -74,12 +74,12 @@ export default function InstructionsScreen() {
         </View>
 
         <View style={{ ...sectionStyle, borderColor: theme.border, backgroundColor: theme.surface }}>
-          <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text }}>6. Example data and reset</Text>
+          <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text }}>6. Start with your own goals</Text>
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-            New users may see example goals and tasks so the charts and consistency pages make sense immediately. They are there to teach the flow, not to stay forever.
+            After onboarding and account setup, OnTrack starts empty. Add your own goals and tasks to build a consistency history that reflects your real routine.
           </Text>
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-            When you are ready to start with your own data, open Settings and use Reset App Data. That clears the examples and your local history on this device.
+            If you ever want to clear your local history on this device and start over, open Settings and use Reset App Data.
           </Text>
         </View>
       </ScrollView>
