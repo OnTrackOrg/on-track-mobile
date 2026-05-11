@@ -15,6 +15,7 @@ import PrivacyScreen from "./components/PrivacyScreen";
 import InstructionsScreen from "./components/InstructionsScreen";
 import IntroductionWizard from "./components/IntroductionWizard";
 import AuthScreen from "./components/AuthScreen";
+import ImportLocalDataScreen from "./components/ImportLocalDataScreen";
 import { ONBOARDING_STORAGE_KEY, shouldShowOnboarding } from "./onboarding";
 import { useStore } from "./store";
 import {
@@ -60,7 +61,14 @@ function ThemedNavigation() {
   const [authInfoMessage, setAuthInfoMessage] = React.useState<string | null>(null);
   const [pendingVerificationEmail, setPendingVerificationEmail] = React.useState<string | null>(null);
   const [isSubmittingAuth, setIsSubmittingAuth] = React.useState(false);
+  const [isImportingLocalData, setIsImportingLocalData] = React.useState(false);
+  const [importErrorMessage, setImportErrorMessage] = React.useState<string | null>(null);
+  const [hasDismissedImportPrompt, setHasDismissedImportPrompt] = React.useState(false);
   const syncInFlightRevisionRef = React.useRef<number | null>(null);
+  const totalLocalTaskCount = React.useMemo(
+    () => goals.reduce((count, goal) => count + goal.tasks.length, 0),
+    [goals]
+  );
 
   React.useEffect(() => {
     let isCancelled = false;
@@ -158,6 +166,8 @@ function ThemedNavigation() {
 
       if (!nextSession?.user) {
         setAccount(null);
+        setCloudSyncEnabled(false);
+        setHasDismissedImportPrompt(false);
         return;
       }
 
@@ -237,6 +247,39 @@ function ThemedNavigation() {
     await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
     setShowIntroduction(false);
   }, []);
+
+  const handleImportLocalData = React.useCallback(async () => {
+    if (!session?.user) {
+      return;
+    }
+
+    setIsImportingLocalData(true);
+    setImportErrorMessage(null);
+
+    try {
+      /**
+       * The import flow is intentionally explicit. If the device already had a
+       * local-only copy of the user's data, we wait for a yes/no choice here
+       * instead of silently uploading that history during sign-in.
+       */
+      await replaceRemoteGoalsForUser(session.user, goals);
+      setCloudSyncEnabled(true);
+      markGoalsSynced(syncRevision);
+      setHasDismissedImportPrompt(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "We could not import this device's local data yet.";
+      setImportErrorMessage(message);
+    } finally {
+      setIsImportingLocalData(false);
+    }
+  }, [goals, markGoalsSynced, session, setCloudSyncEnabled, syncRevision]);
+
+  const shouldShowImportPrompt = Boolean(
+    session &&
+    !cloudSyncEnabled &&
+    goals.length > 0 &&
+    !hasDismissedImportPrompt
+  );
 
   const handleAuthSubmit = React.useCallback(async ({
     displayName,
@@ -322,6 +365,25 @@ function ThemedNavigation() {
           }}
           onSubmit={handleAuthSubmit}
           onResendVerification={handleResendVerification}
+        />
+        <StatusBar style={isDark ? "light" : "dark"} />
+      </>
+    );
+  }
+
+  if (shouldShowImportPrompt) {
+    return (
+      <>
+        <ImportLocalDataScreen
+          goalCount={goals.length}
+          taskCount={totalLocalTaskCount}
+          isImporting={isImportingLocalData}
+          errorMessage={importErrorMessage}
+          onImport={handleImportLocalData}
+          onSkip={() => {
+            setImportErrorMessage(null);
+            setHasDismissedImportPrompt(true);
+          }}
         />
         <StatusBar style={isDark ? "light" : "dark"} />
       </>
