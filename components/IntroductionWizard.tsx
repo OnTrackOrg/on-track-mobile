@@ -20,7 +20,7 @@ const slides: Slide[] = [
   {
     key: "welcome",
     title: "Welcome! Let’s get you On Track",
-    text: "This quick walkthrough will show you how the app works using demo goals and sample progress, so everything makes sense right away.",
+    text: "This quick walkthrough will show you how goals, tasks, and consistency tracking work so you can start fresh with your own data.",
     icon: "rocket-outline",
   },
   {
@@ -36,16 +36,16 @@ const slides: Slide[] = [
     icon: "repeat-outline",
   },
   {
-    key: "demo",
-    title: "Start by exploring demo data",
-    text: "New users get example goals, tasks, and history so the charts and consistency views make sense immediately instead of feeling empty.",
+    key: "consistency",
+    title: "Consistency builds over time",
+    text: "Your charts and consistency views will start empty, then fill in naturally as you log real completions for your own goals.",
     icon: "sparkles-outline",
   },
   {
-    key: "reset",
-    title: "IMPORTANT! Reset when you are ready",
-    text: "These are intro goals so you can see how OnTrack is set up. When you are done exploring, open Settings and tap Reset App Data to clear the demo data and start fresh.",
-    icon: "warning-outline",
+    key: "start",
+    title: "Start with a clean slate",
+    text: "After the walkthrough and account setup, the app opens empty so you can add your own goals right away instead of clearing example data first.",
+    icon: "checkmark-circle-outline",
   },
 ];
 

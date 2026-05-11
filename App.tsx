@@ -41,7 +41,6 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 function ThemedNavigation() {
   const { theme, isDark } = useTheme();
   const goals = useStore((s) => s.goals);
-  const seedDemoData = useStore((s) => s.seedDemoData);
   const setAccount = useStore((s) => s.setAccount);
   const [showIntroduction, setShowIntroduction] = React.useState(false);
   const [hasCheckedIntroduction, setHasCheckedIntroduction] = React.useState(false);
@@ -77,7 +76,6 @@ function ThemedNavigation() {
         return;
       }
 
-      seedDemoData();
       setShowIntroduction(true);
       setHasCheckedIntroduction(true);
     };
@@ -87,7 +85,7 @@ function ThemedNavigation() {
     return () => {
       isCancelled = true;
     };
-  }, [seedDemoData]);
+  }, []);
 
   React.useEffect(() => {
     let isActive = true;
