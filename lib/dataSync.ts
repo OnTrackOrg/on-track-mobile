@@ -25,6 +25,11 @@ type CompletionRow = {
   completed_day: string;
 };
 
+type ExistingRemoteGraph = {
+  goalIds: string[];
+  taskIds: string[];
+};
+
 const toTimestamp = (value?: string | null): number => {
   if (!value) {
     return Date.now();
@@ -162,9 +167,150 @@ export const fetchRemoteGoalsForUser = async (user: User): Promise<Goal[]> => {
   return buildGoals(typedGoalRows, typedTaskRows, typedCompletionRows);
 };
 
+const loadExistingRemoteGraph = async (user: User): Promise<ExistingRemoteGraph> => {
+  const { data: goalRows, error: goalsError } = await supabase
+    .from("goals")
+    .select("id")
+    .eq("owner_user_id", user.id);
+
+  if (goalsError) {
+    throw goalsError;
+  }
+
+  const goalIds = (goalRows ?? []).map((goal) => goal.id as string);
+
+  if (goalIds.length === 0) {
+    return { goalIds: [], taskIds: [] };
+  }
+
+  const { data: taskRows, error: tasksError } = await supabase
+    .from("tasks")
+    .select("id")
+    .in("goal_id", goalIds);
+
+  if (tasksError) {
+    throw tasksError;
+  }
+
+  return {
+    goalIds,
+    taskIds: (taskRows ?? []).map((task) => task.id as string),
+  };
+};
+
+/**
+ * Write path, phase 1:
+ * - treat the local Zustand goal graph as the latest known truth for this user
+ * - upsert current goals/tasks into Supabase
+ * - rewrite completion rows for the current user's tasks
+ * - delete any remote goals/tasks/completions that no longer exist locally
+ *
+ * This is intentionally a coarse "replace remote graph" strategy. Since Adam
+ * explicitly chose last-write-wins, this gives us a reliable first sync model
+ * without introducing per-entity conflict resolution yet. Later slices can
+ * make the queue more granular once the end-to-end behavior is stable.
+ */
+export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Promise<void> => {
+  const existingGraph = await loadExistingRemoteGraph(user);
+
+  const goalPayload = goals.map((goal) => ({
+    id: goal.id,
+    owner_user_id: user.id,
+    title: goal.title,
+    target: goal.target ?? null,
+    created_at: new Date(goal.createdAt).toISOString(),
+  }));
+
+  const taskPayload = goals.flatMap((goal) =>
+    goal.tasks.map((task, index) => ({
+      id: task.id,
+      goal_id: goal.id,
+      title: task.title,
+      frequency: task.frequency,
+      custom_frequency_type: task.customFrequency?.type ?? null,
+      custom_frequency_target: task.customFrequency?.target ?? null,
+      position: index,
+    }))
+  );
+
+  const completionPayload = goals.flatMap((goal) =>
+    goal.tasks.flatMap((task) =>
+      task.completions.map((completion) => ({
+        task_id: task.id,
+        completed_by_user_id: user.id,
+        completed_day: completion.toISOString().slice(0, 10),
+      }))
+    )
+  );
+
+  const localGoalIds = goals.map((goal) => goal.id);
+  const localTaskIds = taskPayload.map((task) => task.id);
+  const relevantTaskIds = Array.from(new Set([...existingGraph.taskIds, ...localTaskIds]));
+
+  if (goalPayload.length > 0) {
+    const { error } = await supabase.from("goals").upsert(goalPayload, { onConflict: "id" });
+    if (error) {
+      throw error;
+    }
+  }
+
+  if (taskPayload.length > 0) {
+    const { error } = await supabase.from("tasks").upsert(taskPayload, { onConflict: "id" });
+    if (error) {
+      throw error;
+    }
+  }
+
+  if (relevantTaskIds.length > 0) {
+    const { error: deleteCompletionsError } = await supabase
+      .from("task_completions")
+      .delete()
+      .eq("completed_by_user_id", user.id)
+      .in("task_id", relevantTaskIds);
+
+    if (deleteCompletionsError) {
+      throw deleteCompletionsError;
+    }
+  }
+
+  if (completionPayload.length > 0) {
+    const { error } = await supabase.from("task_completions").insert(completionPayload);
+    if (error) {
+      throw error;
+    }
+  }
+
+  const remoteTaskIdsToDelete = existingGraph.taskIds.filter((taskId) => !localTaskIds.includes(taskId));
+  if (remoteTaskIdsToDelete.length > 0) {
+    const { error } = await supabase.from("tasks").delete().in("id", remoteTaskIdsToDelete);
+    if (error) {
+      throw error;
+    }
+  }
+
+  const remoteGoalIdsToDelete = existingGraph.goalIds.filter((goalId) => !localGoalIds.includes(goalId));
+  if (remoteGoalIdsToDelete.length > 0) {
+    const { error } = await supabase.from("goals").delete().in("id", remoteGoalIdsToDelete);
+    if (error) {
+      throw error;
+    }
+  }
+
+  if (goals.length === 0 && existingGraph.goalIds.length > 0) {
+    /**
+     * When the local graph becomes empty, the deletion blocks above remove the
+     * entire remote graph. This branch exists only as explanatory scaffolding,
+     * because the meaningful work was already done by the targeted deletes.
+     */
+    return;
+  }
+};
+
 export const __internal = {
   buildGoals,
   buildTasks,
+  loadExistingRemoteGraph,
+  replaceRemoteGoalsForUser,
   toDate,
   toTimestamp,
 };

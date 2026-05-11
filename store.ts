@@ -546,7 +546,12 @@ interface State {
     goals: Goal[];
     selectedDate: Date;
     account: UserAccount | null;
+    cloudSyncEnabled: boolean;
+    syncRevision: number;
+    lastSyncedRevision: number;
     setGoals: (goals: Goal[]) => void;
+    setCloudSyncEnabled: (enabled: boolean) => void;
+    markGoalsSynced: (revision: number) => void;
     addGoal: (title: string, target?: string) => void;
     reorderGoals: (goalIdsInOrder: string[]) => void;
     setSelectedDate: (date: Date) => void;
@@ -580,12 +585,20 @@ const reorderItemsByIds = <T extends { id: string }>(items: T[], idsInOrder: str
     return [...reorderedItems, ...remainingItems];
 };
 
+const buildDirtyGoalState = (goals: Goal[], currentRevision: number) => ({
+    goals,
+    syncRevision: currentRevision + 1,
+});
+
 export const useStore = create<State>()(
     persist(
         (set, get) => ({
             goals: getInitialGoals(), // Dynamic initialization based on store mode
             selectedDate: normalizeDate(new Date()),
             account: null,
+            cloudSyncEnabled: false,
+            syncRevision: 0,
+            lastSyncedRevision: 0,
 
             /**
              * This setter is the bridge between remote reads and the existing
@@ -596,18 +609,47 @@ export const useStore = create<State>()(
             setGoals: (goals) =>
                 set({ goals }),
 
+            /**
+             * Cloud sync stays disabled for users who already had purely local
+             * device data until we build the explicit import flow. That avoids
+             * silently uploading existing offline history before the user says
+             * yes. New cloud-first users can safely enable this immediately.
+             */
+            setCloudSyncEnabled: (enabled) =>
+                set({ cloudSyncEnabled: enabled }),
+
+            /**
+             * The write path is revision-based instead of operation-based for
+             * now. Every local goal/task mutation bumps `syncRevision`, and a
+             * successful remote flush records the latest synced revision.
+             *
+             * That gives us a simple offline-first contract:
+             * - local edits always win immediately in the UI
+             * - AsyncStorage always has the freshest local copy
+             * - Supabase catches up to the newest known revision in the
+             *   background whenever cloud sync is enabled
+             */
+            markGoalsSynced: (revision) =>
+                set((s) => ({
+                    lastSyncedRevision: Math.max(s.lastSyncedRevision, revision),
+                })),
+
             addGoal: (title, target) =>
                 set((s) => ({
-                    goals: [
-                        ...s.goals,
-                        { id: makeId(), title, target, tasks: [], createdAt: Date.now() },
-                    ],
+                    ...buildDirtyGoalState(
+                        [
+                            ...s.goals,
+                            { id: makeId(), title, target, tasks: [], createdAt: Date.now() },
+                        ],
+                        s.syncRevision
+                    ),
                 })),
             reorderGoals: (goalIdsInOrder) =>
                 set((s) => {
-                    return {
-                        goals: reorderItemsByIds(s.goals, goalIdsInOrder),
-                    };
+                    return buildDirtyGoalState(
+                        reorderItemsByIds(s.goals, goalIdsInOrder),
+                        s.syncRevision
+                    );
                 }),
             setSelectedDate: (date) =>
                 set({
@@ -615,89 +657,104 @@ export const useStore = create<State>()(
                 }),
             updateGoal: (goalId, updates) =>
                 set((s) => ({
-                    goals: s.goals.map((g) =>
-                        g.id === goalId
-                            ? {
-                                ...g,
-                                title: updates.title ?? g.title,
-                                target: updates.target === null
-                                    ? undefined
-                                    : updates.target !== undefined
-                                      ? updates.target
-                                      : g.target,
-                            }
-                            : g
+                    ...buildDirtyGoalState(
+                        s.goals.map((g) =>
+                            g.id === goalId
+                                ? {
+                                    ...g,
+                                    title: updates.title ?? g.title,
+                                    target: updates.target === null
+                                        ? undefined
+                                        : updates.target !== undefined
+                                          ? updates.target
+                                          : g.target,
+                                }
+                                : g
+                        ),
+                        s.syncRevision
                     ),
                 })),
             addTask: (goalId, title, frequency, customFrequency) =>
                 set((s) => ({
-                    goals: s.goals.map((g) =>
-                        g.id === goalId
-                            ? {
-                                ...g,
-                                tasks: [
-                                    ...g.tasks,
-                                    { 
-                                        id: makeId(), 
-                                        title, 
-                                        frequency, 
-                                        customFrequency: frequency === "custom" ? customFrequency : undefined,
-                                        completions: [] 
-                                    },
-                                ],
-                            }
-                            : g
+                    ...buildDirtyGoalState(
+                        s.goals.map((g) =>
+                            g.id === goalId
+                                ? {
+                                    ...g,
+                                    tasks: [
+                                        ...g.tasks,
+                                        { 
+                                            id: makeId(), 
+                                            title, 
+                                            frequency, 
+                                            customFrequency: frequency === "custom" ? customFrequency : undefined,
+                                            completions: [] 
+                                        },
+                                    ],
+                                }
+                                : g
+                        ),
+                        s.syncRevision
                     ),
                 })),
             updateTask: (goalId, taskId, updates) =>
                 set((s) => ({
-                    goals: s.goals.map((g) =>
-                        g.id === goalId
-                            ? {
-                                ...g,
-                                tasks: g.tasks.map((task) =>
-                                    task.id === taskId
-                                        ? {
-                                            ...task,
-                                            title: updates.title ?? task.title,
-                                            frequency: updates.frequency ?? task.frequency,
-                                            customFrequency: (updates.frequency ?? task.frequency) === "custom"
-                                                ? (updates.customFrequency ?? task.customFrequency)
-                                                : undefined,
-                                        }
-                                        : task
-                                ),
-                            }
-                            : g
+                    ...buildDirtyGoalState(
+                        s.goals.map((g) =>
+                            g.id === goalId
+                                ? {
+                                    ...g,
+                                    tasks: g.tasks.map((task) =>
+                                        task.id === taskId
+                                            ? {
+                                                ...task,
+                                                title: updates.title ?? task.title,
+                                                frequency: updates.frequency ?? task.frequency,
+                                                customFrequency: (updates.frequency ?? task.frequency) === "custom"
+                                                    ? (updates.customFrequency ?? task.customFrequency)
+                                                    : undefined,
+                                            }
+                                            : task
+                                    ),
+                                }
+                                : g
+                        ),
+                        s.syncRevision
                     ),
                 })),
             reorderTasks: (goalId, taskIdsInOrder) =>
                 set((s) => ({
-                    goals: s.goals.map((g) => {
-                        if (g.id !== goalId) return g;
+                    ...buildDirtyGoalState(
+                        s.goals.map((g) => {
+                            if (g.id !== goalId) return g;
 
-                        return {
-                            ...g,
-                            tasks: reorderItemsByIds(g.tasks, taskIdsInOrder),
-                        };
-                    }),
+                            return {
+                                ...g,
+                                tasks: reorderItemsByIds(g.tasks, taskIdsInOrder),
+                            };
+                        }),
+                        s.syncRevision
+                    ),
                 })),
             deleteTask: (goalId, taskId) =>
                 set((s) => ({
-                    goals: s.goals.map((g) =>
-                        g.id === goalId
-                            ? {
-                                ...g,
-                                tasks: g.tasks.filter((task) => task.id !== taskId),
-                            }
-                            : g
+                    ...buildDirtyGoalState(
+                        s.goals.map((g) =>
+                            g.id === goalId
+                                ? {
+                                    ...g,
+                                    tasks: g.tasks.filter((task) => task.id !== taskId),
+                                }
+                                : g
+                        ),
+                        s.syncRevision
                     ),
                 })),
             toggleTaskCompletion: (goalId, taskId, date = new Date()) =>
                 set((s) => {
                     const normalizedDate = normalizeDate(date);
-                    return {
-                        goals: s.goals.map((g) => {
+                    return buildDirtyGoalState(
+                        s.goals.map((g) => {
                             if (g.id !== goalId) return g;
                             return {
                                 ...g,
@@ -723,7 +780,8 @@ export const useStore = create<State>()(
                                 }),
                             };
                         }),
-                    };
+                        s.syncRevision
+                    );
                 }),
             completionsByDate: () => {
                 const map: Record<string, number> = {};
@@ -742,7 +800,10 @@ export const useStore = create<State>()(
             },
             deleteGoal: (goalId) => {
                 set((s) => ({
-                    goals: s.goals.filter((g) => g.id !== goalId),
+                    ...buildDirtyGoalState(
+                        s.goals.filter((g) => g.id !== goalId),
+                        s.syncRevision
+                    ),
                 }));
             },
             seedDemoData: () => {
@@ -754,6 +815,7 @@ export const useStore = create<State>()(
                     return {
                         goals: getSampleGoals(),
                         selectedDate: normalizeDate(new Date()),
+                        syncRevision: s.syncRevision + 1,
                     };
                 });
             },
@@ -762,6 +824,7 @@ export const useStore = create<State>()(
                     goals: getInitialGoals(),
                     selectedDate: normalizeDate(new Date()),
                     account: s.account,
+                    syncRevision: s.syncRevision + 1,
                 }));
             },
             createAccount: (displayName, username, email) => {

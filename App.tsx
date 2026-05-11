@@ -26,6 +26,7 @@ import {
   signUpWithEmail,
 } from "./lib/auth";
 import { fetchRemoteGoalsForUser } from "./lib/dataSync";
+import { replaceRemoteGoalsForUser } from "./lib/dataSync";
 import { supabase } from "./lib/supabase";
 
 type RootStackParamList = {
@@ -45,6 +46,11 @@ function ThemedNavigation() {
   const seedDemoData = useStore((s) => s.seedDemoData);
   const setAccount = useStore((s) => s.setAccount);
   const setGoals = useStore((s) => s.setGoals);
+  const cloudSyncEnabled = useStore((s) => s.cloudSyncEnabled);
+  const setCloudSyncEnabled = useStore((s) => s.setCloudSyncEnabled);
+  const syncRevision = useStore((s) => s.syncRevision);
+  const lastSyncedRevision = useStore((s) => s.lastSyncedRevision);
+  const markGoalsSynced = useStore((s) => s.markGoalsSynced);
   const [showIntroduction, setShowIntroduction] = React.useState(false);
   const [hasCheckedIntroduction, setHasCheckedIntroduction] = React.useState(false);
   const [hasCheckedSession, setHasCheckedSession] = React.useState(false);
@@ -54,6 +60,7 @@ function ThemedNavigation() {
   const [authInfoMessage, setAuthInfoMessage] = React.useState<string | null>(null);
   const [pendingVerificationEmail, setPendingVerificationEmail] = React.useState<string | null>(null);
   const [isSubmittingAuth, setIsSubmittingAuth] = React.useState(false);
+  const syncInFlightRevisionRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
     let isCancelled = false;
@@ -112,6 +119,7 @@ function ThemedNavigation() {
         if (persistedSession?.user) {
           const syncedAccount = await ensureProfileForUser(persistedSession.user);
           const remoteGoals = await fetchRemoteGoalsForUser(persistedSession.user);
+          const existingLocalGoals = useStore.getState().goals;
 
           if (isActive) {
             setAccount(syncedAccount);
@@ -123,6 +131,9 @@ function ThemedNavigation() {
              */
             if (remoteGoals.length > 0) {
               setGoals(remoteGoals);
+              setCloudSyncEnabled(true);
+            } else {
+              setCloudSyncEnabled(existingLocalGoals.length === 0);
             }
           }
         }
@@ -155,10 +166,15 @@ function ThemedNavigation() {
         fetchRemoteGoalsForUser(nextSession.user),
       ])
         .then(([syncedAccount, remoteGoals]) => {
+          const existingLocalGoals = useStore.getState().goals;
+
           setAccount(syncedAccount);
 
           if (remoteGoals.length > 0) {
             setGoals(remoteGoals);
+            setCloudSyncEnabled(true);
+          } else {
+            setCloudSyncEnabled(existingLocalGoals.length === 0);
           }
 
           setAuthErrorMessage(null);
@@ -175,7 +191,47 @@ function ThemedNavigation() {
       isActive = false;
       subscription.unsubscribe();
     };
-  }, [setAccount, setGoals]);
+  }, [setAccount, setCloudSyncEnabled, setGoals]);
+
+  React.useEffect(() => {
+    if (!session?.user || !cloudSyncEnabled) {
+      return;
+    }
+
+    if (syncRevision <= lastSyncedRevision) {
+      return;
+    }
+
+    if (syncInFlightRevisionRef.current === syncRevision) {
+      return;
+    }
+
+    syncInFlightRevisionRef.current = syncRevision;
+    const goalsToSync = useStore.getState().goals;
+    const revisionToSync = syncRevision;
+
+    /**
+     * This effect is the first cloud write bridge. Every local mutation bumps a
+     * revision number in the store, and this effect best-effort flushes the
+     * latest revision to Supabase whenever cloud sync is enabled.
+     *
+     * We intentionally do not block the UI on this. AsyncStorage already holds
+     * the freshest local copy, so failed network writes can be retried later
+     * without making the app feel offline-hostile.
+     */
+    void replaceRemoteGoalsForUser(session.user, goalsToSync)
+      .then(() => {
+        markGoalsSynced(revisionToSync);
+      })
+      .catch((error) => {
+        console.error("Failed to flush local goals to Supabase", error);
+      })
+      .finally(() => {
+        if (syncInFlightRevisionRef.current === revisionToSync) {
+          syncInFlightRevisionRef.current = null;
+        }
+      });
+  }, [cloudSyncEnabled, lastSyncedRevision, markGoalsSynced, session, syncRevision]);
 
   const handleIntroductionDone = React.useCallback(async () => {
     await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
