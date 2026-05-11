@@ -6,6 +6,7 @@ type GoalRow = {
   id: string;
   title: string;
   target?: string | null;
+  position?: number | null;
   created_at?: string | null;
 };
 
@@ -14,8 +15,8 @@ type TaskRow = {
   goal_id: string;
   title: string;
   frequency: Task["frequency"];
-  custom_frequency_type?: "weekly" | "monthly" | null;
-  custom_frequency_target?: number | null;
+  custom_type?: "weekly" | "monthly" | null;
+  custom_target?: number | null;
   position?: number | null;
   created_at?: string | null;
 };
@@ -64,6 +65,10 @@ const makeUuid = (): string => {
   });
 };
 
+const toCompletedAt = (completion: Date): string => (
+  Number.isNaN(completion.getTime()) ? new Date().toISOString() : completion.toISOString()
+);
+
 const toDate = (value: string): Date => {
   /**
    * Supabase stores completion days as day-only values. Appending `Z` keeps the
@@ -97,10 +102,10 @@ const buildTasks = (taskRows: TaskRow[], completionRows: CompletionRow[]): Task[
       id: task.id,
       title: task.title,
       frequency: task.frequency,
-      customFrequency: task.frequency === "custom" && task.custom_frequency_type && task.custom_frequency_target
+      customFrequency: task.frequency === "custom" && task.custom_type && task.custom_target
         ? {
-            type: task.custom_frequency_type,
-            target: task.custom_frequency_target,
+            type: task.custom_type,
+            target: task.custom_target,
           }
         : undefined,
       completions: completionsByTaskId.get(task.id) ?? [],
@@ -117,7 +122,16 @@ const buildGoals = (goalRows: GoalRow[], taskRows: TaskRow[], completionRows: Co
   }
 
   return [...goalRows]
-    .sort((left, right) => toTimestamp(left.created_at) - toTimestamp(right.created_at))
+    .sort((left, right) => {
+      const leftPosition = left.position ?? Number.MAX_SAFE_INTEGER;
+      const rightPosition = right.position ?? Number.MAX_SAFE_INTEGER;
+
+      if (leftPosition !== rightPosition) {
+        return leftPosition - rightPosition;
+      }
+
+      return toTimestamp(left.created_at) - toTimestamp(right.created_at);
+    })
     .map((goal) => ({
       id: goal.id,
       title: goal.title,
@@ -182,7 +196,7 @@ const prepareGoalsForRemote = (goals: Goal[]): PreparedGoalGraph => {
 export const fetchRemoteGoalsForUser = async (user: User): Promise<Goal[]> => {
   const { data: goalRows, error: goalsError } = await supabase
     .from("goals")
-    .select("id, title, target, created_at")
+    .select("id, title, target, position, created_at")
     .eq("owner_user_id", user.id)
     .order("created_at", { ascending: true });
 
@@ -200,7 +214,7 @@ export const fetchRemoteGoalsForUser = async (user: User): Promise<Goal[]> => {
 
   const { data: taskRows, error: tasksError } = await supabase
     .from("tasks")
-    .select("id, goal_id, title, frequency, custom_frequency_type, custom_frequency_target, position, created_at")
+    .select("id, goal_id, title, frequency, custom_type, custom_target, position, created_at")
     .in("goal_id", goalIds)
     .order("position", { ascending: true })
     .order("created_at", { ascending: true });
@@ -280,11 +294,13 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
   const preparedGoals = preparedGraph.goals;
   const existingGraph = await loadExistingRemoteGraph(user);
 
-  const goalPayload = preparedGoals.map((goal) => ({
+  const goalPayload = preparedGoals.map((goal, index) => ({
     id: goal.id,
     owner_user_id: user.id,
     title: goal.title,
     target: goal.target ?? null,
+    visibility: "private",
+    position: index,
     created_at: new Date(goal.createdAt).toISOString(),
   }));
 
@@ -294,8 +310,8 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
       goal_id: goal.id,
       title: task.title,
       frequency: task.frequency,
-      custom_frequency_type: task.customFrequency?.type ?? null,
-      custom_frequency_target: task.customFrequency?.target ?? null,
+      custom_type: task.customFrequency?.type ?? null,
+      custom_target: task.customFrequency?.target ?? null,
       position: index,
     }))
   );
@@ -303,8 +319,10 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
   const completionPayload = preparedGoals.flatMap((goal) =>
     goal.tasks.flatMap((task) =>
       task.completions.map((completion) => ({
+        id: makeUuid(),
         task_id: task.id,
         completed_by_user_id: user.id,
+        completed_at: toCompletedAt(completion),
         completed_day: completion.toISOString().slice(0, 10),
       }))
     )
