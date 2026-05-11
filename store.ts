@@ -546,6 +546,7 @@ interface State {
     goals: Goal[];
     selectedDate: Date;
     account: UserAccount | null;
+    setGoals: (goals: Goal[]) => void;
     addGoal: (title: string, target?: string) => void;
     reorderGoals: (goalIdsInOrder: string[]) => void;
     setSelectedDate: (date: Date) => void;
@@ -585,6 +586,15 @@ export const useStore = create<State>()(
             goals: getInitialGoals(), // Dynamic initialization based on store mode
             selectedDate: normalizeDate(new Date()),
             account: null,
+
+            /**
+             * This setter is the bridge between remote reads and the existing
+             * local-first store. Once we hydrate remote data, Zustand persists
+             * it back into AsyncStorage automatically, which keeps a durable
+             * offline copy on the device.
+             */
+            setGoals: (goals) =>
+                set({ goals }),
 
             addGoal: (title, target) =>
                 set((s) => ({

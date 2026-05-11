@@ -25,6 +25,7 @@ import {
   signInWithEmail,
   signUpWithEmail,
 } from "./lib/auth";
+import { fetchRemoteGoalsForUser } from "./lib/dataSync";
 import { supabase } from "./lib/supabase";
 
 type RootStackParamList = {
@@ -43,6 +44,7 @@ function ThemedNavigation() {
   const goals = useStore((s) => s.goals);
   const seedDemoData = useStore((s) => s.seedDemoData);
   const setAccount = useStore((s) => s.setAccount);
+  const setGoals = useStore((s) => s.setGoals);
   const [showIntroduction, setShowIntroduction] = React.useState(false);
   const [hasCheckedIntroduction, setHasCheckedIntroduction] = React.useState(false);
   const [hasCheckedSession, setHasCheckedSession] = React.useState(false);
@@ -109,8 +111,19 @@ function ThemedNavigation() {
 
         if (persistedSession?.user) {
           const syncedAccount = await ensureProfileForUser(persistedSession.user);
+          const remoteGoals = await fetchRemoteGoalsForUser(persistedSession.user);
+
           if (isActive) {
             setAccount(syncedAccount);
+
+            /**
+             * For now we only replace local goals when the server actually has
+             * a cloud copy. That protects users who already have purely local
+             * device data until the import flow lands in a later slice.
+             */
+            if (remoteGoals.length > 0) {
+              setGoals(remoteGoals);
+            }
           }
         }
       } catch (error) {
@@ -137,9 +150,17 @@ function ThemedNavigation() {
         return;
       }
 
-      void ensureProfileForUser(nextSession.user)
-        .then((syncedAccount) => {
+      void Promise.all([
+        ensureProfileForUser(nextSession.user),
+        fetchRemoteGoalsForUser(nextSession.user),
+      ])
+        .then(([syncedAccount, remoteGoals]) => {
           setAccount(syncedAccount);
+
+          if (remoteGoals.length > 0) {
+            setGoals(remoteGoals);
+          }
+
           setAuthErrorMessage(null);
           setPendingVerificationEmail(null);
           setAuthMode("sign-in");
@@ -154,7 +175,7 @@ function ThemedNavigation() {
       isActive = false;
       subscription.unsubscribe();
     };
-  }, [setAccount]);
+  }, [setAccount, setGoals]);
 
   const handleIntroductionDone = React.useCallback(async () => {
     await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
