@@ -5,7 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from '@expo/vector-icons';
 import { addDays, isToday, startOfDay, subDays } from "date-fns";
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from "react-native-draggable-flatlist";
-import { useStore, debugAsyncStorage, getCurrentMode, getCustomFrequencyProgress } from "../store";
+import { useStore, debugAsyncStorage, getCurrentMode, getCustomFrequencyProgress, getGoalCardProgress } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import RadarChart from "./RadarChart";
 import DateContextCard from "./DateContextCard";
@@ -75,58 +75,11 @@ export default function HomeScreen({ navigation }: HomeProps) {
     };
   }, [setSelectedDate]);
 
-  const getGoalProgress = (goal: (typeof goals)[number]) => {
-    const relevantTasks = goal.tasks;
-
-    if (relevantTasks.length === 0) {
-      return { completed: 0, total: 0, percent: 0, isComplete: false };
-    }
-
-    const selectedWeekStart = startOfDay(subDays(selectedDate, selectedDate.getDay()));
-    const selectedWeekEnd = startOfDay(addDays(selectedWeekStart, 6));
-
-    const completed = relevantTasks.reduce((count, task) => {
-      if (task.frequency === "daily") {
-        return count + (task.completions.some((date) => startOfDay(date).getTime() === startOfDay(selectedDate).getTime()) ? 1 : 0);
-      }
-
-      if (task.frequency === "weekly") {
-        return count + (task.completions.some((date) => {
-          const normalizedDate = startOfDay(date);
-          return normalizedDate >= selectedWeekStart && normalizedDate <= selectedWeekEnd;
-        }) ? 1 : 0);
-      }
-
-      if (task.frequency === "custom" && task.customFrequency) {
-        const completedToday = task.completions.some(
-          (date) => startOfDay(date).getTime() === startOfDay(selectedDate).getTime()
-        );
-        const { achieved } = getCustomFrequencyProgress(task, selectedDate);
-
-        return count + (completedToday || achieved ? 1 : 0);
-      }
-
-      if (task.frequency === "once") {
-        return count + (task.completions.some((date) => startOfDay(date) <= startOfDay(selectedDate)) ? 1 : 0);
-      }
-
-      return count;
-    }, 0);
-
-    const percent = completed / relevantTasks.length;
-    return {
-      completed,
-      total: relevantTasks.length,
-      percent,
-      isComplete: percent >= 1,
-    };
-  };
-
   const renderGoalCard = (
     item: (typeof goals)[number],
     options?: { drag?: () => void; isActive?: boolean; showDragHandle?: boolean }
   ) => {
-    const progress = getGoalProgress(item);
+    const progress = getGoalCardProgress(item, selectedDate);
 
     return (
     <View

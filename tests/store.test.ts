@@ -1,5 +1,5 @@
-import { getCustomFrequencyProgress, getSampleGoals, isOnceTaskCompletedOnDate, useStore } from '../store';
-import { Task } from '../types';
+import { getCustomFrequencyProgress, getGoalCardProgress, getSampleGoals, isOnceTaskCompletedOnDate, useStore } from '../store';
+import { Goal, Task } from '../types';
 
 describe('getCustomFrequencyProgress', () => {
   it('counts weekly custom completions inside the active week', () => {
@@ -81,6 +81,60 @@ describe('isOnceTaskCompletedOnDate', () => {
     };
 
     expect(isOnceTaskCompletedOnDate(task, new Date('2026-04-21T12:00:00.000Z'))).toBe(false);
+  });
+});
+
+describe('getGoalCardProgress', () => {
+  it('ignores once tasks when calculating recurring consistency progress', () => {
+    const goal: Goal = {
+      id: 'goal-1',
+      title: 'Fitness',
+      createdAt: Date.now(),
+      tasks: [
+        {
+          id: 'task-daily',
+          title: 'Drink water',
+          frequency: 'daily',
+          completions: [new Date('2026-05-12T12:00:00.000Z')],
+        },
+        {
+          id: 'task-once',
+          title: 'Buy shoes',
+          frequency: 'once',
+          completions: [],
+        },
+      ],
+    };
+
+    expect(getGoalCardProgress(goal, new Date('2026-05-12T18:00:00.000Z'))).toEqual({
+      completed: 1,
+      total: 1,
+      percent: 1,
+      isComplete: true,
+    });
+  });
+
+  it('returns zero progress when a goal only has once tasks', () => {
+    const goal: Goal = {
+      id: 'goal-2',
+      title: 'Errands',
+      createdAt: Date.now(),
+      tasks: [
+        {
+          id: 'task-once-only',
+          title: 'Renew license',
+          frequency: 'once',
+          completions: [],
+        },
+      ],
+    };
+
+    expect(getGoalCardProgress(goal, new Date('2026-05-12T18:00:00.000Z'))).toEqual({
+      completed: 0,
+      total: 0,
+      percent: 0,
+      isComplete: false,
+    });
   });
 });
 
