@@ -5,14 +5,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useStore } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
+import { RootStackParamList } from "../navigation";
 import LabeledTextField from "./LabeledTextField";
-
-type RootStackParamList = {
-  Home: undefined;
-  Goal: { goalId: string };
-  NewGoal: undefined;
-  Consistency: { goalId: string };
-};
 
 type NewGoalProps = NativeStackScreenProps<RootStackParamList, "NewGoal">;
 

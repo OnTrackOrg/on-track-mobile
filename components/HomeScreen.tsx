@@ -11,16 +11,8 @@ import RadarChart from "./RadarChart";
 import DateContextCard from "./DateContextCard";
 import CalendarModal from "./CalendarModal";
 import { haptics } from "../utils/haptics";
+import { RootStackParamList } from "../navigation";
 import { RadarChartMode } from "./RadarChart";
-
-type RootStackParamList = {
-  Home: undefined;
-  Goal: { goalId: string };
-  NewGoal: undefined;
-  Consistency: { goalId: string };
-  Privacy: undefined;
-  Instructions: undefined;
-};
 
 type HomeProps = NativeStackScreenProps<RootStackParamList, "Home">;
 

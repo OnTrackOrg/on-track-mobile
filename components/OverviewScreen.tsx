@@ -8,13 +8,7 @@ import { useStore, getCustomFrequencyProgress, getGoalStreak } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import Heatmap from "./Heatmap";
 import { format } from "date-fns";
-
-type RootStackParamList = {
-  Home: undefined;
-  Goal: { goalId: string };
-  NewGoal: undefined;
-  Consistency: { goalId: string };
-};
+import { RootStackParamList } from "../navigation";
 
 type OverviewProps = NativeStackScreenProps<RootStackParamList, "Consistency">;
 
