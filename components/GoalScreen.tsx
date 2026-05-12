@@ -1,9 +1,9 @@
 import React from "react";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { Text, View, Pressable, TextInput, ScrollView, Modal, Alert } from "react-native";
+import { Text, View, Pressable, TextInput, Modal, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import DraggableFlatList, { RenderItemParams, ScaleDecorator } from "react-native-draggable-flatlist";
+import { NestableDraggableFlatList, NestableScrollContainer, RenderItemParams, ScaleDecorator } from "react-native-draggable-flatlist";
 import { useStore, getCustomFrequencyProgress, getCustomFrequencyAlert, shouldShowCustomTask, isOnceTaskCompletedOnDate } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import { format, startOfWeek, endOfWeek, isWithinInterval, isToday } from "date-fns";
@@ -257,7 +257,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }} edges={['bottom', 'left', 'right']}>
-      <ScrollView
+      <NestableScrollContainer
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
@@ -428,10 +428,9 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
               Long press and drag tasks to change their order.
             </Text>
-            <DraggableFlatList
+            <NestableDraggableFlatList
               data={goal.tasks}
               keyExtractor={(item) => item.id}
-              scrollEnabled={false}
               onDragEnd={({ data }) => {
                 reorderTasks(goalId, data.map((task) => task.id));
                 void haptics.success();
@@ -911,7 +910,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           </View>
         </Modal>
 
-      </ScrollView>
+      </NestableScrollContainer>
     </SafeAreaView>
   );
 }
