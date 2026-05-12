@@ -85,7 +85,7 @@ describe('isOnceTaskCompletedOnDate', () => {
 });
 
 describe('getGoalCardProgress', () => {
-  it('ignores once tasks when calculating recurring consistency progress', () => {
+  it('counts completed once tasks toward the goal percentage', () => {
     const goal: Goal = {
       id: 'goal-1',
       title: 'Fitness',
@@ -101,6 +101,35 @@ describe('getGoalCardProgress', () => {
           id: 'task-once',
           title: 'Buy shoes',
           frequency: 'once',
+          completions: [new Date('2026-05-10T12:00:00.000Z')],
+        },
+      ],
+    };
+
+    expect(getGoalCardProgress(goal, new Date('2026-05-12T18:00:00.000Z'))).toEqual({
+      completed: 2,
+      total: 2,
+      percent: 1,
+      isComplete: true,
+    });
+  });
+
+  it('keeps incomplete once tasks in the denominator until they are done', () => {
+    const goal: Goal = {
+      id: 'goal-2',
+      title: 'Setup',
+      createdAt: Date.now(),
+      tasks: [
+        {
+          id: 'task-daily-only',
+          title: 'Stretch',
+          frequency: 'daily',
+          completions: [new Date('2026-05-12T12:00:00.000Z')],
+        },
+        {
+          id: 'task-once-only',
+          title: 'Renew license',
+          frequency: 'once',
           completions: [],
         },
       ],
@@ -108,15 +137,15 @@ describe('getGoalCardProgress', () => {
 
     expect(getGoalCardProgress(goal, new Date('2026-05-12T18:00:00.000Z'))).toEqual({
       completed: 1,
-      total: 1,
-      percent: 1,
-      isComplete: true,
+      total: 2,
+      percent: 0.5,
+      isComplete: false,
     });
   });
 
-  it('returns zero progress when a goal only has once tasks', () => {
+  it('returns zero progress when a goal only has incomplete once tasks', () => {
     const goal: Goal = {
-      id: 'goal-2',
+      id: 'goal-3',
       title: 'Errands',
       createdAt: Date.now(),
       tasks: [
@@ -131,7 +160,7 @@ describe('getGoalCardProgress', () => {
 
     expect(getGoalCardProgress(goal, new Date('2026-05-12T18:00:00.000Z'))).toEqual({
       completed: 0,
-      total: 0,
+      total: 1,
       percent: 0,
       isComplete: false,
     });

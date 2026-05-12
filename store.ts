@@ -82,9 +82,9 @@ export const isOnceTaskCompletedOnDate = (task: Task, referenceDate: Date = new 
 };
 
 export const getGoalCardProgress = (goal: Goal, referenceDate: Date = new Date()) => {
-  const recurringTasks = goal.tasks.filter((task) => task.frequency !== "once");
+  const relevantTasks = goal.tasks;
 
-  if (recurringTasks.length === 0) {
+  if (relevantTasks.length === 0) {
     return { completed: 0, total: 0, percent: 0, isComplete: false };
   }
 
@@ -92,7 +92,7 @@ export const getGoalCardProgress = (goal: Goal, referenceDate: Date = new Date()
   const selectedWeekStart = startOfWeek(normalizedReferenceDate, { weekStartsOn: 0 });
   const selectedWeekEnd = endOfWeek(normalizedReferenceDate, { weekStartsOn: 0 });
 
-  const completed = recurringTasks.reduce((count, task) => {
+  const completed = relevantTasks.reduce((count, task) => {
     if (task.frequency === "daily") {
       return count + (task.completions.some((date) => isSameDay(date, normalizedReferenceDate)) ? 1 : 0);
     }
@@ -110,13 +110,17 @@ export const getGoalCardProgress = (goal: Goal, referenceDate: Date = new Date()
       return count + (completedToday || achieved ? 1 : 0);
     }
 
+    if (task.frequency === "once") {
+      return count + (task.completions.some((date) => startOfDay(date) <= normalizedReferenceDate) ? 1 : 0);
+    }
+
     return count;
   }, 0);
 
-  const percent = completed / recurringTasks.length;
+  const percent = completed / relevantTasks.length;
   return {
     completed,
-    total: recurringTasks.length,
+    total: relevantTasks.length,
     percent,
     isComplete: percent >= 1,
   };
