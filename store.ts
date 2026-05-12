@@ -81,14 +81,14 @@ export const isOnceTaskCompletedOnDate = (task: Task, referenceDate: Date = new 
   return task.completions.some((date) => isSameDay(date, referenceDate));
 };
 
-export const getGoalCardProgress = (goal: Goal, referenceDate: Date = new Date()) => {
+export const getGoalProgress = (goal: Goal, referenceDate: Date = new Date()) => {
   const relevantTasks = goal.tasks;
 
   if (relevantTasks.length === 0) {
     return { completed: 0, total: 0, percent: 0, isComplete: false };
   }
 
-  const normalizedReferenceDate = startOfDay(referenceDate);
+  const normalizedReferenceDate = normalizeDate(referenceDate);
   const selectedWeekStart = startOfWeek(normalizedReferenceDate, { weekStartsOn: 0 });
   const selectedWeekEnd = endOfWeek(normalizedReferenceDate, { weekStartsOn: 0 });
 
@@ -99,7 +99,7 @@ export const getGoalCardProgress = (goal: Goal, referenceDate: Date = new Date()
 
     if (task.frequency === "weekly") {
       return count + (task.completions.some((date) => {
-        const normalizedDate = startOfDay(date);
+        const normalizedDate = normalizeDate(date);
         return normalizedDate >= selectedWeekStart && normalizedDate <= selectedWeekEnd;
       }) ? 1 : 0);
     }
@@ -111,7 +111,7 @@ export const getGoalCardProgress = (goal: Goal, referenceDate: Date = new Date()
     }
 
     if (task.frequency === "once") {
-      return count + (task.completions.some((date) => startOfDay(date) <= normalizedReferenceDate) ? 1 : 0);
+      return count + (task.completions.some((date) => normalizeDate(date) <= normalizedReferenceDate) ? 1 : 0);
     }
 
     return count;
