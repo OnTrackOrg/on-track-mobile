@@ -81,6 +81,51 @@ export const isOnceTaskCompletedOnDate = (task: Task, referenceDate: Date = new 
   return task.completions.some((date) => isSameDay(date, referenceDate));
 };
 
+export const getGoalCardProgress = (goal: Goal, referenceDate: Date = new Date()) => {
+  const relevantTasks = goal.tasks;
+
+  if (relevantTasks.length === 0) {
+    return { completed: 0, total: 0, percent: 0, isComplete: false };
+  }
+
+  const normalizedReferenceDate = startOfDay(referenceDate);
+  const selectedWeekStart = startOfWeek(normalizedReferenceDate, { weekStartsOn: 0 });
+  const selectedWeekEnd = endOfWeek(normalizedReferenceDate, { weekStartsOn: 0 });
+
+  const completed = relevantTasks.reduce((count, task) => {
+    if (task.frequency === "daily") {
+      return count + (task.completions.some((date) => isSameDay(date, normalizedReferenceDate)) ? 1 : 0);
+    }
+
+    if (task.frequency === "weekly") {
+      return count + (task.completions.some((date) => {
+        const normalizedDate = startOfDay(date);
+        return normalizedDate >= selectedWeekStart && normalizedDate <= selectedWeekEnd;
+      }) ? 1 : 0);
+    }
+
+    if (task.frequency === "custom" && task.customFrequency) {
+      const completedToday = task.completions.some((date) => isSameDay(date, normalizedReferenceDate));
+      const { achieved } = getCustomFrequencyProgress(task, normalizedReferenceDate);
+      return count + (completedToday || achieved ? 1 : 0);
+    }
+
+    if (task.frequency === "once") {
+      return count + (task.completions.some((date) => startOfDay(date) <= normalizedReferenceDate) ? 1 : 0);
+    }
+
+    return count;
+  }, 0);
+
+  const percent = completed / relevantTasks.length;
+  return {
+    completed,
+    total: relevantTasks.length,
+    percent,
+    isComplete: percent >= 1,
+  };
+};
+
 export const getCustomFrequencyAlert = (task: Task, referenceDate: Date = new Date()) => {
   if (task.frequency !== "custom" || !task.customFrequency) {
     return null;
