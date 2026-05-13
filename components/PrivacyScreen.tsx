@@ -2,6 +2,7 @@ import React from "react";
 import { Text, View, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../contexts/ThemeContext";
+import InfoSection from "./InfoSection";
 
 export default function PrivacyScreen() {
   const { theme } = useTheme();
@@ -16,26 +17,23 @@ export default function PrivacyScreen() {
           </Text>
         </View>
 
-        <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 14, backgroundColor: theme.surface, gap: 8 }}>
-          <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text }}>What the app stores</Text>
+        <InfoSection title="What the app stores">
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
             Goal titles, optional targets, task frequency settings, completion history, and your theme preference.
           </Text>
-        </View>
+        </InfoSection>
 
-        <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 14, backgroundColor: theme.surface, gap: 8 }}>
-          <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text }}>What the app does not do</Text>
+        <InfoSection title="What the app does not do">
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
             OnTrack does not require an account, does not include advertising, and does not send your goal data to a server from this app build.
           </Text>
-        </View>
+        </InfoSection>
 
-        <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 14, backgroundColor: theme.surface, gap: 8 }}>
-          <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text }}>Managing your data</Text>
+        <InfoSection title="Managing your data">
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
             You can remove the data stored by the app at any time from Settings by using Reset App Data.
           </Text>
-        </View>
+        </InfoSection>
       </ScrollView>
     </SafeAreaView>
   );
