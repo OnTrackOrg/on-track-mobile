@@ -17,7 +17,6 @@ import IntroductionWizard from "./components/IntroductionWizard";
 import AuthScreen from "./components/AuthScreen";
 import ImportLocalDataScreen from "./components/ImportLocalDataScreen";
 import { RootStackParamList } from "./navigation";
-import { RootStackParamList } from "./navigation";
 import { ONBOARDING_STORAGE_KEY, shouldShowOnboarding } from "./onboarding";
 import { useStore } from "./store";
 import {
