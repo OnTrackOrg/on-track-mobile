@@ -1,4 +1,4 @@
-import { getCustomFrequencyProgress, getGoalCardProgress, getSampleGoals, isOnceTaskCompletedOnDate, useStore } from '../store';
+import { getCustomFrequencyProgress, getGoalProgress, getSampleGoals, isOnceTaskCompletedOnDate, useStore } from '../store';
 import { Goal, Task } from '../types';
 
 describe('getCustomFrequencyProgress', () => {
@@ -84,31 +84,47 @@ describe('isOnceTaskCompletedOnDate', () => {
   });
 });
 
-describe('getGoalCardProgress', () => {
-  it('counts completed once tasks toward the goal percentage', () => {
+describe('getGoalProgress', () => {
+  it('counts daily, weekly, custom, and completed once tasks with current behavior', () => {
     const goal: Goal = {
-      id: 'goal-1',
+      id: 'goal-progress-1',
       title: 'Fitness',
       createdAt: Date.now(),
       tasks: [
         {
-          id: 'task-daily',
-          title: 'Drink water',
+          id: 'daily-task',
+          title: 'Water',
           frequency: 'daily',
           completions: [new Date('2026-05-12T12:00:00.000Z')],
         },
         {
-          id: 'task-once',
+          id: 'weekly-task',
+          title: 'Workout',
+          frequency: 'weekly',
+          completions: [new Date('2026-05-10T12:00:00.000Z')],
+        },
+        {
+          id: 'custom-task',
+          title: 'Read',
+          frequency: 'custom',
+          customFrequency: { type: 'weekly', target: 2 },
+          completions: [
+            new Date('2026-05-11T12:00:00.000Z'),
+            new Date('2026-05-12T12:00:00.000Z'),
+          ],
+        },
+        {
+          id: 'once-task',
           title: 'Buy shoes',
           frequency: 'once',
-          completions: [new Date('2026-05-10T12:00:00.000Z')],
+          completions: [new Date('2026-05-01T12:00:00.000Z')],
         },
       ],
     };
 
-    expect(getGoalCardProgress(goal, new Date('2026-05-12T18:00:00.000Z'))).toEqual({
-      completed: 2,
-      total: 2,
+    expect(getGoalProgress(goal, new Date('2026-05-12T18:00:00.000Z'))).toEqual({
+      completed: 4,
+      total: 4,
       percent: 1,
       isComplete: true,
     });
@@ -116,7 +132,7 @@ describe('getGoalCardProgress', () => {
 
   it('keeps incomplete once tasks in the denominator until they are done', () => {
     const goal: Goal = {
-      id: 'goal-2',
+      id: 'goal-progress-2',
       title: 'Setup',
       createdAt: Date.now(),
       tasks: [
@@ -135,7 +151,7 @@ describe('getGoalCardProgress', () => {
       ],
     };
 
-    expect(getGoalCardProgress(goal, new Date('2026-05-12T18:00:00.000Z'))).toEqual({
+    expect(getGoalProgress(goal, new Date('2026-05-12T18:00:00.000Z'))).toEqual({
       completed: 1,
       total: 2,
       percent: 0.5,
@@ -145,7 +161,7 @@ describe('getGoalCardProgress', () => {
 
   it('returns zero progress when a goal only has incomplete once tasks', () => {
     const goal: Goal = {
-      id: 'goal-3',
+      id: 'goal-progress-3',
       title: 'Errands',
       createdAt: Date.now(),
       tasks: [
@@ -158,9 +174,25 @@ describe('getGoalCardProgress', () => {
       ],
     };
 
-    expect(getGoalCardProgress(goal, new Date('2026-05-12T18:00:00.000Z'))).toEqual({
+    expect(getGoalProgress(goal, new Date('2026-05-12T18:00:00.000Z'))).toEqual({
       completed: 0,
       total: 1,
+      percent: 0,
+      isComplete: false,
+    });
+  });
+
+  it('returns zero progress for goals with no tasks', () => {
+    const goal: Goal = {
+      id: 'goal-progress-4',
+      title: 'Empty goal',
+      createdAt: Date.now(),
+      tasks: [],
+    };
+
+    expect(getGoalProgress(goal, new Date('2026-05-12T18:00:00.000Z'))).toEqual({
+      completed: 0,
+      total: 0,
       percent: 0,
       isComplete: false,
     });

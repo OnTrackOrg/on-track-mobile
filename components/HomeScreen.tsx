@@ -5,7 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from '@expo/vector-icons';
 import { addDays, isToday, startOfDay, subDays } from "date-fns";
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from "react-native-draggable-flatlist";
-import { useStore, debugAsyncStorage, getCurrentMode, getCustomFrequencyProgress, getGoalCardProgress } from "../store";
+import { useStore, debugAsyncStorage, getCurrentMode, getGoalProgress } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import RadarChart from "./RadarChart";
 import DateContextCard from "./DateContextCard";
@@ -79,7 +79,7 @@ export default function HomeScreen({ navigation }: HomeProps) {
     item: (typeof goals)[number],
     options?: { drag?: () => void; isActive?: boolean; showDragHandle?: boolean }
   ) => {
-    const progress = getGoalCardProgress(item, selectedDate);
+    const progress = getGoalProgress(item, selectedDate);
 
     return (
     <View
