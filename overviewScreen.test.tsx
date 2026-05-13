@@ -88,7 +88,7 @@ describe('OverviewScreen', () => {
     );
 
     expect(getByText('One-off task history')).toBeTruthy();
-    expect(getByText(/grouped into a single combined heatmap/i)).toBeTruthy();
+    expect(getByText(/Once tasks in this goal:/i)).toBeTruthy();
     expect(getAllByTestId('heatmap')).toHaveLength(2);
     expect(getByText('Walk')).toBeTruthy();
     expect(queryByText('Buy shoes')).toBeNull();
