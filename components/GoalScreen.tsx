@@ -9,13 +9,7 @@ import { useTheme } from "../contexts/ThemeContext";
 import { format, startOfWeek, endOfWeek, isWithinInterval, isToday } from "date-fns";
 import { Frequency, CustomFrequency } from "../types";
 import { haptics } from "../utils/haptics";
-
-type RootStackParamList = {
-  Home: undefined;
-  Goal: { goalId: string };
-  NewGoal: undefined;
-  Consistency: { goalId: string };
-};
+import { RootStackParamList } from "../navigation";
 
 type GoalProps = NativeStackScreenProps<RootStackParamList, "Goal">;
 

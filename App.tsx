@@ -16,6 +16,7 @@ import InstructionsScreen from "./components/InstructionsScreen";
 import IntroductionWizard from "./components/IntroductionWizard";
 import AuthScreen from "./components/AuthScreen";
 import ImportLocalDataScreen from "./components/ImportLocalDataScreen";
+import { RootStackParamList } from "./navigation";
 import { ONBOARDING_STORAGE_KEY, shouldShowOnboarding } from "./onboarding";
 import { useStore } from "./store";
 import {
@@ -29,15 +30,6 @@ import {
 import { fetchRemoteGoalsForUser } from "./lib/dataSync";
 import { replaceRemoteGoalsForUser } from "./lib/dataSync";
 import { supabase } from "./lib/supabase";
-
-type RootStackParamList = {
-  Home: undefined;
-  Goal: { goalId: string };
-  NewGoal: undefined;
-  Consistency: { goalId: string };
-  Privacy: undefined;
-  Instructions: undefined;
-};
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
