@@ -61,6 +61,9 @@ export default function InstructionsScreen() {
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
             Open a goal and tap See Consistency to view task-level heatmaps. Recurring tasks each get their own heatmap, while one-off tasks are grouped into a single combined heatmap at the bottom of the page.
           </Text>
+          <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
+            You can also save a short local note for the selected day to explain a blank or unusual day without creating a fake completion.
+          </Text>
         </View>
 
         <View style={{ ...sectionStyle, borderColor: theme.border, backgroundColor: theme.surface }}>

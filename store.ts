@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Goal, Frequency, CustomFrequency, Task, UserAccount } from "./types";
+import { Goal, Frequency, CustomFrequency, Task, UserAccount, GoalDayNotes } from "./types";
 import { format, startOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, differenceInCalendarDays } from "date-fns";
 import { normalizeAccountDraft } from "./account";
 
@@ -22,7 +22,14 @@ type PersistedGoal = Omit<Goal, "tasks"> & {
 
 type PersistedStoreSnapshot = {
   goals?: PersistedGoal[];
+  goalDayNotes?: GoalDayNotes;
 };
+
+const MAX_GOAL_DAY_NOTE_LENGTH = 160;
+
+export const getGoalDayNoteKey = (goalId: string, date: Date): string => `${goalId}:${dateToKey(date)}`;
+
+const normalizeGoalDayNote = (note: string): string => note.trim().slice(0, MAX_GOAL_DAY_NOTE_LENGTH);
 
 const normalizeTask = (task: PersistedTask): Task => ({
   ...task,
@@ -589,6 +596,7 @@ export const getCurrentMode = () => CURRENT_MODE;
 
 interface State {
     goals: Goal[];
+    goalDayNotes: GoalDayNotes;
     selectedDate: Date;
     account: UserAccount | null;
     cloudSyncEnabled: boolean;
@@ -600,6 +608,8 @@ interface State {
     addGoal: (title: string, target?: string) => void;
     reorderGoals: (goalIdsInOrder: string[]) => void;
     setSelectedDate: (date: Date) => void;
+    setGoalDayNote: (goalId: string, date: Date, note: string) => void;
+    clearGoalDayNote: (goalId: string, date: Date) => void;
     updateGoal: (goalId: string, updates: { title?: string; target?: string | null }) => void;
     addTask: (goalId: string, title: string, frequency: Frequency, customFrequency?: CustomFrequency) => void;
     updateTask: (goalId: string, taskId: string, updates: { title?: string; frequency?: Frequency; customFrequency?: CustomFrequency | undefined }) => void;
@@ -638,6 +648,7 @@ export const useStore = create<State>()(
     persist(
         (set, get) => ({
             goals: getInitialGoals(), // Dynamic initialization based on store mode
+            goalDayNotes: {},
             selectedDate: normalizeDate(new Date()),
             account: null,
             cloudSyncEnabled: false,
@@ -698,6 +709,38 @@ export const useStore = create<State>()(
             setSelectedDate: (date) =>
                 set({
                     selectedDate: normalizeDate(date),
+                }),
+            setGoalDayNote: (goalId, date, note) =>
+                set((s) => {
+                    const key = getGoalDayNoteKey(goalId, date);
+                    const normalizedNote = normalizeGoalDayNote(note);
+
+                    if (!normalizedNote) {
+                        const { [key]: _removed, ...remainingNotes } = s.goalDayNotes;
+                        return { goalDayNotes: remainingNotes };
+                    }
+
+                    if (s.goalDayNotes[key] === normalizedNote) {
+                        return s;
+                    }
+
+                    return {
+                        goalDayNotes: {
+                            ...s.goalDayNotes,
+                            [key]: normalizedNote,
+                        },
+                    };
+                }),
+            clearGoalDayNote: (goalId, date) =>
+                set((s) => {
+                    const key = getGoalDayNoteKey(goalId, date);
+
+                    if (!(key in s.goalDayNotes)) {
+                        return s;
+                    }
+
+                    const { [key]: _removed, ...remainingNotes } = s.goalDayNotes;
+                    return { goalDayNotes: remainingNotes };
                 }),
             updateGoal: (goalId, updates) =>
                 set((s) => ({
@@ -844,6 +887,9 @@ export const useStore = create<State>()(
             },
             deleteGoal: (goalId) => {
                 set((s) => ({
+                    goalDayNotes: Object.fromEntries(
+                        Object.entries(s.goalDayNotes).filter(([key]) => !key.startsWith(`${goalId}:`))
+                    ),
                     ...buildDirtyGoalState(
                         s.goals.filter((g) => g.id !== goalId),
                         s.syncRevision
@@ -853,6 +899,7 @@ export const useStore = create<State>()(
             resetAppData: () => {
                 set((s) => ({
                     goals: getInitialGoals(),
+                    goalDayNotes: {},
                     selectedDate: normalizeDate(new Date()),
                     account: s.account,
                     syncRevision: s.syncRevision + 1,

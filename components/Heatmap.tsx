@@ -8,13 +8,15 @@ interface HMProps {
   startOffsetDays?: number;            // how many days back to show
   values: Record<string, number>;      // yyyy-MM-dd -> count
   referenceDate?: Date;
+  notedDates?: string[];
 }
 
-export default function Heatmap({ startOffsetDays = 120, values, referenceDate = new Date() }: HMProps) {
+export default function Heatmap({ startOffsetDays = 120, values, referenceDate = new Date(), notedDates = [] }: HMProps) {
   const scrollViewRef = useRef<ScrollView>(null);
   const { theme, isDark } = useTheme();
   const focusDate = referenceDate;
   const today = new Date();
+  const notedDateSet = new Set(notedDates);
   
   // Calculate start date and adjust to the previous Sunday to ensure Sunday is always top row
   const roughStart = subDays(today, startOffsetDays);
@@ -130,6 +132,7 @@ export default function Heatmap({ startOffsetDays = 120, values, referenceDate =
               const y = gap + row * (cell + gap);
               const n = values[d] || 0;
               const isFocusDate = d === format(focusDate, "yyyy-MM-dd");
+              const hasNote = notedDateSet.has(d);
               
               return (
                 <React.Fragment key={d}>
@@ -149,6 +152,15 @@ export default function Heatmap({ startOffsetDays = 120, values, referenceDate =
                       cy={y + cell/2}
                       r={2}
                       fill={theme.primary}
+                    />
+                  )}
+                  {hasNote && (
+                    <Circle
+                      cx={x + cell - 3}
+                      cy={y + 3}
+                      r={1.75}
+                      fill={theme.textSecondary}
+                      opacity={0.9}
                     />
                   )}
                 </React.Fragment>

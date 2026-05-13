@@ -19,7 +19,7 @@ export default function PrivacyScreen() {
         <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 14, backgroundColor: theme.surface, gap: 8 }}>
           <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text }}>What the app stores</Text>
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-            Goal titles, optional targets, task frequency settings, completion history, and your theme preference.
+            Goal titles, optional targets, task frequency settings, completion history, optional local day notes, and your theme preference.
           </Text>
         </View>
 

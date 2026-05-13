@@ -1,10 +1,10 @@
 import React from "react";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { Text, View, ScrollView } from "react-native";
+import { Text, View, ScrollView, TextInput, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Circle } from "react-native-svg";
-import { useStore, getCustomFrequencyProgress, getGoalStreak } from "../store";
+import { useStore, getCustomFrequencyProgress, getGoalDayNoteKey, getGoalStreak } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import Heatmap from "./Heatmap";
 import { format } from "date-fns";
@@ -20,8 +20,19 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
   const streakRingCircumference = 2 * Math.PI * streakRingRadius;
   const { goalId } = route.params;
   const goal = useStore((s) => s.goals.find((g) => g.id === goalId)!);
+  const goalDayNotes = useStore((s) => s.goalDayNotes);
   const selectedDate = useStore((s) => s.selectedDate);
+  const setGoalDayNote = useStore((s) => s.setGoalDayNote);
+  const clearGoalDayNote = useStore((s) => s.clearGoalDayNote);
   const { theme } = useTheme();
+  const selectedDateKey = format(selectedDate, "yyyy-MM-dd");
+  const selectedNoteKey = getGoalDayNoteKey(goalId, selectedDate);
+  const savedNote = goalDayNotes[selectedNoteKey] ?? "";
+  const [noteDraft, setNoteDraft] = React.useState(savedNote);
+
+  React.useEffect(() => {
+    setNoteDraft(savedNote);
+  }, [savedNote, selectedNoteKey]);
 
   if (!goal) return <Text>Goal not found</Text>;
 
@@ -36,9 +47,15 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
 
   const recurringTasks = goal.tasks.filter((task) => task.frequency !== "once");
   const onceTasks = goal.tasks.filter((task) => task.frequency === "once");
+  const notedDates = Object.keys(goalDayNotes)
+    .filter((key) => key.startsWith(`${goalId}:`))
+    .map((key) => key.split(":")[1]);
   const onceTaskHeatmapData = getHeatmapData(onceTasks.flatMap((task) => task.completions));
   const onceTaskCompletionCount = Object.values(onceTaskHeatmapData).reduce((sum, count) => sum + count, 0);
   const hasOnceTaskHistory = onceTaskCompletionCount > 0;
+  const trimmedDraft = noteDraft.trim();
+  const hasSavedNote = savedNote.length > 0;
+  const hasUnsavedChanges = trimmedDraft !== savedNote;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }} edges={['bottom', 'left', 'right']}>
@@ -48,6 +65,103 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
           <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
             Recurring task heatmaps and streaks
           </Text>
+        </View>
+
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: theme.border,
+            borderRadius: 10,
+            padding: 12,
+            backgroundColor: theme.surface,
+            gap: 10,
+          }}
+        >
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text }}>Day note</Text>
+              <Text style={{ color: theme.textSecondary, fontSize: 13, lineHeight: 19 }}>
+                Add short local context for {format(selectedDate, "MMM d, yyyy")} without affecting completions or scoring.
+              </Text>
+            </View>
+            {hasSavedNote ? (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  borderRadius: 9999,
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                }}
+              >
+                <Ionicons name="document-text-outline" size={14} color={theme.textSecondary} />
+                <Text style={{ color: theme.textSecondary, fontSize: 12, fontWeight: "700" }}>Saved</Text>
+              </View>
+            ) : null}
+          </View>
+
+          <TextInput
+            value={noteDraft}
+            onChangeText={(value) => setNoteDraft(value.slice(0, 160))}
+            placeholder="Optional note, like travel day, planned rest, or illness"
+            placeholderTextColor={theme.textSecondary}
+            multiline
+            textAlignVertical="top"
+            style={{
+              minHeight: 84,
+              borderWidth: 1,
+              borderColor: theme.border,
+              borderRadius: 10,
+              padding: 12,
+              color: theme.text,
+              backgroundColor: theme.background,
+            }}
+          />
+
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+              {noteDraft.length}/160 characters{hasSavedNote ? ` • visible on ${selectedDateKey}` : ""}
+            </Text>
+
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {hasSavedNote ? (
+                <Pressable
+                  onPress={() => {
+                    clearGoalDayNote(goalId, selectedDate);
+                    setNoteDraft("");
+                  }}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                    borderRadius: 9999,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                  }}
+                >
+                  <Text style={{ color: theme.text, fontWeight: "700" }}>Clear</Text>
+                </Pressable>
+              ) : null}
+
+              <Pressable
+                onPress={() => setGoalDayNote(goalId, selectedDate, noteDraft)}
+                disabled={!trimmedDraft || !hasUnsavedChanges}
+                style={{
+                  borderRadius: 9999,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  backgroundColor: !trimmedDraft || !hasUnsavedChanges ? theme.border : theme.primary,
+                  opacity: !trimmedDraft || !hasUnsavedChanges ? 0.7 : 1,
+                }}
+              >
+                <Text style={{ color: !trimmedDraft || !hasUnsavedChanges ? theme.textSecondary : theme.background, fontWeight: "700" }}>
+                  Save note
+                </Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
 
         {recurringTasks.length === 0 ? (
@@ -189,6 +303,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
                 startOffsetDays={180} 
                 values={getHeatmapData(task.completions)}
                 referenceDate={selectedDate}
+                notedDates={notedDates}
               />
             </View>
             {index < recurringTasks.length - 1 && <View style={{ height: 16 }} />}
@@ -222,6 +337,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
                 startOffsetDays={180}
                 values={onceTaskHeatmapData}
                 referenceDate={selectedDate}
+                notedDates={notedDates}
               />
             ) : (
               <View

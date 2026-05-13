@@ -1,4 +1,4 @@
-import { getCustomFrequencyProgress, getGoalProgress, getSampleGoals, isOnceTaskCompletedOnDate, useStore } from '../store';
+import { getCustomFrequencyProgress, getGoalDayNoteKey, getGoalProgress, getSampleGoals, isOnceTaskCompletedOnDate, useStore } from '../store';
 import { Goal, Task } from '../types';
 
 describe('getCustomFrequencyProgress', () => {
@@ -293,5 +293,92 @@ describe('updateGoal', () => {
     useStore.getState().updateGoal('goal-2', { target: null });
 
     expect(useStore.getState().goals[0].target).toBeUndefined();
+  });
+});
+
+describe('goal day notes', () => {
+  const originalState = useStore.getState();
+
+  beforeEach(() => {
+    useStore.setState({
+      ...originalState,
+      goals: [
+        {
+          id: 'goal-a',
+          title: 'Fitness',
+          createdAt: Date.now(),
+          tasks: [
+            {
+              id: 'task-a',
+              title: 'Walk',
+              frequency: 'daily',
+              completions: [new Date('2026-05-13T12:00:00.000Z')],
+            },
+          ],
+        },
+        {
+          id: 'goal-b',
+          title: 'Reading',
+          createdAt: Date.now(),
+          tasks: [],
+        },
+      ],
+      goalDayNotes: {},
+      selectedDate: new Date('2026-05-13T12:00:00.000Z'),
+    }, true);
+  });
+
+  afterEach(() => {
+    useStore.setState(originalState, true);
+  });
+
+  it('stores notes separately by goal and date', () => {
+    useStore.getState().setGoalDayNote('goal-a', new Date('2026-05-13T12:00:00.000Z'), 'Travel day');
+    useStore.getState().setGoalDayNote('goal-a', new Date('2026-05-14T12:00:00.000Z'), 'Recovery');
+    useStore.getState().setGoalDayNote('goal-b', new Date('2026-05-13T12:00:00.000Z'), 'Different goal');
+
+    expect(useStore.getState().goalDayNotes).toEqual({
+      [getGoalDayNoteKey('goal-a', new Date('2026-05-13T12:00:00.000Z'))]: 'Travel day',
+      [getGoalDayNoteKey('goal-a', new Date('2026-05-14T12:00:00.000Z'))]: 'Recovery',
+      [getGoalDayNoteKey('goal-b', new Date('2026-05-13T12:00:00.000Z'))]: 'Different goal',
+    });
+  });
+
+  it('updates, trims, and clears notes idempotently', () => {
+    useStore.getState().setGoalDayNote('goal-a', new Date('2026-05-13T12:00:00.000Z'), '  Sick day  ');
+    useStore.getState().setGoalDayNote('goal-a', new Date('2026-05-13T12:00:00.000Z'), 'Sick day');
+
+    expect(useStore.getState().goalDayNotes[getGoalDayNoteKey('goal-a', new Date('2026-05-13T12:00:00.000Z'))]).toBe('Sick day');
+
+    useStore.getState().clearGoalDayNote('goal-a', new Date('2026-05-13T12:00:00.000Z'));
+    useStore.getState().clearGoalDayNote('goal-a', new Date('2026-05-13T12:00:00.000Z'));
+
+    expect(useStore.getState().goalDayNotes).toEqual({});
+  });
+
+  it('does not affect goal progress calculations', () => {
+    const goal = useStore.getState().goals[0];
+    const before = getGoalProgress(goal, new Date('2026-05-13T18:00:00.000Z'));
+
+    useStore.getState().setGoalDayNote('goal-a', new Date('2026-05-13T12:00:00.000Z'), 'Planned light day');
+
+    const after = getGoalProgress(useStore.getState().goals[0], new Date('2026-05-13T18:00:00.000Z'));
+
+    expect(after).toEqual(before);
+  });
+
+  it('removes notes for a deleted goal and resets them with app data', () => {
+    useStore.getState().setGoalDayNote('goal-a', new Date('2026-05-13T12:00:00.000Z'), 'Travel day');
+    useStore.getState().setGoalDayNote('goal-b', new Date('2026-05-13T12:00:00.000Z'), 'Reading break');
+
+    useStore.getState().deleteGoal('goal-a');
+
+    expect(useStore.getState().goalDayNotes).toEqual({
+      [getGoalDayNoteKey('goal-b', new Date('2026-05-13T12:00:00.000Z'))]: 'Reading break',
+    });
+
+    useStore.getState().resetAppData();
+
+    expect(useStore.getState().goalDayNotes).toEqual({});
   });
 });

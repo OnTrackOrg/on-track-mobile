@@ -28,3 +28,5 @@ export interface UserAccount {
   email: string;
   createdAt: number;
 }
+
+export type GoalDayNotes = Record<string, string>;
