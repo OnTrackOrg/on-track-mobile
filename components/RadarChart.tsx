@@ -40,18 +40,18 @@ export const getCurrentModeTaskScore = (
   return progress.target > 0 ? Math.min(1, progress.completed / progress.target) : 0;
 };
 
-const getDailyTrendScore = (completionDates: Date[], startDate: Date, referenceDate: Date) => {
+export const getDailyTrendScore = (completionDates: Date[], startDate: Date, referenceDate: Date) => {
   const days = Math.max(1, differenceInCalendarDays(referenceDate, startDate) + 1);
   return Math.min(1, completionDates.length / days);
 };
 
-const getWeeklyTrendScore = (completionDates: Date[], startDate: Date, referenceDate: Date) => {
+export const getWeeklyTrendScore = (completionDates: Date[], startDate: Date, referenceDate: Date) => {
   const days = Math.max(1, differenceInCalendarDays(referenceDate, startDate) + 1);
   const expectedWeeks = Math.max(1, Math.ceil(days / 7));
   return Math.min(1, completionDates.length / expectedWeeks);
 };
 
-const getCustomTrendScore = (completionDates: Date[], target: number, periodType: "weekly" | "monthly", startDate: Date, referenceDate: Date) => {
+export const getCustomTrendScore = (completionDates: Date[], target: number, periodType: "weekly" | "monthly", startDate: Date, referenceDate: Date) => {
   if (target <= 0) return 0;
 
   const days = Math.max(1, differenceInCalendarDays(referenceDate, startDate) + 1);
