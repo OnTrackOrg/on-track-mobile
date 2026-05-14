@@ -428,9 +428,55 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
   return preparedGraph;
 };
 
+export const deleteRemoteAccountDataForUser = async (user: User): Promise<void> => {
+  const existingGraph = await loadExistingRemoteGraph(user);
+
+  if (existingGraph.taskIds.length > 0) {
+    const { error: deleteCompletionsError } = await supabase
+      .from("task_completions")
+      .delete()
+      .eq("completed_by_user_id", user.id)
+      .in("task_id", existingGraph.taskIds);
+
+    if (deleteCompletionsError) {
+      throw deleteCompletionsError;
+    }
+
+    const { error: deleteTasksError } = await supabase
+      .from("tasks")
+      .delete()
+      .in("id", existingGraph.taskIds);
+
+    if (deleteTasksError) {
+      throw deleteTasksError;
+    }
+  }
+
+  if (existingGraph.goalIds.length > 0) {
+    const { error: deleteGoalsError } = await supabase
+      .from("goals")
+      .delete()
+      .in("id", existingGraph.goalIds);
+
+    if (deleteGoalsError) {
+      throw deleteGoalsError;
+    }
+  }
+
+  const { error: deleteProfileError } = await supabase
+    .from("profiles")
+    .delete()
+    .eq("id", user.id);
+
+  if (deleteProfileError) {
+    throw deleteProfileError;
+  }
+};
+
 export const __internal = {
   buildGoals,
   buildTasks,
+  deleteRemoteAccountDataForUser,
   loadExistingRemoteGraph,
   prepareGoalsForRemote,
   replaceRemoteGoalsForUser,

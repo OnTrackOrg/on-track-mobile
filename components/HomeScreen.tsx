@@ -1,6 +1,7 @@
 import React, { useState, useLayoutEffect } from "react";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Text, View, Pressable, ScrollView, Alert, Switch, Modal, AppState } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from '@expo/vector-icons';
 import { isToday } from "date-fns";
@@ -14,6 +15,8 @@ import { haptics } from "../utils/haptics";
 import { RootStackParamList } from "../navigation";
 import { RadarChartMode } from "./RadarChart";
 import { getNextTrackingDate, getPreviousTrackingDate } from "../lib/dateContext";
+import { deleteCurrentAccount } from "../lib/auth";
+import { ONBOARDING_STORAGE_KEY } from "../onboarding";
 
 type HomeProps = NativeStackScreenProps<RootStackParamList, "Home">;
 
@@ -25,6 +28,9 @@ export default function HomeScreen({ navigation }: HomeProps) {
   const reorderGoals = useStore((s) => s.reorderGoals);
   const resetAppData = useStore((s) => s.resetAppData);
   const deleteGoal = useStore((s) => s.deleteGoal);
+  const setGoals = useStore((s) => s.setGoals);
+  const setAccount = useStore((s) => s.setAccount);
+  const setCloudSyncEnabled = useStore((s) => s.setCloudSyncEnabled);
   const currentMode = getCurrentMode();
   const { theme, isDark, toggleTheme, resetThemePreference } = useTheme();
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -456,6 +462,53 @@ export default function HomeScreen({ navigation }: HomeProps) {
                 </Pressable>
               </>
             )}
+
+            <Pressable
+              onPress={() => {
+                void haptics.warning();
+                Alert.alert(
+                  "Delete account?",
+                  "This will sign you out, remove local app data, and delete the remote OnTrack data tied to this account.",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Delete account",
+                      style: "destructive",
+                      onPress: async () => {
+                        try {
+                          await haptics.destructive();
+                          await deleteCurrentAccount();
+                          await useStore.persist.clearStorage();
+                          await AsyncStorage.removeItem(ONBOARDING_STORAGE_KEY);
+                          setGoals([]);
+                          setAccount(null);
+                          setCloudSyncEnabled(false);
+                          setSettingsVisible(false);
+
+                          Alert.alert(
+                            "Account deleted",
+                            "Your OnTrack account data was removed. Reopen the app to start again from onboarding.",
+                            [{ text: "OK" }]
+                          );
+                        } catch (error) {
+                          console.error("Error deleting account:", error);
+                          Alert.alert("Error", "Failed to delete this account. Please try again.");
+                        }
+                      }
+                    }
+                  ]
+                );
+              }}
+              style={{ 
+                backgroundColor: theme.danger, 
+                padding: 12, 
+                borderRadius: 10,
+                alignItems: 'center',
+                marginBottom: 12
+              }}
+            >
+              <Text style={{ color: "white", fontWeight: "600", fontSize: 16 }}>Delete Account</Text>
+            </Pressable>
 
             {/* Clear Stores Button */}
             <Pressable
