@@ -1,5 +1,5 @@
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 import OverviewScreen from './components/OverviewScreen';
 
 jest.mock('@expo/vector-icons', () => ({
@@ -79,6 +79,27 @@ jest.mock('./store', () => ({
 }));
 
 describe('OverviewScreen', () => {
+  it('lets users switch to a goal-level summary heatmap', () => {
+    const { getByText, getAllByTestId, queryByText } = render(
+      <OverviewScreen
+        navigation={{} as never}
+        route={{ key: 'Consistency-1', name: 'Consistency', params: { goalId: 'goal-1' } } as never}
+      />,
+    );
+
+    expect(getByText('Per-task')).toBeTruthy();
+    expect(getByText('Summary')).toBeTruthy();
+    expect(queryByText('Goal summary heatmap')).toBeNull();
+
+    fireEvent.press(getByText('Summary'));
+
+    expect(getByText('Goal summary heatmap')).toBeTruthy();
+    expect(getByText(/Each day shows how many recurring tasks/i)).toBeTruthy();
+    expect(getAllByTestId('heatmap')).toHaveLength(1);
+    expect(queryByText('Walk')).toBeNull();
+    expect(queryByText('One-off task history')).toBeNull();
+  });
+
   it('renders one combined heatmap for all one-off tasks in a goal', () => {
     const { getAllByTestId, getByText, queryByText } = render(
       <OverviewScreen

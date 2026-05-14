@@ -1,6 +1,6 @@
 import React from "react";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { Text, View, ScrollView } from "react-native";
+import { Text, View, ScrollView, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Circle } from "react-native-svg";
@@ -22,6 +22,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
   const goal = useStore((s) => s.goals.find((g) => g.id === goalId)!);
   const selectedDate = useStore((s) => s.selectedDate);
   const { theme } = useTheme();
+  const [viewMode, setViewMode] = React.useState<"summary" | "tasks">("tasks");
 
   if (!goal) return <Text>Goal not found</Text>;
 
@@ -36,6 +37,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
 
   const recurringTasks = goal.tasks.filter((task) => task.frequency !== "once");
   const onceTasks = goal.tasks.filter((task) => task.frequency === "once");
+  const recurringGoalSummaryHeatmapData = getHeatmapData(recurringTasks.flatMap((task) => task.completions));
   const onceTaskHeatmapData = getHeatmapData(onceTasks.flatMap((task) => task.completions));
   const onceTaskCompletionCount = Object.values(onceTaskHeatmapData).reduce((sum, count) => sum + count, 0);
   const hasOnceTaskHistory = onceTaskCompletionCount > 0;
@@ -46,11 +48,65 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
         <View>
           <Text style={{ fontSize: 22, fontWeight: "800", color: theme.text }}>{goal.title} - Consistency</Text>
           <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
-            Recurring task heatmaps and streaks
+            {viewMode === "summary" ? "Goal-level consistency summary" : "Recurring task heatmaps and streaks"}
           </Text>
         </View>
 
-        {recurringTasks.length === 0 ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {([
+            { key: "summary", label: "Summary" },
+            { key: "tasks", label: "Per-task" },
+          ] as const).map((option) => (
+            <Pressable
+              key={option.key}
+              onPress={() => setViewMode(option.key)}
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 9999,
+                borderWidth: 1,
+                borderColor: viewMode === option.key ? theme.primary : theme.border,
+                backgroundColor: viewMode === option.key ? theme.primary + "20" : theme.surface,
+              }}
+            >
+              <Text style={{ color: viewMode === option.key ? theme.primary : theme.textSecondary, fontWeight: "600", fontSize: 12 }}>
+                {option.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {viewMode === "summary" ? (
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: theme.border,
+              borderRadius: 10,
+              padding: 12,
+              backgroundColor: theme.surface,
+              gap: 10,
+            }}
+          >
+            <View>
+              <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text }}>Goal summary heatmap</Text>
+              <Text style={{ color: theme.textSecondary, fontSize: 14, lineHeight: 20 }}>
+                Each day shows how many recurring tasks in this goal were completed on that date.
+              </Text>
+            </View>
+
+            <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
+              Recurring tasks in this goal: {recurringTasks.length} • Total recurring completions: {Object.values(recurringGoalSummaryHeatmapData).reduce((sum, count) => sum + count, 0)}
+            </Text>
+
+            <Heatmap
+              startOffsetDays={180}
+              values={recurringGoalSummaryHeatmapData}
+              referenceDate={selectedDate}
+            />
+          </View>
+        ) : null}
+
+        {viewMode === "tasks" && recurringTasks.length === 0 ? (
           <View
             style={{
               borderWidth: 1,
@@ -68,7 +124,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
           </View>
         ) : null}
 
-        {recurringTasks.map((task, index) => (
+        {viewMode === "tasks" && recurringTasks.map((task, index) => (
           <View key={task.id}>
             <View style={{ 
               borderWidth: 1, 
@@ -195,7 +251,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
           </View>
         ))}
 
-        {onceTasks.length > 0 ? (
+        {viewMode === "tasks" && onceTasks.length > 0 ? (
           <View
             style={{
               borderWidth: 1,
