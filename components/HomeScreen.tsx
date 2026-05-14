@@ -3,7 +3,7 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Text, View, Pressable, ScrollView, Alert, Switch, Modal, AppState } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from '@expo/vector-icons';
-import { addDays, isToday, startOfDay, subDays } from "date-fns";
+import { isToday } from "date-fns";
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from "react-native-draggable-flatlist";
 import { useStore, debugAsyncStorage, getCurrentMode, getGoalProgress } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
@@ -13,6 +13,7 @@ import CalendarModal from "./CalendarModal";
 import { haptics } from "../utils/haptics";
 import { RootStackParamList } from "../navigation";
 import { RadarChartMode } from "./RadarChart";
+import { getNextTrackingDate, getPreviousTrackingDate } from "../lib/dateContext";
 
 type HomeProps = NativeStackScreenProps<RootStackParamList, "Home">;
 
@@ -169,7 +170,7 @@ export default function HomeScreen({ navigation }: HomeProps) {
             }}
             onPreviousDay={() => {
               void haptics.tap();
-              setSelectedDate(subDays(selectedDate, 1));
+              setSelectedDate(getPreviousTrackingDate(selectedDate));
             }}
             onNextDay={() => {
               if (isToday(selectedDate)) {
@@ -178,9 +179,7 @@ export default function HomeScreen({ navigation }: HomeProps) {
               }
 
               void haptics.tap();
-              const nextDate = addDays(selectedDate, 1);
-              const today = startOfDay(new Date());
-              setSelectedDate(nextDate > today ? today : nextDate);
+              setSelectedDate(getNextTrackingDate(selectedDate));
             }}
           />
 

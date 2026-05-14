@@ -1,5 +1,10 @@
 import { endOfDay } from "date-fns";
-import { getCurrentModeTaskScore } from "../components/RadarChart";
+import {
+  getCurrentModeTaskScore,
+  getCustomTrendScore,
+  getDailyTrendScore,
+  getWeeklyTrendScore,
+} from "../components/RadarChart";
 import { Task } from "../types";
 
 // Reference week: Sun 2026-04-19 – Sat 2026-04-25
@@ -92,5 +97,79 @@ describe("getCurrentModeTaskScore — daily vs custom consistency", () => {
 
     expect(customScore).toBe(1);
     expect(weeklyScore).toBe(1);
+  });
+});
+
+describe("trend score helpers", () => {
+  it("daily trend uses the active span from first completion through reference date", () => {
+    const completions = [
+      new Date("2026-04-20T12:00:00.000Z"),
+      new Date("2026-04-22T12:00:00.000Z"),
+    ];
+
+    const score = getDailyTrendScore(
+      completions,
+      new Date("2026-04-20T12:00:00.000Z"),
+      endOfDay(new Date("2026-04-22T12:00:00.000Z"))
+    );
+
+    expect(score).toBeCloseTo(2 / 3);
+  });
+
+  it("weekly trend treats a partial first week as one expected week", () => {
+    const completions = [new Date("2026-04-22T12:00:00.000Z")];
+
+    const score = getWeeklyTrendScore(
+      completions,
+      new Date("2026-04-22T12:00:00.000Z"),
+      endOfDay(new Date("2026-04-22T12:00:00.000Z"))
+    );
+
+    expect(score).toBe(1);
+  });
+
+  it("weekly trend expands expected weeks after crossing into a second week", () => {
+    const completions = [
+      new Date("2026-04-22T12:00:00.000Z"),
+      new Date("2026-04-29T12:00:00.000Z"),
+    ];
+
+    const score = getWeeklyTrendScore(
+      completions,
+      new Date("2026-04-22T12:00:00.000Z"),
+      endOfDay(new Date("2026-04-30T12:00:00.000Z"))
+    );
+
+    expect(score).toBe(1);
+  });
+
+  it("custom weekly trend uses target times expected weeks", () => {
+    const completions = [
+      new Date("2026-04-22T12:00:00.000Z"),
+      new Date("2026-04-24T12:00:00.000Z"),
+      new Date("2026-04-29T12:00:00.000Z"),
+    ];
+
+    const score = getCustomTrendScore(
+      completions,
+      2,
+      "weekly",
+      new Date("2026-04-22T12:00:00.000Z"),
+      endOfDay(new Date("2026-04-30T12:00:00.000Z"))
+    );
+
+    expect(score).toBeCloseTo(3 / 4);
+  });
+
+  it("custom monthly trend returns 0 when target is invalid", () => {
+    const score = getCustomTrendScore(
+      [new Date("2026-04-22T12:00:00.000Z")],
+      0,
+      "monthly",
+      new Date("2026-04-22T12:00:00.000Z"),
+      endOfDay(new Date("2026-04-30T12:00:00.000Z"))
+    );
+
+    expect(score).toBe(0);
   });
 });
