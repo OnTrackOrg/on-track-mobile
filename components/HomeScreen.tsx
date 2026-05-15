@@ -1,6 +1,7 @@
 import React, { useState, useLayoutEffect } from "react";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Text, View, Pressable, ScrollView, Alert, Switch, Modal, AppState } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from '@expo/vector-icons';
 import { isToday } from "date-fns";
@@ -14,19 +15,27 @@ import { haptics } from "../utils/haptics";
 import { RootStackParamList } from "../navigation";
 import { RadarChartMode } from "./RadarChart";
 import { getNextTrackingDate, getPreviousTrackingDate } from "../lib/dateContext";
+import { deleteCurrentAccount } from "../lib/auth";
+import { ONBOARDING_STORAGE_KEY } from "../onboarding";
 
 type HomeProps = NativeStackScreenProps<RootStackParamList, "Home">;
 
-export default function HomeScreen({ navigation }: HomeProps) {
+type HomeScreenProps = HomeProps & {
+  onAccountDeleted?: () => void;
+};
+
+export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenProps) {
   const goals = useStore((s) => s.goals);
   const selectedDate = useStore((s) => s.selectedDate);
   const account = useStore((s) => s.account);
   const setSelectedDate = useStore((s) => s.setSelectedDate);
   const reorderGoals = useStore((s) => s.reorderGoals);
-  const resetAppData = useStore((s) => s.resetAppData);
   const deleteGoal = useStore((s) => s.deleteGoal);
+  const setGoals = useStore((s) => s.setGoals);
+  const setAccount = useStore((s) => s.setAccount);
+  const setCloudSyncEnabled = useStore((s) => s.setCloudSyncEnabled);
   const currentMode = getCurrentMode();
-  const { theme, isDark, toggleTheme, resetThemePreference } = useTheme();
+  const { theme, isDark, toggleTheme } = useTheme();
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [isReorderingGoals, setIsReorderingGoals] = useState(false);
@@ -457,34 +466,31 @@ export default function HomeScreen({ navigation }: HomeProps) {
               </>
             )}
 
-            {/* Clear Stores Button */}
             <Pressable
               onPress={() => {
                 void haptics.warning();
                 Alert.alert(
-                  "Reset app data?",
-                  "This will permanently delete all goals, tasks, and completion history stored on this device.",
+                  "Delete account?",
+                  "This will sign you out, remove local app data, and delete the remote OnTrack data tied to this account.",
                   [
                     { text: "Cancel", style: "cancel" },
                     {
-                      text: "Reset", 
-                      style: "destructive", 
+                      text: "Delete account",
+                      style: "destructive",
                       onPress: async () => {
                         try {
                           await haptics.destructive();
-
-                          resetAppData();
-                          await resetThemePreference();
+                          await deleteCurrentAccount();
+                          await useStore.persist.clearStorage();
+                          await AsyncStorage.removeItem(ONBOARDING_STORAGE_KEY);
+                          setGoals([]);
+                          setAccount(null);
+                          setCloudSyncEnabled(false);
                           setSettingsVisible(false);
-
-                          Alert.alert(
-                            "App data reset",
-                            "Your local data has been removed.",
-                            [{ text: "OK" }]
-                          );
+                          onAccountDeleted?.();
                         } catch (error) {
-                          console.error('Error resetting storage:', error);
-                          Alert.alert("Error", "Failed to reset app data. Please try again.");
+                          console.error("Error deleting account:", error);
+                          Alert.alert("Error", "Failed to delete this account. Please try again.");
                         }
                       }
                     }
@@ -492,13 +498,14 @@ export default function HomeScreen({ navigation }: HomeProps) {
                 );
               }}
               style={{ 
-                backgroundColor: theme.warning, 
+                backgroundColor: theme.danger, 
                 padding: 12, 
                 borderRadius: 10,
-                alignItems: 'center'
+                alignItems: 'center',
+                marginBottom: 12
               }}
             >
-              <Text style={{ color: "white", fontWeight: "600", fontSize: 16 }}>Reset App Data</Text>
+              <Text style={{ color: "white", fontWeight: "600", fontSize: 16 }}>Delete Account</Text>
             </Pressable>
           </View>
         </View>

@@ -2,6 +2,7 @@ import { Session, User } from "@supabase/supabase-js";
 import { buildDefaultUsername, normalizeAccountDraft } from "../account";
 import { UserAccount } from "../types";
 import { supabase } from "./supabase";
+import { deleteRemoteAccountDataForUser } from "./dataSync";
 
 export type AuthFormPayload = {
   displayName: string;
@@ -119,6 +120,24 @@ export const getPersistedSession = async (): Promise<Session | null> => {
   }
 
   return data.session;
+};
+
+export const deleteCurrentAccount = async () => {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw userError;
+  }
+
+  if (!user) {
+    throw new Error("No signed-in user found.");
+  }
+
+  await deleteRemoteAccountDataForUser(user);
+  await signOut();
 };
 
 /**
