@@ -7,7 +7,7 @@ import Svg, { Circle } from "react-native-svg";
 import { useStore, getCustomFrequencyProgress, getGoalStreak } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import Heatmap from "./Heatmap";
-import { format } from "date-fns";
+import { format, startOfDay } from "date-fns";
 import { RootStackParamList } from "../navigation";
 
 type OverviewProps = NativeStackScreenProps<RootStackParamList, "Consistency">;
@@ -35,9 +35,36 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
     return heatmapData;
   };
 
+  const getRecurringGoalSummaryHeatmapData = () => {
+    if (recurringTasks.length === 0) {
+      return {} as Record<string, number>;
+    }
+
+    const completionsByDate: Record<string, Set<string>> = {};
+
+    recurringTasks.forEach((task) => {
+      task.completions.forEach((date) => {
+        const dateKey = format(startOfDay(date), "yyyy-MM-dd");
+
+        if (!completionsByDate[dateKey]) {
+          completionsByDate[dateKey] = new Set<string>();
+        }
+
+        completionsByDate[dateKey].add(task.id);
+      });
+    });
+
+    return Object.fromEntries(
+      Object.entries(completionsByDate).map(([dateKey, completedTaskIds]) => [
+        dateKey,
+        completedTaskIds.size / recurringTasks.length,
+      ])
+    );
+  };
+
   const recurringTasks = goal.tasks.filter((task) => task.frequency !== "once");
   const onceTasks = goal.tasks.filter((task) => task.frequency === "once");
-  const recurringGoalSummaryHeatmapData = getHeatmapData(recurringTasks.flatMap((task) => task.completions));
+  const recurringGoalSummaryHeatmapData = getRecurringGoalSummaryHeatmapData();
   const onceTaskHeatmapData = getHeatmapData(onceTasks.flatMap((task) => task.completions));
   const onceTaskCompletionCount = Object.values(onceTaskHeatmapData).reduce((sum, count) => sum + count, 0);
   const hasOnceTaskHistory = onceTaskCompletionCount > 0;
@@ -90,18 +117,19 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
             <View>
               <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text }}>Goal summary heatmap</Text>
               <Text style={{ color: theme.textSecondary, fontSize: 14, lineHeight: 20 }}>
-                Each day shows how many recurring tasks in this goal were completed on that date.
+                Each day shows what percentage of this goal’s recurring tasks were completed on that date.
               </Text>
             </View>
 
             <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
-              Recurring tasks in this goal: {recurringTasks.length} • Total recurring completions: {Object.values(recurringGoalSummaryHeatmapData).reduce((sum, count) => sum + count, 0)}
+              Recurring tasks in this goal: {recurringTasks.length} • Darker green means a higher completion percentage for that day.
             </Text>
 
             <Heatmap
               startOffsetDays={180}
               values={recurringGoalSummaryHeatmapData}
               referenceDate={selectedDate}
+              valueMode="ratio"
             />
           </View>
         ) : null}

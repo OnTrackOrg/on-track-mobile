@@ -23,8 +23,12 @@ jest.mock('react-native-safe-area-context', () => {
 jest.mock('./components/Heatmap', () => {
   const React = require('react');
   const { Text } = require('react-native');
-  return function MockHeatmap() {
-    return <Text testID="heatmap">heatmap</Text>;
+  return function MockHeatmap(props: { valueMode?: string; values?: Record<string, number> }) {
+    return (
+      <Text testID="heatmap">
+        {JSON.stringify({ valueMode: props.valueMode ?? 'count', values: props.values ?? {} })}
+      </Text>
+    );
   };
 });
 
@@ -42,7 +46,7 @@ jest.mock('./contexts/ThemeContext', () => ({
 }));
 
 const mockState = {
-  selectedDate: new Date('2026-05-06T00:00:00.000Z'),
+  selectedDate: new Date('2026-05-06T12:00:00.000Z'),
   goals: [
     {
       id: 'goal-1',
@@ -53,19 +57,25 @@ const mockState = {
           id: 'recurring-1',
           title: 'Walk',
           frequency: 'daily' as const,
-          completions: [new Date('2026-05-05T00:00:00.000Z')],
+          completions: [new Date('2026-05-05T12:00:00.000Z')],
+        },
+        {
+          id: 'recurring-2',
+          title: 'Stretch',
+          frequency: 'daily' as const,
+          completions: [],
         },
         {
           id: 'once-1',
           title: 'Buy shoes',
           frequency: 'once' as const,
-          completions: [new Date('2026-05-04T00:00:00.000Z')],
+          completions: [new Date('2026-05-04T12:00:00.000Z')],
         },
         {
           id: 'once-2',
           title: 'Book physio',
           frequency: 'once' as const,
-          completions: [new Date('2026-05-03T00:00:00.000Z')],
+          completions: [new Date('2026-05-03T12:00:00.000Z')],
         },
       ],
     },
@@ -94,8 +104,10 @@ describe('OverviewScreen', () => {
     fireEvent.press(getByText('Summary'));
 
     expect(getByText('Goal summary heatmap')).toBeTruthy();
-    expect(getByText(/Each day shows how many recurring tasks/i)).toBeTruthy();
+    expect(getByText(/what percentage of this goal’s recurring tasks/i)).toBeTruthy();
     expect(getAllByTestId('heatmap')).toHaveLength(1);
+    expect(getByText(/"valueMode":"ratio"/)).toBeTruthy();
+    expect(getByText(/"2026-05-05":0.5/)).toBeTruthy();
     expect(queryByText('Walk')).toBeNull();
     expect(queryByText('One-off task history')).toBeNull();
   });
@@ -110,8 +122,9 @@ describe('OverviewScreen', () => {
 
     expect(getByText('One-off task history')).toBeTruthy();
     expect(getByText(/Once tasks in this goal:/i)).toBeTruthy();
-    expect(getAllByTestId('heatmap')).toHaveLength(2);
+    expect(getAllByTestId('heatmap')).toHaveLength(3);
     expect(getByText('Walk')).toBeTruthy();
+    expect(getByText('Stretch')).toBeTruthy();
     expect(queryByText('Buy shoes')).toBeNull();
     expect(queryByText('Book physio')).toBeNull();
   });
