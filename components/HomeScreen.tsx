@@ -30,13 +30,12 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
   const account = useStore((s) => s.account);
   const setSelectedDate = useStore((s) => s.setSelectedDate);
   const reorderGoals = useStore((s) => s.reorderGoals);
-  const resetAppData = useStore((s) => s.resetAppData);
   const deleteGoal = useStore((s) => s.deleteGoal);
   const setGoals = useStore((s) => s.setGoals);
   const setAccount = useStore((s) => s.setAccount);
   const setCloudSyncEnabled = useStore((s) => s.setCloudSyncEnabled);
   const currentMode = getCurrentMode();
-  const { theme, isDark, toggleTheme, resetThemePreference } = useTheme();
+  const { theme, isDark, toggleTheme } = useTheme();
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [isReorderingGoals, setIsReorderingGoals] = useState(false);
@@ -507,50 +506,6 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
               }}
             >
               <Text style={{ color: "white", fontWeight: "600", fontSize: 16 }}>Delete Account</Text>
-            </Pressable>
-
-            {/* Clear Stores Button */}
-            <Pressable
-              onPress={() => {
-                void haptics.warning();
-                Alert.alert(
-                  "Reset app data?",
-                  "This will permanently delete all goals, tasks, and completion history stored on this device.",
-                  [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                      text: "Reset", 
-                      style: "destructive", 
-                      onPress: async () => {
-                        try {
-                          await haptics.destructive();
-
-                          resetAppData();
-                          await resetThemePreference();
-                          setSettingsVisible(false);
-
-                          Alert.alert(
-                            "App data reset",
-                            "Your local data has been removed.",
-                            [{ text: "OK" }]
-                          );
-                        } catch (error) {
-                          console.error('Error resetting storage:', error);
-                          Alert.alert("Error", "Failed to reset app data. Please try again.");
-                        }
-                      }
-                    }
-                  ]
-                );
-              }}
-              style={{ 
-                backgroundColor: theme.warning, 
-                padding: 12, 
-                borderRadius: 10,
-                alignItems: 'center'
-              }}
-            >
-              <Text style={{ color: "white", fontWeight: "600", fontSize: 16 }}>Reset App Data</Text>
             </Pressable>
           </View>
         </View>
