@@ -8,9 +8,10 @@ interface HMProps {
   startOffsetDays?: number;            // how many days back to show
   values: Record<string, number>;      // yyyy-MM-dd -> count
   referenceDate?: Date;
+  valueMode?: "count" | "ratio";
 }
 
-export default function Heatmap({ startOffsetDays = 120, values, referenceDate = new Date() }: HMProps) {
+export default function Heatmap({ startOffsetDays = 120, values, referenceDate = new Date(), valueMode = "count" }: HMProps) {
   const scrollViewRef = useRef<ScrollView>(null);
   const { theme, isDark } = useTheme();
   const focusDate = referenceDate;
@@ -63,6 +64,15 @@ export default function Heatmap({ startOffsetDays = 120, values, referenceDate =
 
   const scale = (n: number) => {
     if (n <= 0) return theme.border;
+
+    if (valueMode === "ratio") {
+      const normalized = Math.max(0, Math.min(n, 1));
+      if (normalized < 0.25) return "#d8f5df";
+      if (normalized < 0.5) return "#a6e3b5";
+      if (normalized < 0.75) return "#63c97c";
+      if (normalized < 1) return "#2ea85a";
+      return "#1f7a3f";
+    }
 
     return "#2aed72ff";
   };
