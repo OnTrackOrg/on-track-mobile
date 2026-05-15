@@ -130,7 +130,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
             </View>
 
             <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
-              Recurring tasks in this goal: {recurringTasks.length} • Darker green means a higher completion percentage for that day.
+              Recurring tasks in this goal: {recurringTasks.length}
             </Text>
 
             <Heatmap
