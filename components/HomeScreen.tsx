@@ -20,7 +20,11 @@ import { ONBOARDING_STORAGE_KEY } from "../onboarding";
 
 type HomeProps = NativeStackScreenProps<RootStackParamList, "Home">;
 
-export default function HomeScreen({ navigation }: HomeProps) {
+type HomeScreenProps = HomeProps & {
+  onAccountDeleted?: () => void;
+};
+
+export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenProps) {
   const goals = useStore((s) => s.goals);
   const selectedDate = useStore((s) => s.selectedDate);
   const account = useStore((s) => s.account);
@@ -484,12 +488,7 @@ export default function HomeScreen({ navigation }: HomeProps) {
                           setAccount(null);
                           setCloudSyncEnabled(false);
                           setSettingsVisible(false);
-
-                          Alert.alert(
-                            "Account deleted",
-                            "Your OnTrack account data was removed. Reopen the app to start again from onboarding.",
-                            [{ text: "OK" }]
-                          );
+                          onAccountDeleted?.();
                         } catch (error) {
                           console.error("Error deleting account:", error);
                           Alert.alert("Error", "Failed to delete this account. Please try again.");

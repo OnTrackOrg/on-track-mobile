@@ -16,6 +16,7 @@ import InstructionsScreen from "./components/InstructionsScreen";
 import IntroductionWizard from "./components/IntroductionWizard";
 import AuthScreen from "./components/AuthScreen";
 import ImportLocalDataScreen from "./components/ImportLocalDataScreen";
+import AccountDeletedScreen from "./components/AccountDeletedScreen";
 import { RootStackParamList } from "./navigation";
 import { ONBOARDING_STORAGE_KEY, shouldShowOnboarding } from "./onboarding";
 import { useStore } from "./store";
@@ -55,6 +56,7 @@ function ThemedNavigation() {
   const [isImportingLocalData, setIsImportingLocalData] = React.useState(false);
   const [importErrorMessage, setImportErrorMessage] = React.useState<string | null>(null);
   const [hasDismissedImportPrompt, setHasDismissedImportPrompt] = React.useState(false);
+  const [showAccountDeletedScreen, setShowAccountDeletedScreen] = React.useState(false);
   const syncInFlightRevisionRef = React.useRef<number | null>(null);
   const totalLocalTaskCount = React.useMemo(
     () => goals.reduce((count, goal) => count + goal.tasks.length, 0),
@@ -352,6 +354,15 @@ function ThemedNavigation() {
     );
   }
 
+  if (showAccountDeletedScreen) {
+    return (
+      <>
+        <AccountDeletedScreen />
+        <StatusBar style={isDark ? "light" : "dark"} />
+      </>
+    );
+  }
+
   if (!session) {
     return (
       <>
@@ -407,7 +418,16 @@ function ThemedNavigation() {
           },
         }}
       >
-        <Stack.Screen name="Home" component={HomeScreen} options={{ title: "OnTrack" }} />
+        <Stack.Screen name="Home" options={{ title: "OnTrack" }}>
+          {(props) => (
+            <HomeScreen
+              {...props}
+              onAccountDeleted={() => {
+                setShowAccountDeletedScreen(true);
+              }}
+            />
+          )}
+        </Stack.Screen>
         <Stack.Screen name="Goal" component={GoalScreen} options={{ title: "Goal" }} />
         <Stack.Screen name="NewGoal" component={NewGoalScreen} options={{ title: "New Goal" }} />
         <Stack.Screen name="Consistency" component={OverviewScreen} options={{ title: "Consistency" }} />
