@@ -10,6 +10,14 @@ import Heatmap from "./Heatmap";
 import { format, startOfDay } from "date-fns";
 import { RootStackParamList } from "../navigation";
 
+const SUMMARY_HEATMAP_LEGEND = [
+  { color: "#d8f5df", label: "1-24%" },
+  { color: "#a6e3b5", label: "25-49%" },
+  { color: "#63c97c", label: "50-74%" },
+  { color: "#2ea85a", label: "75-99%" },
+  { color: "#1f7a3f", label: "100%" },
+] as const;
+
 type OverviewProps = NativeStackScreenProps<RootStackParamList, "Consistency">;
 
 export default function OverviewScreen({ navigation, route }: OverviewProps) {
@@ -131,6 +139,42 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
               referenceDate={selectedDate}
               valueMode="ratio"
             />
+
+            <View style={{ gap: 6 }}>
+              <Text style={{ color: theme.textSecondary, fontSize: 12, fontWeight: "600" }}>
+                Completion scale
+              </Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                {SUMMARY_HEATMAP_LEGEND.map((item) => (
+                  <View
+                    key={item.label}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                      borderRadius: 9999,
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      backgroundColor: theme.background,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: 3,
+                        backgroundColor: item.color,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                      }}
+                    />
+                    <Text style={{ color: theme.textSecondary, fontSize: 12 }}>{item.label}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
           </View>
         ) : null}
 

@@ -105,6 +105,12 @@ describe('OverviewScreen', () => {
 
     expect(getByText('Goal summary heatmap')).toBeTruthy();
     expect(getByText(/what percentage of this goal’s recurring tasks/i)).toBeTruthy();
+    expect(getByText('Completion scale')).toBeTruthy();
+    expect(getByText('1-24%')).toBeTruthy();
+    expect(getByText('25-49%')).toBeTruthy();
+    expect(getByText('50-74%')).toBeTruthy();
+    expect(getByText('75-99%')).toBeTruthy();
+    expect(getByText('100%')).toBeTruthy();
     expect(getAllByTestId('heatmap')).toHaveLength(1);
     expect(getByText(/"valueMode":"ratio"/)).toBeTruthy();
     expect(getByText(/"2026-05-05":0.5/)).toBeTruthy();
