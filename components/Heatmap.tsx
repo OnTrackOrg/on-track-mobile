@@ -67,8 +67,11 @@ export default function Heatmap({ startOffsetDays = 120, values, referenceDate =
 
     if (valueMode === "ratio") {
       const normalized = Math.max(0, Math.min(n, 1));
-      const alpha = 0.2 + (normalized * 0.8);
-      return `rgba(46, 237, 114, ${alpha.toFixed(3)})`;
+      if (normalized < 0.25) return "#d8f5df";
+      if (normalized < 0.5) return "#a6e3b5";
+      if (normalized < 0.75) return "#63c97c";
+      if (normalized < 1) return "#2ea85a";
+      return "#1f7a3f";
     }
 
     return "#2aed72ff";
