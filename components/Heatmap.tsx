@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from "react";
 import { View, ScrollView, Text } from "react-native";
-import Svg, { Rect, Circle } from "react-native-svg";
+import Svg, { Rect, Circle, Text as SvgText } from "react-native-svg";
 import { addDays, format, subDays, startOfMonth, isSameMonth, startOfWeek } from "date-fns";
 import { useTheme } from "../contexts/ThemeContext";
 
@@ -9,9 +9,10 @@ interface HMProps {
   values: Record<string, number>;      // yyyy-MM-dd -> count
   referenceDate?: Date;
   valueMode?: "count" | "ratio";
+  frozenDateKeys?: Set<string>;        // yyyy-MM-dd keys for frozen days
 }
 
-export default function Heatmap({ startOffsetDays = 120, values, referenceDate = new Date(), valueMode = "count" }: HMProps) {
+export default function Heatmap({ startOffsetDays = 120, values, referenceDate = new Date(), valueMode = "count", frozenDateKeys }: HMProps) {
   const scrollViewRef = useRef<ScrollView>(null);
   const { theme, isDark } = useTheme();
   const focusDate = referenceDate;
@@ -141,6 +142,8 @@ export default function Heatmap({ startOffsetDays = 120, values, referenceDate =
               const n = values[d] || 0;
               const isFocusDate = d === format(focusDate, "yyyy-MM-dd");
               
+              const isFrozen = frozenDateKeys ? frozenDateKeys.has(d) : false;
+
               return (
                 <React.Fragment key={d}>
                   <Rect 
@@ -149,17 +152,28 @@ export default function Heatmap({ startOffsetDays = 120, values, referenceDate =
                     width={cell} 
                     height={cell} 
                     rx={3} 
-                    fill={scale(n)}
-                    stroke={isFocusDate ? theme.primary : "transparent"}
-                    strokeWidth={isFocusDate ? 2 : 0}
+                    fill={isFrozen ? (isDark ? "#1e3a5f" : "#bfdbfe") : scale(n)}
+                    stroke={isFocusDate ? theme.primary : isFrozen ? (isDark ? "#60a5fa" : "#60a5fa") : "transparent"}
+                    strokeWidth={isFocusDate ? 2 : isFrozen ? 1 : 0}
                   />
-                  {isFocusDate && (
+                  {isFocusDate && !isFrozen && (
                     <Circle
                       cx={x + cell/2}
                       cy={y + cell/2}
                       r={2}
                       fill={theme.primary}
                     />
+                  )}
+                  {isFrozen && (
+                    <SvgText
+                      x={x + cell / 2}
+                      y={y + cell / 2 + 4}
+                      fontSize={9}
+                      textAnchor="middle"
+                      fill={isDark ? "#93c5fd" : "#1d4ed8"}
+                    >
+                      ❄
+                    </SvgText>
                   )}
                 </React.Fragment>
               );

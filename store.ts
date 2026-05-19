@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Goal, Frequency, CustomFrequency, Task, UserAccount } from "./types";
-import { format, startOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, differenceInCalendarDays } from "date-fns";
+import { Goal, Frequency, CustomFrequency, Task, UserAccount, FreezeDay } from "./types";
+import { format, startOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, differenceInCalendarDays, addDays } from "date-fns";
 import { normalizeAccountDraft } from "./account";
 
 // Date utility functions
@@ -166,19 +166,35 @@ export const getCustomFrequencyAlert = (task: Task, referenceDate: Date = new Da
 };
 
 // Helper to calculate streak for any goal type
-export const getGoalStreak = (task: Task): number => {
+// frozenDays: pass the store's frozenDays array so frozen dates are skipped (not broken)
+export const getGoalStreak = (task: Task, frozenDays: FreezeDay[] = []): number => {
   let streak = 0;
   let currentDate = new Date();
-  
+
+  // Build a Set of frozen date keys for O(1) lookup
+  const frozenDateKeys = new Set(frozenDays.map((fd) => fd.date));
+  const isDateKeyFrozen = (dateKey: string) => frozenDateKeys.has(dateKey);
+
   if (task.frequency === "custom" && task.customFrequency) {
     // For custom frequencies, check period achievements
     const { type } = task.customFrequency;
     
-    // First check if current period is achieved
+    // First check if current period is achieved (with freeze-adjusted target)
     let currentProgress = getCustomFrequencyProgress(task, currentDate);
-    
+    let frozenInCurrentPeriod = 0;
+    if (currentProgress.periodStart && currentProgress.periodEnd) {
+      let d = startOfDay(currentProgress.periodStart);
+      while (d <= currentProgress.periodEnd) {
+        if (isDateKeyFrozen(format(d, "yyyy-MM-dd"))) frozenInCurrentPeriod++;
+        d = addDays(d, 1);
+      }
+    }
+    const minTarget = Math.max(1, Math.ceil(currentProgress.target * 0.5));
+    const adjustedTarget = Math.max(minTarget, currentProgress.target - frozenInCurrentPeriod);
+    const currentAchieved = currentProgress.completed >= adjustedTarget;
+
     // If current period is achieved, start counting from it
-    if (currentProgress.achieved) {
+    if (currentAchieved) {
       streak++;
       // Move to previous period
       if (type === "weekly") {
@@ -198,8 +214,23 @@ export const getGoalStreak = (task: Task): number => {
     // Now count consecutive achieved periods going backwards
     while (true) {
       const progress = getCustomFrequencyProgress(task, currentDate);
-      
-      if (progress.achieved) {
+
+      // Count frozen days in this period to reduce effective target
+      let frozenInPeriod = 0;
+      if (progress.periodStart && progress.periodEnd) {
+        let d = startOfDay(progress.periodStart);
+        while (d <= progress.periodEnd) {
+          if (isDateKeyFrozen(format(d, "yyyy-MM-dd"))) frozenInPeriod++;
+          d = addDays(d, 1);
+        }
+      }
+      // Require at least 50% of original target (rounded up) to prevent
+      // streaks from continuing with minimal effort when many days are frozen
+      const minTarget = Math.max(1, Math.ceil(progress.target * 0.5));
+      const adjustedTarget = Math.max(minTarget, progress.target - frozenInPeriod);
+      const periodAchieved = progress.completed >= adjustedTarget;
+
+      if (periodAchieved) {
         streak++;
         // Move to previous period
         if (type === "weekly") {
@@ -215,7 +246,7 @@ export const getGoalStreak = (task: Task): number => {
       if (streak > 104) break;
     }
   } else if (task.frequency === "daily") {
-    // For daily tasks, check consecutive days
+    // For daily tasks, check consecutive days; frozen days are skipped (neutral)
     while (true) {
       const dateStr = format(currentDate, "yyyy-MM-dd");
       const hasCompletion = task.completions.some(date => 
@@ -226,6 +257,9 @@ export const getGoalStreak = (task: Task): number => {
         streak++;
         // Move to previous day
         currentDate.setDate(currentDate.getDate() - 1);
+      } else if (isDateKeyFrozen(dateStr)) {
+        // Frozen day: skip without incrementing or breaking
+        currentDate.setDate(currentDate.getDate() - 1);
       } else {
         break; // Streak broken
       }
@@ -235,6 +269,7 @@ export const getGoalStreak = (task: Task): number => {
     }
   } else if (task.frequency === "weekly") {
     // For weekly tasks, check consecutive weeks
+    // A week is "frozen" if it has no completions but all 7 days are frozen
     while (true) {
       const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 }); // Sunday
       const weekEnd = endOfWeek(currentDate, { weekStartsOn: 0 }); // Saturday
@@ -242,13 +277,28 @@ export const getGoalStreak = (task: Task): number => {
       const hasCompletionThisWeek = task.completions.some(date => 
         isWithinInterval(date, { start: weekStart, end: weekEnd })
       );
-      
+
       if (hasCompletionThisWeek) {
         streak++;
         // Move to previous week
         currentDate.setDate(currentDate.getDate() - 7);
       } else {
-        break; // Streak broken
+        // Check if the entire week is frozen (all 7 days)
+        let allFrozen = true;
+        let d = startOfDay(weekStart);
+        while (d <= weekEnd) {
+          if (!isDateKeyFrozen(format(d, "yyyy-MM-dd"))) {
+            allFrozen = false;
+            break;
+          }
+          d = addDays(d, 1);
+        }
+        if (allFrozen) {
+          // Skip this week without incrementing or breaking
+          currentDate.setDate(currentDate.getDate() - 7);
+        } else {
+          break; // Streak broken
+        }
       }
       
       // Safety check - don't go back more than 104 weeks (2 years)
@@ -594,6 +644,7 @@ interface State {
     cloudSyncEnabled: boolean;
     syncRevision: number;
     lastSyncedRevision: number;
+    frozenDays: FreezeDay[];
     setGoals: (goals: Goal[]) => void;
     setCloudSyncEnabled: (enabled: boolean) => void;
     markGoalsSynced: (revision: number) => void;
@@ -606,6 +657,10 @@ interface State {
     reorderTasks: (goalId: string, taskIdsInOrder: string[]) => void;
     deleteTask: (goalId: string, taskId: string) => void;
     toggleTaskCompletion: (goalId: string, taskId: string, date?: Date) => void;
+    freezeDay: (date: Date, reason: string) => boolean;
+    unfreezeDay: (date: Date) => void;
+    isDayFrozen: (date: Date) => boolean;
+    getFreezeReason: (date: Date) => string | undefined;
     completionsByDate: () => Record<string, number>;
     deleteGoal: (goalId: string) => void;
     resetAppData: () => void;
@@ -643,6 +698,7 @@ export const useStore = create<State>()(
             cloudSyncEnabled: false,
             syncRevision: 0,
             lastSyncedRevision: 0,
+            frozenDays: [],
 
             /**
              * This setter is the bridge between remote reads and the existing
@@ -827,6 +883,43 @@ export const useStore = create<State>()(
                         s.syncRevision
                     );
                 }),
+            /**
+             * Freeze a day with a required reason. Returns true on success,
+             * false if the reason is empty/whitespace.
+             * Upserting by date key means re-freezing the same day updates the reason.
+             */
+            freezeDay: (date, reason) => {
+                const trimmedReason = reason.trim();
+                if (!trimmedReason) return false;
+                const dateKey = dateToKey(date);
+                set((s) => ({
+                    frozenDays: [
+                        ...s.frozenDays.filter((fd) => fd.date !== dateKey),
+                        { date: dateKey, reason: trimmedReason, createdAt: Date.now() },
+                    ],
+                    syncRevision: s.syncRevision + 1,
+                }));
+                return true;
+            },
+
+            unfreezeDay: (date) => {
+                const dateKey = dateToKey(date);
+                set((s) => ({
+                    frozenDays: s.frozenDays.filter((fd) => fd.date !== dateKey),
+                    syncRevision: s.syncRevision + 1,
+                }));
+            },
+
+            isDayFrozen: (date) => {
+                const dateKey = dateToKey(date);
+                return get().frozenDays.some((fd) => fd.date === dateKey);
+            },
+
+            getFreezeReason: (date) => {
+                const dateKey = dateToKey(date);
+                return get().frozenDays.find((fd) => fd.date === dateKey)?.reason;
+            },
+
             completionsByDate: () => {
                 const map: Record<string, number> = {};
                 for (const g of get().goals) {

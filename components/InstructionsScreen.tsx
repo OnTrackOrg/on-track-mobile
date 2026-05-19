@@ -62,7 +62,16 @@ export default function InstructionsScreen() {
           </Text>
         </InfoSection>
 
-        <InfoSection title="6. Start with your own goals">
+        <InfoSection title="6. Freeze a day when life gets in the way">
+          <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
+            On the date card, tap ❄️ Freeze This Day to pause tracking for that day. You must enter a reason, this keeps you accountable while protecting your streaks.
+          </Text>
+          <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
+            Frozen days are shown with a snowflake on heatmaps and in the date card. They do not count toward your streak, but they also do not break it. Tap the frozen pill to unfreeze at any time.
+          </Text>
+        </InfoSection>
+
+        <InfoSection title="7. Start with your own goals">
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
             After onboarding and account setup, OnTrack starts empty. Add your own goals and tasks to build a consistency history that reflects your real routine.
           </Text>

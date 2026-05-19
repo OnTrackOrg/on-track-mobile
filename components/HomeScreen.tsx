@@ -34,6 +34,10 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
   const setGoals = useStore((s) => s.setGoals);
   const setAccount = useStore((s) => s.setAccount);
   const setCloudSyncEnabled = useStore((s) => s.setCloudSyncEnabled);
+  const freezeDay = useStore((s) => s.freezeDay);
+  const unfreezeDay = useStore((s) => s.unfreezeDay);
+  const isDayFrozen = useStore((s) => s.isDayFrozen);
+  const getFreezeReason = useStore((s) => s.getFreezeReason);
   const currentMode = getCurrentMode();
   const { theme, isDark, toggleTheme } = useTheme();
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -42,6 +46,20 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
   const [radarMode, setRadarMode] = useState<RadarChartMode>("current");
   const isDevToolsVisible = currentMode === "DEV";
   const canReorderGoals = goals.length > 1;
+
+  // Check if any recurring tasks have completions on the selected date
+  const hasCompletionsOnDate = React.useMemo(() => {
+    const dateKey = selectedDate.toISOString().split("T")[0];
+    return goals.some((goal) =>
+      goal.tasks.some(
+        (task) =>
+          task.frequency !== "once" &&
+          task.completions.some(
+            (date) => date.toISOString().split("T")[0] === dateKey
+          )
+      )
+    );
+  }, [goals, selectedDate]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -173,6 +191,9 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
         <View style={{ padding: 16, gap: 12 }}>
           <DateContextCard
             selectedDate={selectedDate}
+            isFrozen={isDayFrozen(selectedDate)}
+            freezeReason={getFreezeReason(selectedDate)}
+            hasCompletions={hasCompletionsOnDate}
             onPress={() => {
               void haptics.tap();
               setCalendarVisible(true);
@@ -189,6 +210,12 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
 
               void haptics.tap();
               setSelectedDate(getNextTrackingDate(selectedDate));
+            }}
+            onFreezeDay={(reason) => {
+              freezeDay(selectedDate, reason);
+            }}
+            onUnfreezeDay={() => {
+              unfreezeDay(selectedDate);
             }}
           />
 
