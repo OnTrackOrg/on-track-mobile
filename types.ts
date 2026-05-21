@@ -1,5 +1,11 @@
 export type Frequency = "once" | "daily" | "weekly" | "custom";
 
+export interface FreezeDay {
+  date: string;      // "yyyy-MM-dd" canonical day key
+  reason: string;    // required, trimmed, non-empty
+  createdAt: number; // Date.now() at freeze time
+}
+
 export interface CustomFrequency {
   type: "weekly" | "monthly";
   target: number; // e.g., 3 times per week, 5 times per month

@@ -29,6 +29,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
   const { goalId } = route.params;
   const goal = useStore((s) => s.goals.find((g) => g.id === goalId)!);
   const selectedDate = useStore((s) => s.selectedDate);
+  const frozenDays = useStore((s) => s.frozenDays);
   const { theme } = useTheme();
   const [viewMode, setViewMode] = React.useState<"summary" | "tasks">("tasks");
 
@@ -76,6 +77,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
   const onceTaskHeatmapData = getHeatmapData(onceTasks.flatMap((task) => task.completions));
   const onceTaskCompletionCount = Object.values(onceTaskHeatmapData).reduce((sum, count) => sum + count, 0);
   const hasOnceTaskHistory = onceTaskCompletionCount > 0;
+  const frozenDateKeySet = new Set(frozenDays.map((fd) => fd.date));
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }} edges={['bottom', 'left', 'right']}>
@@ -138,6 +140,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
               values={recurringGoalSummaryHeatmapData}
               referenceDate={selectedDate}
               valueMode="ratio"
+              frozenDateKeys={frozenDateKeySet}
             />
 
             <View style={{ gap: 6 }}>
@@ -219,7 +222,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
                   
                   {/* Fire Streak Indicator - Always Show */}
                   {(() => {
-                    const streak = getGoalStreak(task);
+                    const streak = getGoalStreak(task, frozenDays);
                     const hasStreak = streak > 0;
                     const customProgress = task.frequency === "custom" && task.customFrequency
                       ? getCustomFrequencyProgress(task, new Date())
@@ -317,6 +320,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
                 startOffsetDays={180} 
                 values={getHeatmapData(task.completions)}
                 referenceDate={selectedDate}
+                frozenDateKeys={frozenDateKeySet}
               />
             </View>
             {index < recurringTasks.length - 1 && <View style={{ height: 16 }} />}
