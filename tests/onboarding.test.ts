@@ -6,7 +6,7 @@ describe("shouldShowOnboarding", () => {
       shouldShowOnboarding({
         hasCompletedOnboarding: false,
         hasExistingGoals: false,
-      })
+      }),
     ).toBe(true);
   });
 
@@ -15,7 +15,7 @@ describe("shouldShowOnboarding", () => {
       shouldShowOnboarding({
         hasCompletedOnboarding: true,
         hasExistingGoals: false,
-      })
+      }),
     ).toBe(false);
   });
 
@@ -24,7 +24,7 @@ describe("shouldShowOnboarding", () => {
       shouldShowOnboarding({
         hasCompletedOnboarding: false,
         hasExistingGoals: true,
-      })
+      }),
     ).toBe(false);
   });
 });

@@ -33,7 +33,7 @@ describe("dataSync mappers", () => {
           task_id: "task-1",
           completed_day: "2026-05-03",
         },
-      ]
+      ],
     );
 
     expect(goals).toHaveLength(1);
@@ -86,7 +86,7 @@ describe("dataSync mappers", () => {
           created_at: "2026-05-01T12:09:00.000Z",
         },
       ],
-      []
+      [],
     );
 
     expect(tasks.map((task) => task.id)).toEqual(["task-1", "task-2"]);
@@ -114,7 +114,9 @@ describe("dataSync mappers", () => {
     expect(prepared.goals[0].id).not.toBe("legacy-goal-id");
     expect(prepared.goals[0].completedAt).toBe(1779278400000);
     expect(prepared.goals[0].tasks[0].id).not.toBe("legacy-task-id");
-    expect(prepared.goals[0].tasks[0].completions[0].toISOString()).toBe("2026-05-03T00:00:00.000Z");
+    expect(prepared.goals[0].tasks[0].completions[0].toISOString()).toBe(
+      "2026-05-03T00:00:00.000Z",
+    );
   });
 
   it("preserves ids that are already UUIDs", () => {
@@ -136,6 +138,8 @@ describe("dataSync mappers", () => {
 
     expect(prepared.hadLegacyIds).toBe(false);
     expect(prepared.goals[0].id).toBe("75cfeb0f-8097-4bf2-9fa7-09c66d4d4aa7");
-    expect(prepared.goals[0].tasks[0].id).toBe("519c2b3d-88fc-471b-9e59-12fb35df4e31");
+    expect(prepared.goals[0].tasks[0].id).toBe(
+      "519c2b3d-88fc-471b-9e59-12fb35df4e31",
+    );
   });
 });

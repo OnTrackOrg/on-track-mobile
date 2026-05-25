@@ -21,7 +21,9 @@ export default function InfoSection({ title, children }: InfoSectionProps) {
         gap: 8,
       }}
     >
-      <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text }}>{title}</Text>
+      <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text }}>
+        {title}
+      </Text>
       {children}
     </View>
   );

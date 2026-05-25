@@ -17,7 +17,10 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
   const { theme } = useTheme();
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }} edges={['bottom', 'left', 'right']}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: theme.background }}
+      edges={["bottom", "left", "right"]}
+    >
       <View style={{ padding: 16, gap: 12 }}>
         <LabeledTextField
           label="Goal Title"
@@ -44,7 +47,11 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
 
             void haptics.error();
           }}
-          style={{ backgroundColor: theme.primary, padding: 12, borderRadius: 10 }}
+          style={{
+            backgroundColor: theme.primary,
+            padding: 12,
+            borderRadius: 10,
+          }}
         >
           <Text
             style={{ color: "white", textAlign: "center", fontWeight: "700" }}

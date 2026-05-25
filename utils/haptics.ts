@@ -11,9 +11,20 @@ const run = async (callback: () => Promise<void>) => {
 export const haptics = {
   tap: () => run(() => Haptics.selectionAsync()),
   navigate: () => run(() => Haptics.selectionAsync()),
-  toggle: () => run(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)),
-  success: () => run(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)),
-  warning: () => run(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)),
-  error: () => run(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)),
-  destructive: () => run(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)),
+  toggle: () =>
+    run(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)),
+  success: () =>
+    run(() =>
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
+    ),
+  warning: () =>
+    run(() =>
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning),
+    ),
+  error: () =>
+    run(() =>
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error),
+    ),
+  destructive: () =>
+    run(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)),
 };

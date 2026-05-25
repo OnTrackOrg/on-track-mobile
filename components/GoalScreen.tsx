@@ -3,13 +3,31 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Text, View, Pressable, TextInput, Modal, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { NestableDraggableFlatList, NestableScrollContainer, RenderItemParams, ScaleDecorator } from "react-native-draggable-flatlist";
-import { useStore, getCustomFrequencyProgress, getCustomFrequencyAlert, shouldShowCustomTask, isOnceTaskCompletedOnDate } from "../store";
+import {
+  NestableDraggableFlatList,
+  NestableScrollContainer,
+  RenderItemParams,
+  ScaleDecorator,
+} from "react-native-draggable-flatlist";
+import {
+  useStore,
+  getCustomFrequencyProgress,
+  getCustomFrequencyAlert,
+  shouldShowCustomTask,
+  isOnceTaskCompletedOnDate,
+} from "../store";
 import { useTheme } from "../contexts/ThemeContext";
-import { format, startOfWeek, endOfWeek, isWithinInterval, isToday } from "date-fns";
+import {
+  format,
+  startOfWeek,
+  endOfWeek,
+  isWithinInterval,
+  isToday,
+} from "date-fns";
 import { Frequency, CustomFrequency } from "../types";
 import { haptics } from "../utils/haptics";
 import { RootStackParamList } from "../navigation";
+import TrackingDateControls from "./TrackingDateControls";
 
 type GoalProps = NativeStackScreenProps<RootStackParamList, "Goal">;
 
@@ -31,12 +49,16 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
 
   const [taskTitle, setTaskTitle] = React.useState("");
   const [frequency, setFrequency] = React.useState<Frequency>("daily");
-  const [customFrequency, setCustomFrequency] = React.useState<CustomFrequency>({ type: "weekly", target: 3 });
+  const [customFrequency, setCustomFrequency] = React.useState<CustomFrequency>(
+    { type: "weekly", target: 3 },
+  );
   const [isEditing, setIsEditing] = React.useState(false);
   const [editingTaskId, setEditingTaskId] = React.useState<string | null>(null);
   const [isEditingGoalDetails, setIsEditingGoalDetails] = React.useState(false);
   const [goalTitleDraft, setGoalTitleDraft] = React.useState(goal?.title ?? "");
-  const [goalTargetDraft, setGoalTargetDraft] = React.useState(goal?.target ?? "");
+  const [goalTargetDraft, setGoalTargetDraft] = React.useState(
+    goal?.target ?? "",
+  );
   const [isReorderingTasks, setIsReorderingTasks] = React.useState(false);
 
   React.useEffect(() => {
@@ -85,7 +107,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             navigation.navigate("CompletedGoals");
           },
         },
-      ]
+      ],
     );
   };
 
@@ -103,12 +125,15 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             void haptics.success();
           },
         },
-      ]
+      ],
     );
   };
 
   const isCompletedToday = (dates: Date[], referenceDate: Date) =>
-    dates.some(date => format(date, "yyyy-MM-dd") === format(referenceDate, "yyyy-MM-dd"));
+    dates.some(
+      (date) =>
+        format(date, "yyyy-MM-dd") === format(referenceDate, "yyyy-MM-dd"),
+    );
 
   const getMaxCustomTarget = (type: CustomFrequency["type"]) =>
     type === "weekly" ? MAX_WEEKLY_CUSTOM_TARGET : MAX_MONTHLY_CUSTOM_TARGET;
@@ -120,11 +145,16 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     paddingVertical: 4,
   };
 
-  const normalizeCustomTarget = (target: number, type: CustomFrequency["type"]) =>
-    Math.min(getMaxCustomTarget(type), Math.max(1, target));
+  const normalizeCustomTarget = (
+    target: number,
+    type: CustomFrequency["type"],
+  ) => Math.min(getMaxCustomTarget(type), Math.max(1, target));
 
   const adjustCustomTarget = (delta: number) => {
-    const nextTarget = normalizeCustomTarget(customFrequency.target + delta, customFrequency.type);
+    const nextTarget = normalizeCustomTarget(
+      customFrequency.target + delta,
+      customFrequency.type,
+    );
 
     if (nextTarget === customFrequency.target) {
       void haptics.warning();
@@ -167,12 +197,16 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
       return;
     }
 
-    const normalizedCustomFrequency = frequency === "custom"
-      ? {
-          ...customFrequency,
-          target: normalizeCustomTarget(customFrequency.target, customFrequency.type),
-        }
-      : undefined;
+    const normalizedCustomFrequency =
+      frequency === "custom"
+        ? {
+            ...customFrequency,
+            target: normalizeCustomTarget(
+              customFrequency.target,
+              customFrequency.type,
+            ),
+          }
+        : undefined;
 
     if (editingTaskId) {
       updateTask(goalId, editingTaskId, {
@@ -201,19 +235,27 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           onPress: () => {
             void haptics.destructive();
             deleteTask(goalId, taskId);
-          }
-        }
-      ]
+          },
+        },
+      ],
     );
   };
 
   const viewingToday = isToday(selectedDate);
   const selectedWeekStart = startOfWeek(selectedDate, { weekStartsOn: 0 });
   const selectedWeekEnd = endOfWeek(selectedDate, { weekStartsOn: 0 });
-  const selectedDayLabel = viewingToday ? "today" : format(selectedDate, "MMM d");
-  const incompleteDailyLabel = viewingToday ? "Done today: No" : `Done on ${selectedDayLabel}: No`;
-  const completedDailyLabel = viewingToday ? "Done today: Yes ✓" : `Done on ${selectedDayLabel}: Yes ✓`;
-  const customCompletionLabel = viewingToday ? "Done today ✓" : `Done on ${selectedDayLabel} ✓`;
+  const selectedDayLabel = viewingToday
+    ? "today"
+    : format(selectedDate, "MMM d");
+  const incompleteDailyLabel = viewingToday
+    ? "Done today: No"
+    : `Done on ${selectedDayLabel}: No`;
+  const completedDailyLabel = viewingToday
+    ? "Done today: Yes ✓"
+    : `Done on ${selectedDayLabel}: Yes ✓`;
+  const customCompletionLabel = viewingToday
+    ? "Done today ✓"
+    : `Done on ${selectedDayLabel} ✓`;
   const weeklyContextLabel = `week of ${format(selectedWeekStart, "MMM d")}`;
   const getCustomPeriodLabel = (type: CustomFrequency["type"]) => {
     if (type === "weekly") {
@@ -223,7 +265,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     return viewingToday ? "this month" : format(selectedDate, "MMMM yyyy");
   };
 
-  const pendingTasks = goal.tasks.filter(item => {
+  const pendingTasks = goal.tasks.filter((item) => {
     if (item.frequency === "custom") {
       return shouldShowCustomTask(item, selectedDate);
     }
@@ -233,8 +275,11 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     }
 
     if (item.frequency === "weekly") {
-      return !item.completions.some(date =>
-        isWithinInterval(date, { start: selectedWeekStart, end: selectedWeekEnd })
+      return !item.completions.some((date) =>
+        isWithinInterval(date, {
+          start: selectedWeekStart,
+          end: selectedWeekEnd,
+        }),
       );
     }
 
@@ -245,10 +290,12 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     return true;
   });
 
-  const completedTasks = goal.tasks.filter(item => {
+  const completedTasks = goal.tasks.filter((item) => {
     if (item.frequency === "custom") {
       const progress = getCustomFrequencyProgress(item, selectedDate);
-      return isCompletedToday(item.completions, selectedDate) || progress.achieved;
+      return (
+        isCompletedToday(item.completions, selectedDate) || progress.achieved
+      );
     }
 
     if (item.frequency === "daily") {
@@ -256,8 +303,11 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     }
 
     if (item.frequency === "weekly") {
-      return item.completions.some(date =>
-        isWithinInterval(date, { start: selectedWeekStart, end: selectedWeekEnd })
+      return item.completions.some((date) =>
+        isWithinInterval(date, {
+          start: selectedWeekStart,
+          end: selectedWeekEnd,
+        }),
       );
     }
 
@@ -268,7 +318,16 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     return false;
   });
 
-  const renderTaskActionButtons = (item: typeof goal.tasks[number]) => (
+  const hasCompletionsOnSelectedDate = goal.tasks.some(
+    (task) =>
+      task.frequency !== "once" &&
+      task.completions.some(
+        (date) =>
+          format(date, "yyyy-MM-dd") === format(selectedDate, "yyyy-MM-dd"),
+      ),
+  );
+
+  const renderTaskActionButtons = (item: (typeof goal.tasks)[number]) => (
     <View style={{ alignSelf: "center", gap: 6 }}>
       <Pressable
         onPress={() => startEditingTask(item.id)}
@@ -294,7 +353,10 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }} edges={['bottom', 'left', 'right']}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: theme.background }}
+      edges={["bottom", "left", "right"]}
+    >
       <NestableScrollContainer
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 28 }}
@@ -329,7 +391,11 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 hitSlop={8}
                 style={{ padding: 6 }}
               >
-                <Ionicons name="checkmark-outline" size={20} color={theme.primary} />
+                <Ionicons
+                  name="checkmark-outline"
+                  size={20}
+                  color={theme.primary}
+                />
               </Pressable>
               <Pressable
                 onPress={() => {
@@ -341,12 +407,25 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 hitSlop={8}
                 style={{ padding: 6 }}
               >
-                <Ionicons name="close-outline" size={20} color={theme.textSecondary} />
+                <Ionicons
+                  name="close-outline"
+                  size={20}
+                  color={theme.textSecondary}
+                />
               </Pressable>
             </>
           ) : (
             <>
-              <Text style={{ flex: 1, fontSize: 22, fontWeight: "800", color: theme.text }}>{goal.title}</Text>
+              <Text
+                style={{
+                  flex: 1,
+                  fontSize: 22,
+                  fontWeight: "800",
+                  color: theme.text,
+                }}
+              >
+                {goal.title}
+              </Text>
               <Pressable
                 onPress={() => {
                   void haptics.tap();
@@ -366,7 +445,11 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                   borderColor: theme.border,
                 }}
               >
-                <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
+                <Ionicons
+                  name="create-outline"
+                  size={16}
+                  color={theme.textSecondary}
+                />
               </Pressable>
             </>
           )}
@@ -396,8 +479,11 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             </Text>
           </View>
         ) : goal.target ? (
-          <Text style={{ color: theme.textSecondary }}>Target: {goal.target}</Text>
+          <Text style={{ color: theme.textSecondary }}>
+            Target: {goal.target}
+          </Text>
         ) : null}
+        <TrackingDateControls hasCompletions={hasCompletionsOnSelectedDate} />
         {isGoalCompleted ? (
           <View
             style={{
@@ -412,7 +498,9 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             }}
           >
             <Ionicons name="trophy-outline" size={18} color={theme.warning} />
-            <Text style={{ color: theme.text, fontWeight: "700" }}>{completedAtLabel}</Text>
+            <Text style={{ color: theme.text, fontWeight: "700" }}>
+              {completedAtLabel}
+            </Text>
           </View>
         ) : null}
         <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
@@ -443,20 +531,34 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 backgroundColor: theme.primary + "20",
               }}
             >
-              <Ionicons name="analytics-outline" size={14} color={theme.primary} />
+              <Ionicons
+                name="analytics-outline"
+                size={14}
+                color={theme.primary}
+              />
             </View>
-            <Text style={{ color: theme.text, fontWeight: "700" }}>See Consistency</Text>
-            <Ionicons name="arrow-forward" size={14} color={theme.textSecondary} />
+            <Text style={{ color: theme.text, fontWeight: "700" }}>
+              See Consistency
+            </Text>
+            <Ionicons
+              name="arrow-forward"
+              size={14}
+              color={theme.textSecondary}
+            />
           </Pressable>
           <Pressable
-            onPress={isGoalCompleted ? confirmReactivateGoal : confirmCompleteGoal}
+            onPress={
+              isGoalCompleted ? confirmReactivateGoal : confirmCompleteGoal
+            }
             style={{
               flexDirection: "row",
               alignItems: "center",
               gap: 8,
               backgroundColor: theme.surface,
               borderWidth: 1,
-              borderColor: isGoalCompleted ? theme.border : theme.success + "55",
+              borderColor: isGoalCompleted
+                ? theme.border
+                : theme.success + "55",
               paddingVertical: 10,
               paddingHorizontal: 14,
               borderRadius: 9999,
@@ -469,7 +571,9 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 borderRadius: 12,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: isGoalCompleted ? theme.background : theme.success + "20",
+                backgroundColor: isGoalCompleted
+                  ? theme.background
+                  : theme.success + "20",
               }}
             >
               <Ionicons
@@ -485,7 +589,14 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
         </View>
 
         {/* Pending Tasks Section */}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginTop: 4,
+          }}
+        >
           <Text style={{ fontWeight: "700", color: theme.text }}>Tasks</Text>
           {goal.tasks.length > 1 ? (
             <Pressable
@@ -505,8 +616,20 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 backgroundColor: theme.surface,
               }}
             >
-              <Ionicons name="reorder-three-outline" size={14} color={isReorderingTasks ? theme.primary : theme.textSecondary} />
-              <Text style={{ color: isReorderingTasks ? theme.primary : theme.textSecondary, fontWeight: "600", fontSize: 12 }}>
+              <Ionicons
+                name="reorder-three-outline"
+                size={14}
+                color={isReorderingTasks ? theme.primary : theme.textSecondary}
+              />
+              <Text
+                style={{
+                  color: isReorderingTasks
+                    ? theme.primary
+                    : theme.textSecondary,
+                  fontWeight: "600",
+                  fontSize: 12,
+                }}
+              >
                 {isReorderingTasks ? "Done" : "Reorder"}
               </Text>
             </Pressable>
@@ -521,11 +644,18 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
               data={goal.tasks}
               keyExtractor={(item) => item.id}
               onDragEnd={({ data }) => {
-                reorderTasks(goalId, data.map((task) => task.id));
+                reorderTasks(
+                  goalId,
+                  data.map((task) => task.id),
+                );
                 void haptics.success();
               }}
               ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-              renderItem={({ item, drag, isActive }: RenderItemParams<(typeof goal.tasks)[number]>) => (
+              renderItem={({
+                item,
+                drag,
+                isActive,
+              }: RenderItemParams<(typeof goal.tasks)[number]>) => (
                 <ScaleDecorator>
                   <Pressable
                     onLongPress={drag}
@@ -541,10 +671,18 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                       backgroundColor: theme.surface,
                     }}
                   >
-                    <Ionicons name="reorder-three-outline" size={18} color={theme.textSecondary} />
+                    <Ionicons
+                      name="reorder-three-outline"
+                      size={18}
+                      color={theme.textSecondary}
+                    />
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontWeight: "700", color: theme.text }}>{item.title}</Text>
-                      <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                      <Text style={{ fontWeight: "700", color: theme.text }}>
+                        {item.title}
+                      </Text>
+                      <Text
+                        style={{ color: theme.textSecondary, fontSize: 12 }}
+                      >
                         {item.frequency === "custom" && item.customFrequency
                           ? `${item.customFrequency.target} times per ${item.customFrequency.type}`
                           : `Frequency: ${item.frequency}`}
@@ -556,17 +694,28 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             />
           </View>
         ) : pendingTasks.length === 0 ? (
-          <View style={{
-            padding: 20,
-            borderRadius: 12,
-            backgroundColor: theme.completionCard,
-            borderWidth: 1,
-            borderColor: theme.completionCardBorder,
-            alignItems: "center",
-            marginTop: 8
-          }}>
-            <Text style={{ fontWeight: "700", fontSize: 18, color: theme.success, marginBottom: 4 }}>
-              {viewingToday ? "All done for today!" : `All done for ${selectedDayLabel}!`}
+          <View
+            style={{
+              padding: 20,
+              borderRadius: 12,
+              backgroundColor: theme.completionCard,
+              borderWidth: 1,
+              borderColor: theme.completionCardBorder,
+              alignItems: "center",
+              marginTop: 8,
+            }}
+          >
+            <Text
+              style={{
+                fontWeight: "700",
+                fontSize: 18,
+                color: theme.success,
+                marginBottom: 4,
+              }}
+            >
+              {viewingToday
+                ? "All done for today!"
+                : `All done for ${selectedDayLabel}!`}
             </Text>
             <Text style={{ color: theme.success, textAlign: "center" }}>
               {viewingToday
@@ -590,93 +739,153 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                   backgroundColor: theme.surface,
                 }}
               >
-                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                  }}
+                >
                   <View style={{ flex: 1, paddingRight: 12 }}>
-                    <Text style={{ fontWeight: "700", color: theme.text }}>{item.title}</Text>
-                    {item.frequency === "custom" && item.customFrequency ? (() => {
-                      const progress = getCustomFrequencyProgress(item, selectedDate);
-                      const alert = getCustomFrequencyAlert(item, selectedDate);
-                      return (
-                        <View style={{ marginTop: 8 }}>
-                          <Text style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 4 }}>
-                            {progress.completed}/{progress.target} times in {getCustomPeriodLabel(item.customFrequency.type)}
-                          </Text>
-                          <View style={{ flexDirection: "row", gap: 2 }}>
-                            {Array.from({ length: progress.target }, (_, progressIndex) => (
-                              <View
-                                key={progressIndex}
+                    <Text style={{ fontWeight: "700", color: theme.text }}>
+                      {item.title}
+                    </Text>
+                    {item.frequency === "custom" && item.customFrequency
+                      ? (() => {
+                          const progress = getCustomFrequencyProgress(
+                            item,
+                            selectedDate,
+                          );
+                          const alert = getCustomFrequencyAlert(
+                            item,
+                            selectedDate,
+                          );
+                          return (
+                            <View style={{ marginTop: 8 }}>
+                              <Text
                                 style={{
-                                  flex: 1,
-                                  height: 6,
-                                  backgroundColor: progressIndex < progress.completed ? theme.primary : theme.border,
-                                  borderRadius: 3,
+                                  color: theme.textSecondary,
+                                  fontSize: 12,
+                                  marginBottom: 4,
                                 }}
-                              />
-                            ))}
-                          </View>
-                          {progress.target > progress.completed && (
-                            <Text style={{ color: theme.textSecondary, fontSize: 11, marginTop: 2 }}>
-                              {progress.target - progress.completed} more to go
-                            </Text>
-                          )}
-                          {alert ? (
-                            <Text
-                              style={{
-                                color: alert.tone === "error"
-                                  ? theme.danger
-                                  : alert.tone === "warning"
-                                    ? theme.warning ?? "#f59e0b"
-                                    : theme.primary,
-                                fontSize: 11,
-                                marginTop: 4,
-                                fontWeight: "600",
-                              }}
-                            >
-                              {alert.message}
-                            </Text>
-                          ) : null}
-                        </View>
-                      );
-                    })() : (() => {
-                      if (item.frequency === "weekly") {
-                        const completedThisWeek = item.completions.some(date =>
-                          isWithinInterval(date, { start: selectedWeekStart, end: selectedWeekEnd })
-                        );
-                        return (
-                          <>
-                            <Text style={{ color: theme.textSecondary }}>Frequency: Weekly</Text>
-                            <Text style={{ color: theme.textSecondary }}>
-                              Done for {weeklyContextLabel}: {completedThisWeek ? "Yes" : "No"}
-                            </Text>
-                          </>
-                        );
-                      } else if (item.frequency === "daily") {
-                        return (
-                          <>
-                            <Text style={{ color: theme.textSecondary }}>Frequency: Daily</Text>
-                            <Text style={{ color: theme.textSecondary }}>{incompleteDailyLabel}</Text>
-                          </>
-                        );
-                      } else if (item.frequency === "once") {
-                        return (
-                          <>
-                            <Text style={{ color: theme.textSecondary }}>Frequency: Once</Text>
-                            <Text style={{ color: theme.textSecondary }}>Status: Pending</Text>
-                          </>
-                        );
-                      }
-                      return (
-                        <>
-                          <Text style={{ color: theme.textSecondary }}>Frequency: {item.frequency}</Text>
-                          <Text style={{ color: theme.textSecondary }}>Status: Pending</Text>
-                        </>
-                      );
-                    })()}
+                              >
+                                {progress.completed}/{progress.target} times in{" "}
+                                {getCustomPeriodLabel(
+                                  item.customFrequency.type,
+                                )}
+                              </Text>
+                              <View style={{ flexDirection: "row", gap: 2 }}>
+                                {Array.from(
+                                  { length: progress.target },
+                                  (_, progressIndex) => (
+                                    <View
+                                      key={progressIndex}
+                                      style={{
+                                        flex: 1,
+                                        height: 6,
+                                        backgroundColor:
+                                          progressIndex < progress.completed
+                                            ? theme.primary
+                                            : theme.border,
+                                        borderRadius: 3,
+                                      }}
+                                    />
+                                  ),
+                                )}
+                              </View>
+                              {progress.target > progress.completed && (
+                                <Text
+                                  style={{
+                                    color: theme.textSecondary,
+                                    fontSize: 11,
+                                    marginTop: 2,
+                                  }}
+                                >
+                                  {progress.target - progress.completed} more to
+                                  go
+                                </Text>
+                              )}
+                              {alert ? (
+                                <Text
+                                  style={{
+                                    color:
+                                      alert.tone === "error"
+                                        ? theme.danger
+                                        : alert.tone === "warning"
+                                          ? (theme.warning ?? "#f59e0b")
+                                          : theme.primary,
+                                    fontSize: 11,
+                                    marginTop: 4,
+                                    fontWeight: "600",
+                                  }}
+                                >
+                                  {alert.message}
+                                </Text>
+                              ) : null}
+                            </View>
+                          );
+                        })()
+                      : (() => {
+                          if (item.frequency === "weekly") {
+                            const completedThisWeek = item.completions.some(
+                              (date) =>
+                                isWithinInterval(date, {
+                                  start: selectedWeekStart,
+                                  end: selectedWeekEnd,
+                                }),
+                            );
+                            return (
+                              <>
+                                <Text style={{ color: theme.textSecondary }}>
+                                  Frequency: Weekly
+                                </Text>
+                                <Text style={{ color: theme.textSecondary }}>
+                                  Done for {weeklyContextLabel}:{" "}
+                                  {completedThisWeek ? "Yes" : "No"}
+                                </Text>
+                              </>
+                            );
+                          } else if (item.frequency === "daily") {
+                            return (
+                              <>
+                                <Text style={{ color: theme.textSecondary }}>
+                                  Frequency: Daily
+                                </Text>
+                                <Text style={{ color: theme.textSecondary }}>
+                                  {incompleteDailyLabel}
+                                </Text>
+                              </>
+                            );
+                          } else if (item.frequency === "once") {
+                            return (
+                              <>
+                                <Text style={{ color: theme.textSecondary }}>
+                                  Frequency: Once
+                                </Text>
+                                <Text style={{ color: theme.textSecondary }}>
+                                  Status: Pending
+                                </Text>
+                              </>
+                            );
+                          }
+                          return (
+                            <>
+                              <Text style={{ color: theme.textSecondary }}>
+                                Frequency: {item.frequency}
+                              </Text>
+                              <Text style={{ color: theme.textSecondary }}>
+                                Status: Pending
+                              </Text>
+                            </>
+                          );
+                        })()}
                   </View>
                   {renderTaskActionButtons(item)}
                 </View>
               </Pressable>
-              {index < pendingTasks.length - 1 && <View style={{ height: 8 }} />}
+              {index < pendingTasks.length - 1 && (
+                <View style={{ height: 8 }} />
+              )}
             </View>
           ))
         )}
@@ -684,7 +893,15 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
         {/* Completed Tasks Section */}
         {!isReorderingTasks && completedTasks.length > 0 ? (
           <>
-            <Text style={{ fontWeight: "700", marginTop: 16, color: theme.textSecondary }}>Completed</Text>
+            <Text
+              style={{
+                fontWeight: "700",
+                marginTop: 16,
+                color: theme.textSecondary,
+              }}
+            >
+              Completed
+            </Text>
             {completedTasks.map((item, index) => (
               <View key={item.id}>
                 <Pressable
@@ -701,74 +918,136 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                     opacity: 0.7,
                   }}
                 >
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                    }}
+                  >
                     <View style={{ flex: 1, paddingRight: 12 }}>
-                      <Text style={{ fontWeight: "700", color: theme.textSecondary, textDecorationLine: "line-through" }}>{item.title}</Text>
-                      {item.frequency === "custom" && item.customFrequency ? (() => {
-                        const progress = getCustomFrequencyProgress(item, selectedDate);
-                        const completedOnSelectedDate = isCompletedToday(item.completions, selectedDate);
-                        return (
-                          <View style={{ marginTop: 8 }}>
-                            <Text style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 4 }}>
-                              {progress.completed}/{progress.target} times in {getCustomPeriodLabel(item.customFrequency.type)}
-                            </Text>
-                            <View style={{ flexDirection: "row", gap: 2 }}>
-                              {Array.from({ length: progress.target }, (_, progressIndex) => (
-                                <View
-                                  key={progressIndex}
+                      <Text
+                        style={{
+                          fontWeight: "700",
+                          color: theme.textSecondary,
+                          textDecorationLine: "line-through",
+                        }}
+                      >
+                        {item.title}
+                      </Text>
+                      {item.frequency === "custom" && item.customFrequency
+                        ? (() => {
+                            const progress = getCustomFrequencyProgress(
+                              item,
+                              selectedDate,
+                            );
+                            const completedOnSelectedDate = isCompletedToday(
+                              item.completions,
+                              selectedDate,
+                            );
+                            return (
+                              <View style={{ marginTop: 8 }}>
+                                <Text
                                   style={{
-                                    flex: 1,
-                                    height: 6,
-                                    backgroundColor: progressIndex < progress.completed ? theme.success : theme.border,
-                                    borderRadius: 3,
+                                    color: theme.textSecondary,
+                                    fontSize: 12,
+                                    marginBottom: 4,
                                   }}
-                                />
-                              ))}
-                            </View>
-                            <Text style={{ color: theme.success, fontSize: 11, marginTop: 2 }}>
-                              {progress.achieved
-                                ? "Goal achieved! ✓"
-                                : completedOnSelectedDate
-                                  ? customCompletionLabel
-                                  : "Progress made ✓"}
-                            </Text>
-                          </View>
-                        );
-                      })() : (() => {
-                        if (item.frequency === "weekly") {
-                          return (
-                            <>
-                              <Text style={{ color: theme.textSecondary }}>Frequency: Weekly</Text>
-                              <Text style={{ color: theme.success }}>Done for {weeklyContextLabel}: Yes ✓</Text>
-                            </>
-                          );
-                        } else if (item.frequency === "daily") {
-                          return (
-                            <>
-                              <Text style={{ color: theme.textSecondary }}>Frequency: Daily</Text>
-                              <Text style={{ color: theme.success }}>{completedDailyLabel}</Text>
-                            </>
-                          );
-                        } else if (item.frequency === "once") {
-                          return (
-                            <>
-                              <Text style={{ color: theme.textSecondary }}>Frequency: Once</Text>
-                              <Text style={{ color: theme.success }}>Completed ✓</Text>
-                            </>
-                          );
-                        }
-                        return (
-                          <>
-                            <Text style={{ color: theme.textSecondary }}>Frequency: {item.frequency}</Text>
-                            <Text style={{ color: theme.success }}>Completed ✓</Text>
-                          </>
-                        );
-                      })()}
+                                >
+                                  {progress.completed}/{progress.target} times
+                                  in{" "}
+                                  {getCustomPeriodLabel(
+                                    item.customFrequency.type,
+                                  )}
+                                </Text>
+                                <View style={{ flexDirection: "row", gap: 2 }}>
+                                  {Array.from(
+                                    { length: progress.target },
+                                    (_, progressIndex) => (
+                                      <View
+                                        key={progressIndex}
+                                        style={{
+                                          flex: 1,
+                                          height: 6,
+                                          backgroundColor:
+                                            progressIndex < progress.completed
+                                              ? theme.success
+                                              : theme.border,
+                                          borderRadius: 3,
+                                        }}
+                                      />
+                                    ),
+                                  )}
+                                </View>
+                                <Text
+                                  style={{
+                                    color: theme.success,
+                                    fontSize: 11,
+                                    marginTop: 2,
+                                  }}
+                                >
+                                  {progress.achieved
+                                    ? "Goal achieved! ✓"
+                                    : completedOnSelectedDate
+                                      ? customCompletionLabel
+                                      : "Progress made ✓"}
+                                </Text>
+                              </View>
+                            );
+                          })()
+                        : (() => {
+                            if (item.frequency === "weekly") {
+                              return (
+                                <>
+                                  <Text style={{ color: theme.textSecondary }}>
+                                    Frequency: Weekly
+                                  </Text>
+                                  <Text style={{ color: theme.success }}>
+                                    Done for {weeklyContextLabel}: Yes ✓
+                                  </Text>
+                                </>
+                              );
+                            } else if (item.frequency === "daily") {
+                              return (
+                                <>
+                                  <Text style={{ color: theme.textSecondary }}>
+                                    Frequency: Daily
+                                  </Text>
+                                  <Text style={{ color: theme.success }}>
+                                    {completedDailyLabel}
+                                  </Text>
+                                </>
+                              );
+                            } else if (item.frequency === "once") {
+                              return (
+                                <>
+                                  <Text style={{ color: theme.textSecondary }}>
+                                    Frequency: Once
+                                  </Text>
+                                  <Text style={{ color: theme.success }}>
+                                    Completed ✓
+                                  </Text>
+                                </>
+                              );
+                            }
+                            return (
+                              <>
+                                <Text style={{ color: theme.textSecondary }}>
+                                  Frequency: {item.frequency}
+                                </Text>
+                                <Text style={{ color: theme.success }}>
+                                  Completed ✓
+                                </Text>
+                              </>
+                            );
+                          })()}
                     </View>
                     {renderTaskActionButtons(item)}
                   </View>
                 </Pressable>
-                {index < completedTasks.length - 1 && <View style={{ height: 8 }} />}
+                {index < completedTasks.length - 1 && (
+                  <View style={{ height: 8 }} />
+                )}
               </View>
             ))}
           </>
@@ -793,14 +1072,14 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             borderColor: theme.border,
             padding: 12,
             borderRadius: 10,
-            marginTop: 8
+            marginTop: 8,
           }}
         >
           <Text
             style={{
               color: theme.textSecondary,
               textAlign: "center",
-              fontWeight: "600"
+              fontWeight: "600",
             }}
           >
             + New Task
@@ -821,7 +1100,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
               flex: 1,
               justifyContent: "center",
               padding: 24,
-              backgroundColor: "rgba(15, 23, 42, 0.35)"
+              backgroundColor: "rgba(15, 23, 42, 0.35)",
             }}
           >
             <Pressable
@@ -834,7 +1113,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 top: 0,
                 right: 0,
                 bottom: 0,
-                left: 0
+                left: 0,
               }}
             />
             <View
@@ -847,40 +1126,70 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 backgroundColor: theme.surface,
               }}
             >
-              <Text style={{ fontWeight: "700", fontSize: 18, color: theme.text }}>{editingTaskId ? "Edit Task" : "New Task"}</Text>
+              <Text
+                style={{ fontWeight: "700", fontSize: 18, color: theme.text }}
+              >
+                {editingTaskId ? "Edit Task" : "New Task"}
+              </Text>
               <TextInput
                 placeholder="e.g., Take creatine"
                 value={taskTitle}
                 onChangeText={setTaskTitle}
-                style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 8, padding: 10, backgroundColor: theme.background, color: theme.text }}
+                style={{
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  borderRadius: 8,
+                  padding: 10,
+                  backgroundColor: theme.background,
+                  color: theme.text,
+                }}
                 placeholderTextColor={theme.textSecondary}
                 autoFocus={true}
               />
               <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                {(["once", "daily", "weekly", "custom"] as Frequency[]).map((f) => (
-                  <Pressable
-                    key={f}
-                    onPress={() => {
-                      void haptics.toggle();
-                      setFrequency(f);
-                    }}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: frequency === f ? theme.primary : theme.border,
-                      backgroundColor: frequency === f ? theme.primary + "20" : "transparent",
-                    }}
-                  >
-                    <Text style={{ fontWeight: "600", color: frequency === f ? theme.primary : theme.text }}>{f}</Text>
-                  </Pressable>
-                ))}
+                {(["once", "daily", "weekly", "custom"] as Frequency[]).map(
+                  (f) => (
+                    <Pressable
+                      key={f}
+                      onPress={() => {
+                        void haptics.toggle();
+                        setFrequency(f);
+                      }}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor:
+                          frequency === f ? theme.primary : theme.border,
+                        backgroundColor:
+                          frequency === f
+                            ? theme.primary + "20"
+                            : "transparent",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontWeight: "600",
+                          color: frequency === f ? theme.primary : theme.text,
+                        }}
+                      >
+                        {f}
+                      </Text>
+                    </Pressable>
+                  ),
+                )}
               </View>
 
               {frequency === "custom" && (
                 <View style={{ gap: 8 }}>
-                  <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      gap: 8,
+                      alignItems: "center",
+                    }}
+                  >
                     <Pressable
                       onPress={() => {
                         adjustCustomTarget(-1);
@@ -894,7 +1203,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                         width: 44,
                         height: 44,
                         alignItems: "center",
-                        justifyContent: "center"
+                        justifyContent: "center",
                       }}
                     >
                       <Ionicons name="remove" size={18} color={theme.text} />
@@ -909,10 +1218,16 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                         backgroundColor: theme.background,
                         minWidth: 84,
                         alignItems: "center",
-                        justifyContent: "center"
+                        justifyContent: "center",
                       }}
                     >
-                      <Text style={{ color: theme.text, fontWeight: "700", fontSize: 16 }}>
+                      <Text
+                        style={{
+                          color: theme.text,
+                          fontWeight: "700",
+                          fontSize: 16,
+                        }}
+                      >
                         {customFrequency.target}
                       </Text>
                     </View>
@@ -929,12 +1244,14 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                         width: 44,
                         height: 44,
                         alignItems: "center",
-                        justifyContent: "center"
+                        justifyContent: "center",
                       }}
                     >
                       <Ionicons name="add" size={18} color={theme.text} />
                     </Pressable>
-                    <Text style={{ color: theme.text, alignSelf: "center" }}>times per</Text>
+                    <Text style={{ color: theme.text, alignSelf: "center" }}>
+                      times per
+                    </Text>
                   </View>
 
                   <View style={{ flexDirection: "row", gap: 8 }}>
@@ -943,19 +1260,40 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                         key={type}
                         onPress={() => {
                           void haptics.toggle();
-                          const normalizedTarget = normalizeCustomTarget(customFrequency.target, type);
-                          setCustomFrequency(prev => ({ ...prev, type, target: normalizedTarget }));
+                          const normalizedTarget = normalizeCustomTarget(
+                            customFrequency.target,
+                            type,
+                          );
+                          setCustomFrequency((prev) => ({
+                            ...prev,
+                            type,
+                            target: normalizedTarget,
+                          }));
                         }}
                         style={{
                           paddingHorizontal: 12,
                           paddingVertical: 6,
                           borderRadius: 8,
                           borderWidth: 1,
-                          borderColor: customFrequency.type === type ? theme.primary : theme.border,
-                          backgroundColor: customFrequency.type === type ? theme.primary + "20" : "transparent",
+                          borderColor:
+                            customFrequency.type === type
+                              ? theme.primary
+                              : theme.border,
+                          backgroundColor:
+                            customFrequency.type === type
+                              ? theme.primary + "20"
+                              : "transparent",
                         }}
                       >
-                        <Text style={{ fontWeight: "600", color: customFrequency.type === type ? theme.primary : theme.text }}>
+                        <Text
+                          style={{
+                            fontWeight: "600",
+                            color:
+                              customFrequency.type === type
+                                ? theme.primary
+                                : theme.text,
+                          }}
+                        >
                           {type}
                         </Text>
                       </Pressable>
@@ -976,16 +1314,37 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                     borderWidth: 1,
                     borderColor: theme.border,
                     padding: 10,
-                    borderRadius: 8
+                    borderRadius: 8,
                   }}
                 >
-                  <Text style={{ color: theme.textSecondary, textAlign: "center", fontWeight: "600" }}>Cancel</Text>
+                  <Text
+                    style={{
+                      color: theme.textSecondary,
+                      textAlign: "center",
+                      fontWeight: "600",
+                    }}
+                  >
+                    Cancel
+                  </Text>
                 </Pressable>
                 <Pressable
                   onPress={submitTaskEditor}
-                  style={{ flex: 1, backgroundColor: theme.primary, padding: 10, borderRadius: 8 }}
+                  style={{
+                    flex: 1,
+                    backgroundColor: theme.primary,
+                    padding: 10,
+                    borderRadius: 8,
+                  }}
                 >
-                  <Text style={{ color: "white", textAlign: "center", fontWeight: "700" }}>{editingTaskId ? "Save" : "Add"}</Text>
+                  <Text
+                    style={{
+                      color: "white",
+                      textAlign: "center",
+                      fontWeight: "700",
+                    }}
+                  >
+                    {editingTaskId ? "Save" : "Add"}
+                  </Text>
                 </Pressable>
               </View>
               {frequency === "custom" ? (
@@ -998,7 +1357,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             </View>
           </View>
         </Modal>
-
       </NestableScrollContainer>
     </SafeAreaView>
   );

@@ -1,5 +1,13 @@
 import React from "react";
-import { Modal, View, Text, TextInput, Pressable, KeyboardAvoidingView, Platform } from "react-native";
+import {
+  Modal,
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
 import { format } from "date-fns";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
@@ -14,7 +22,12 @@ interface FreezeDayModalProps {
 const MIN_REASON_LENGTH = 3;
 const MAX_REASON_LENGTH = 120;
 
-export default function FreezeDayModal({ visible, date, onFreeze, onCancel }: FreezeDayModalProps) {
+export default function FreezeDayModal({
+  visible,
+  date,
+  onFreeze,
+  onCancel,
+}: FreezeDayModalProps) {
   const { theme } = useTheme();
   const [reason, setReason] = React.useState("");
 
@@ -65,7 +78,13 @@ export default function FreezeDayModal({ visible, date, onFreeze, onCancel }: Fr
           {/* Backdrop tap to dismiss */}
           <Pressable
             onPress={handleCancel}
-            style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
+            style={{
+              position: "absolute",
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+            }}
           />
 
           <View
@@ -79,33 +98,52 @@ export default function FreezeDayModal({ visible, date, onFreeze, onCancel }: Fr
             }}
           >
             {/* Header */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+            >
               <Text style={{ fontSize: 22 }}>❄️</Text>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 18, fontWeight: "800", color: theme.text }}>
+                <Text
+                  style={{ fontSize: 18, fontWeight: "800", color: theme.text }}
+                >
                   Freeze {dateLabel}
                 </Text>
-                <Text style={{ color: theme.textSecondary, fontSize: 13, marginTop: 2 }}>
-                  Frozen days won't break your streaks.
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontSize: 13,
+                    marginTop: 2,
+                  }}
+                >
+                  Frozen days won&apos;t break your streaks.
                 </Text>
               </View>
             </View>
 
             {/* Reason input */}
             <View style={{ gap: 6 }}>
-              <Text style={{ color: theme.text, fontWeight: "600", fontSize: 14 }}>
+              <Text
+                style={{ color: theme.text, fontWeight: "600", fontSize: 14 }}
+              >
                 Why are you freezing this day?
               </Text>
               <TextInput
                 value={reason}
-                onChangeText={(text) => setReason(text.slice(0, MAX_REASON_LENGTH))}
+                onChangeText={(text) =>
+                  setReason(text.slice(0, MAX_REASON_LENGTH))
+                }
                 placeholder="e.g., Family emergency, travel day, illness…"
                 placeholderTextColor={theme.textSecondary}
                 multiline
                 numberOfLines={3}
                 style={{
                   borderWidth: 1,
-                  borderColor: charsLeft === 0 ? (theme.danger ?? "#ef4444") : isValid ? theme.primary : theme.border,
+                  borderColor:
+                    charsLeft === 0
+                      ? (theme.danger ?? "#ef4444")
+                      : isValid
+                        ? theme.primary
+                        : theme.border,
                   borderRadius: 10,
                   padding: 12,
                   backgroundColor: theme.background,
@@ -116,17 +154,25 @@ export default function FreezeDayModal({ visible, date, onFreeze, onCancel }: Fr
                 }}
                 autoFocus
               />
-              <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                }}
+              >
                 <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
                   {!isValid && trimmedReason.length > 0
                     ? `At least ${MIN_REASON_LENGTH} characters required`
                     : charsLeft === 0
-                    ? "Character limit reached"
-                    : "A reason helps you stay accountable."}
+                      ? "Character limit reached"
+                      : "A reason helps you stay accountable."}
                 </Text>
                 <Text
                   style={{
-                    color: charsLeft < 20 ? theme.danger ?? "#ef4444" : theme.textSecondary,
+                    color:
+                      charsLeft < 20
+                        ? (theme.danger ?? "#ef4444")
+                        : theme.textSecondary,
                     fontSize: 12,
                   }}
                 >
@@ -149,7 +195,9 @@ export default function FreezeDayModal({ visible, date, onFreeze, onCancel }: Fr
                   alignItems: "center",
                 }}
               >
-                <Text style={{ color: theme.textSecondary, fontWeight: "600" }}>Cancel</Text>
+                <Text style={{ color: theme.textSecondary, fontWeight: "600" }}>
+                  Cancel
+                </Text>
               </Pressable>
               <Pressable
                 onPress={handleFreeze}

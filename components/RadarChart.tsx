@@ -2,7 +2,14 @@ import React from "react";
 import { View, Text } from "react-native";
 import Svg, { Polygon, Line, Circle, Text as SvgText } from "react-native-svg";
 import { Goal, Task } from "../types";
-import { endOfDay, isAfter, isWithinInterval, startOfWeek, endOfWeek, differenceInCalendarDays } from "date-fns";
+import {
+  endOfDay,
+  isAfter,
+  isWithinInterval,
+  startOfWeek,
+  endOfWeek,
+  differenceInCalendarDays,
+} from "date-fns";
 import { useTheme } from "../contexts/ThemeContext";
 import { getCustomFrequencyProgress } from "../store";
 
@@ -22,12 +29,13 @@ const CHART_TITLE = "Goal Radar";
 export const getCurrentModeTaskScore = (
   task: Task,
   completionsThroughReferenceDate: Date[],
-  normalizedReferenceDate: Date
+  normalizedReferenceDate: Date,
 ): number => {
   const weekStart = startOfWeek(normalizedReferenceDate, { weekStartsOn: 0 });
   const weekEnd = endOfWeek(normalizedReferenceDate, { weekStartsOn: 0 });
-  const completionsThisWeek = completionsThroughReferenceDate.filter((completionDate) =>
-    isWithinInterval(completionDate, { start: weekStart, end: weekEnd })
+  const completionsThisWeek = completionsThroughReferenceDate.filter(
+    (completionDate) =>
+      isWithinInterval(completionDate, { start: weekStart, end: weekEnd }),
   ).length;
 
   if (task.frequency === "daily") {
@@ -39,27 +47,53 @@ export const getCurrentModeTaskScore = (
   }
 
   const progress = getCustomFrequencyProgress(task, normalizedReferenceDate);
-  return progress.target > 0 ? Math.min(1, progress.completed / progress.target) : 0;
+  return progress.target > 0
+    ? Math.min(1, progress.completed / progress.target)
+    : 0;
 };
 
-export const getDailyTrendScore = (completionDates: Date[], startDate: Date, referenceDate: Date) => {
-  const days = Math.max(1, differenceInCalendarDays(referenceDate, startDate) + 1);
+export const getDailyTrendScore = (
+  completionDates: Date[],
+  startDate: Date,
+  referenceDate: Date,
+) => {
+  const days = Math.max(
+    1,
+    differenceInCalendarDays(referenceDate, startDate) + 1,
+  );
   return Math.min(1, completionDates.length / days);
 };
 
-export const getWeeklyTrendScore = (completionDates: Date[], startDate: Date, referenceDate: Date) => {
-  const days = Math.max(1, differenceInCalendarDays(referenceDate, startDate) + 1);
+export const getWeeklyTrendScore = (
+  completionDates: Date[],
+  startDate: Date,
+  referenceDate: Date,
+) => {
+  const days = Math.max(
+    1,
+    differenceInCalendarDays(referenceDate, startDate) + 1,
+  );
   const expectedWeeks = Math.max(1, Math.ceil(days / 7));
   return Math.min(1, completionDates.length / expectedWeeks);
 };
 
-export const getCustomTrendScore = (completionDates: Date[], target: number, periodType: "weekly" | "monthly", startDate: Date, referenceDate: Date) => {
+export const getCustomTrendScore = (
+  completionDates: Date[],
+  target: number,
+  periodType: "weekly" | "monthly",
+  startDate: Date,
+  referenceDate: Date,
+) => {
   if (target <= 0) return 0;
 
-  const days = Math.max(1, differenceInCalendarDays(referenceDate, startDate) + 1);
-  const expectedPeriods = periodType === "weekly"
-    ? Math.max(1, Math.ceil(days / 7))
-    : Math.max(1, Math.ceil(days / 30));
+  const days = Math.max(
+    1,
+    differenceInCalendarDays(referenceDate, startDate) + 1,
+  );
+  const expectedPeriods =
+    periodType === "weekly"
+      ? Math.max(1, Math.ceil(days / 7))
+      : Math.max(1, Math.ceil(days / 30));
 
   return Math.min(1, completionDates.length / (target * expectedPeriods));
 };
@@ -75,15 +109,24 @@ export default function RadarChart({
   const { theme, isDark } = useTheme();
 
   const renderChartContainer = (children: React.ReactNode) => (
-    <View style={{
-      borderWidth: 1,
-      borderColor: theme.border,
-      borderRadius: 10,
-      padding: 16,
-      backgroundColor: theme.surface,
-      alignItems: "center"
-    }}>
-      <Text style={{ fontSize: 16, fontWeight: "700", marginBottom: 12, color: theme.text }}>
+    <View
+      style={{
+        borderWidth: 1,
+        borderColor: theme.border,
+        borderRadius: 10,
+        padding: 16,
+        backgroundColor: theme.surface,
+        alignItems: "center",
+      }}
+    >
+      <Text
+        style={{
+          fontSize: 16,
+          fontWeight: "700",
+          marginBottom: 12,
+          color: theme.text,
+        }}
+      >
         {CHART_TITLE}
       </Text>
 
@@ -91,51 +134,72 @@ export default function RadarChart({
     </View>
   );
 
-  const renderEmptyChart = (message: string, helperText: string) => renderChartContainer(
-    <View style={{
-      width: size,
-      height: size,
-      justifyContent: "center",
-      alignItems: "center",
-    }}>
-      <Text style={{ color: theme.textSecondary, fontSize: 14 }}>{message}</Text>
-      <Text style={{ color: theme.textSecondary, fontSize: 12 }}>{helperText}</Text>
-    </View>
-  );
-  
+  const renderEmptyChart = (message: string, helperText: string) =>
+    renderChartContainer(
+      <View
+        style={{
+          width: size,
+          height: size,
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ color: theme.textSecondary, fontSize: 14 }}>
+          {message}
+        </Text>
+        <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+          {helperText}
+        </Text>
+      </View>,
+    );
+
   if (goals.length === 0) {
-    return renderEmptyChart(emptyTitle ?? "No goals yet", emptyHelperText ?? "Create goals to see radar chart");
+    return renderEmptyChart(
+      emptyTitle ?? "No goals yet",
+      emptyHelperText ?? "Create goals to see radar chart",
+    );
   }
 
   const centerX = size / 2;
   const centerY = size / 2;
-  const radius = (size / 2) - 20; // Reduced margin since no labels
-  
+  const radius = size / 2 - 20; // Reduced margin since no labels
+
   // Color palette for different goals
   const colors = [
     "#3b82f6", // Blue
-    "#10b981", // Green  
+    "#10b981", // Green
     "#f59e0b", // Orange
     "#ef4444", // Red
     "#8b5cf6", // Purple
     "#06b6d4", // Cyan
     "#84cc16", // Lime
-    "#f97316"  // Orange-red
+    "#f97316", // Orange-red
   ];
-  
+
   const normalizedReferenceDate = endOfDay(referenceDate);
 
   const goalData = goals
     .map((goal) => {
-      const recurringTasks = goal.tasks.filter((task) => task.frequency !== "once");
-
-      const allCompletionDates = recurringTasks.flatMap((task) =>
-        task.completions.filter((completionDate) => !isAfter(completionDate, normalizedReferenceDate))
+      const recurringTasks = goal.tasks.filter(
+        (task) => task.frequency !== "once",
       );
 
-      const firstCompletionDate = allCompletionDates.length > 0
-        ? new Date(Math.min(...allCompletionDates.map((completionDate) => completionDate.getTime())))
-        : null;
+      const allCompletionDates = recurringTasks.flatMap((task) =>
+        task.completions.filter(
+          (completionDate) => !isAfter(completionDate, normalizedReferenceDate),
+        ),
+      );
+
+      const firstCompletionDate =
+        allCompletionDates.length > 0
+          ? new Date(
+              Math.min(
+                ...allCompletionDates.map((completionDate) =>
+                  completionDate.getTime(),
+                ),
+              ),
+            )
+          : null;
 
       if (!firstCompletionDate) {
         return null;
@@ -146,8 +210,8 @@ export default function RadarChart({
       }
 
       const taskScores = recurringTasks.map((task) => {
-        const completionsThroughReferenceDate = task.completions.filter((completionDate) =>
-          !isAfter(completionDate, normalizedReferenceDate)
+        const completionsThroughReferenceDate = task.completions.filter(
+          (completionDate) => !isAfter(completionDate, normalizedReferenceDate),
         );
 
         if (completionsThroughReferenceDate.length === 0) {
@@ -155,15 +219,27 @@ export default function RadarChart({
         }
 
         if (mode === "current") {
-          return getCurrentModeTaskScore(task, completionsThroughReferenceDate, normalizedReferenceDate);
+          return getCurrentModeTaskScore(
+            task,
+            completionsThroughReferenceDate,
+            normalizedReferenceDate,
+          );
         }
 
         if (task.frequency === "daily") {
-          return getDailyTrendScore(completionsThroughReferenceDate, firstCompletionDate, normalizedReferenceDate);
+          return getDailyTrendScore(
+            completionsThroughReferenceDate,
+            firstCompletionDate,
+            normalizedReferenceDate,
+          );
         }
 
         if (task.frequency === "weekly") {
-          return getWeeklyTrendScore(completionsThroughReferenceDate, firstCompletionDate, normalizedReferenceDate);
+          return getWeeklyTrendScore(
+            completionsThroughReferenceDate,
+            firstCompletionDate,
+            normalizedReferenceDate,
+          );
         }
 
         if (task.customFrequency) {
@@ -172,20 +248,27 @@ export default function RadarChart({
             task.customFrequency.target,
             task.customFrequency.type,
             firstCompletionDate,
-            normalizedReferenceDate
+            normalizedReferenceDate,
           );
         }
 
         return 0;
       });
 
-      const percentage = taskScores.reduce((sum, score) => sum + score, 0) / recurringTasks.length;
+      const percentage =
+        taskScores.reduce((sum, score) => sum + score, 0) /
+        recurringTasks.length;
       return { title: goal.title, percentage };
     })
-    .filter((goal): goal is { title: string; percentage: number } => goal !== null);
+    .filter(
+      (goal): goal is { title: string; percentage: number } => goal !== null,
+    );
 
   if (goalData.length === 0) {
-    return renderEmptyChart("No goals for this date", "Try a later date to see the radar chart");
+    return renderEmptyChart(
+      "No goals for this date",
+      "Try a later date to see the radar chart",
+    );
   }
 
   const angleStep = (2 * Math.PI) / goalData.length;
@@ -208,24 +291,26 @@ export default function RadarChart({
     const angle = index * angleStep - Math.PI / 2;
     const endX = centerX + Math.cos(angle) * radius;
     const endY = centerY + Math.sin(angle) * radius;
-    
+
     // Calculate label position (slightly outside the circle)
     const labelRadius = radius + 15;
     const labelX = centerX + Math.cos(angle) * labelRadius;
     const labelY = centerY + Math.sin(angle) * labelRadius;
-    
+
     return {
       endX,
       endY,
       labelX,
       labelY,
       angle,
-      title: data.title
+      title: data.title,
     };
   });
 
   // Create polygon path string
-  const polygonPoints = dataPoints.map(point => `${point.x},${point.y}`).join(' ');
+  const polygonPoints = dataPoints
+    .map((point) => `${point.x},${point.y}`)
+    .join(" ");
 
   return renderChartContainer(
     <>
@@ -260,7 +345,9 @@ export default function RadarChart({
         {dataPoints.length >= 3 && (
           <Polygon
             points={polygonPoints}
-            fill={isDark ? "rgba(59, 130, 246, 0.3)" : "rgba(59, 130, 246, 0.2)"}
+            fill={
+              isDark ? "rgba(59, 130, 246, 0.3)" : "rgba(59, 130, 246, 0.2)"
+            }
             stroke={theme.primary}
             strokeWidth={2}
           />
@@ -279,14 +366,12 @@ export default function RadarChart({
           />
         ))}
 
-
-
         {/* Percentage labels on grid - only 50% and 100% */}
         {labeledLevels.map((level, index) => (
           <SvgText
             key={`grid-label-${index}`}
             x={centerX + 5}
-            y={centerY - (radius * level)}
+            y={centerY - radius * level}
             fontSize="10"
             fill={theme.textSecondary}
             textAnchor="start"
@@ -297,29 +382,41 @@ export default function RadarChart({
       </Svg>
 
       {/* Legend */}
-      <View style={{ marginTop: 12, flexDirection: "row", flexWrap: "wrap", justifyContent: "center" }}>
+      <View
+        style={{
+          marginTop: 12,
+          flexDirection: "row",
+          flexWrap: "wrap",
+          justifyContent: "center",
+        }}
+      >
         {goalData.map((data, index) => (
-          <View key={index} style={{ 
-            flexDirection: "row", 
-            alignItems: "center", 
-            marginHorizontal: 6, 
-            marginVertical: 2 
-          }}>
-            <View style={{
-              width: 10,
-              height: 10,
-              backgroundColor: colors[index % colors.length],
-              borderRadius: 5,
-              borderWidth: 1,
-              borderColor: theme.surface,
-              marginRight: 4
-            }} />
+          <View
+            key={index}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              marginHorizontal: 6,
+              marginVertical: 2,
+            }}
+          >
+            <View
+              style={{
+                width: 10,
+                height: 10,
+                backgroundColor: colors[index % colors.length],
+                borderRadius: 5,
+                borderWidth: 1,
+                borderColor: theme.surface,
+                marginRight: 4,
+              }}
+            />
             <Text style={{ fontSize: 10, color: theme.textSecondary }}>
               {data.title}: {Math.round(data.percentage * 100)}%
             </Text>
           </View>
         ))}
       </View>
-    </>
+    </>,
   );
 }

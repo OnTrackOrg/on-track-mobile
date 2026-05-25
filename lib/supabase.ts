@@ -28,7 +28,7 @@ const supabasePublishableKey =
 
 if (!supabaseUrl || !supabasePublishableKey) {
   throw new Error(
-    "Missing Supabase configuration. Set supabaseUrl/supabasePublishableKey in app config or EXPO_PUBLIC/NEXT_PUBLIC env vars."
+    "Missing Supabase configuration. Set supabaseUrl/supabasePublishableKey in app config or EXPO_PUBLIC/NEXT_PUBLIC env vars.",
   );
 }
 

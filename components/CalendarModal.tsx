@@ -1,6 +1,5 @@
 import React from "react";
 import { Modal, Pressable, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import {
   addDays,
   addMonths,
@@ -36,7 +35,9 @@ export default function CalendarModal({
 }: CalendarModalProps) {
   const { theme } = useTheme();
   const today = startOfDay(new Date());
-  const [displayMonth, setDisplayMonth] = React.useState(startOfMonth(selectedDate));
+  const [displayMonth, setDisplayMonth] = React.useState(
+    startOfMonth(selectedDate),
+  );
 
   React.useEffect(() => {
     if (visible) {
@@ -44,15 +45,22 @@ export default function CalendarModal({
     }
   }, [selectedDate, visible]);
 
-  const calendarStart = startOfWeek(startOfMonth(displayMonth), { weekStartsOn: 0 });
+  const calendarStart = startOfWeek(startOfMonth(displayMonth), {
+    weekStartsOn: 0,
+  });
   const calendarEnd = endOfWeek(endOfMonth(displayMonth), { weekStartsOn: 0 });
   const days: Date[] = [];
 
-  for (let current = calendarStart; current <= calendarEnd; current = addDays(current, 1)) {
+  for (
+    let current = calendarStart;
+    current <= calendarEnd;
+    current = addDays(current, 1)
+  ) {
     days.push(current);
   }
 
-  const canGoForward = startOfMonth(displayMonth).getTime() < startOfMonth(today).getTime();
+  const canGoForward =
+    startOfMonth(displayMonth).getTime() < startOfMonth(today).getTime();
 
   return (
     <Modal
@@ -93,10 +101,22 @@ export default function CalendarModal({
             gap: 14,
           }}
         >
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
             <View>
-              <Text style={{ color: theme.text, fontSize: 18, fontWeight: "700" }}>Choose a date</Text>
-              <Text style={{ color: theme.textSecondary, marginTop: 2 }}>Past days and today are editable.</Text>
+              <Text
+                style={{ color: theme.text, fontSize: 18, fontWeight: "700" }}
+              >
+                Choose a date
+              </Text>
+              <Text style={{ color: theme.textSecondary, marginTop: 2 }}>
+                Past days and today are editable.
+              </Text>
             </View>
             <IconButton
               icon="close-outline"
@@ -109,7 +129,13 @@ export default function CalendarModal({
             />
           </View>
 
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
             <IconButton
               icon="chevron-back"
               onPress={() => {
@@ -119,7 +145,9 @@ export default function CalendarModal({
               circular
             />
 
-            <Text style={{ color: theme.text, fontSize: 16, fontWeight: "700" }}>
+            <Text
+              style={{ color: theme.text, fontSize: 16, fontWeight: "700" }}
+            >
               {format(displayMonth, "MMMM yyyy")}
             </Text>
 
@@ -141,8 +169,19 @@ export default function CalendarModal({
 
           <View style={{ flexDirection: "row" }}>
             {WEEKDAY_LABELS.map((label, index) => (
-              <View key={`${label}-${index}`} style={{ flex: 1, alignItems: "center", paddingVertical: 4 }}>
-                <Text style={{ color: theme.textSecondary, fontSize: 12, fontWeight: "700" }}>{label}</Text>
+              <View
+                key={`${label}-${index}`}
+                style={{ flex: 1, alignItems: "center", paddingVertical: 4 }}
+              >
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontSize: 12,
+                    fontWeight: "700",
+                  }}
+                >
+                  {label}
+                </Text>
               </View>
             ))}
           </View>
@@ -155,7 +194,14 @@ export default function CalendarModal({
               const isCurrentDay = isSameDay(day, today);
 
               return (
-                <View key={day.toISOString()} style={{ width: "14.2857%", paddingVertical: 4, alignItems: "center" }}>
+                <View
+                  key={day.toISOString()}
+                  style={{
+                    width: "14.2857%",
+                    paddingVertical: 4,
+                    alignItems: "center",
+                  }}
+                >
                   <Pressable
                     disabled={isDisabled}
                     onPress={() => {
@@ -169,7 +215,9 @@ export default function CalendarModal({
                       borderRadius: 19,
                       alignItems: "center",
                       justifyContent: "center",
-                      backgroundColor: isSelected ? theme.primary : "transparent",
+                      backgroundColor: isSelected
+                        ? theme.primary
+                        : "transparent",
                       borderWidth: isCurrentDay ? 1 : 0,
                       borderColor: isCurrentDay ? theme.primary : "transparent",
                       opacity: isDisabled ? 0.2 : isCurrentMonth ? 1 : 0.45,
@@ -207,7 +255,9 @@ export default function CalendarModal({
                 borderColor: theme.border,
               }}
             >
-              <Text style={{ color: theme.text, fontWeight: "700" }}>Today</Text>
+              <Text style={{ color: theme.text, fontWeight: "700" }}>
+                Today
+              </Text>
             </Pressable>
             <Pressable
               onPress={() => {

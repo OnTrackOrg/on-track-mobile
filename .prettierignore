@@ -1,0 +1,8 @@
+node_modules
+coverage
+dist
+.expo
+ios
+android
+package-lock.json
+supabase/functions

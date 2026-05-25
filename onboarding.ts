@@ -1,4 +1,6 @@
-export const ONBOARDING_STORAGE_KEY = "ontrack-onboarding-complete";
+import { STORAGE_KEYS } from "./lib/persistence";
+
+export const ONBOARDING_STORAGE_KEY = STORAGE_KEYS.onboardingComplete;
 
 export const shouldShowOnboarding = ({
   hasCompletedOnboarding,
