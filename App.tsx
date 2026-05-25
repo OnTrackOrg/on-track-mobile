@@ -15,6 +15,7 @@ import OverviewScreen from "./components/OverviewScreen";
 import PrivacyScreen from "./components/PrivacyScreen";
 import InstructionsScreen from "./components/InstructionsScreen";
 import IntroductionWizard from "./components/IntroductionWizard";
+import OnboardingChoiceScreen from "./components/OnboardingChoiceScreen";
 import AuthScreen from "./components/AuthScreen";
 import ImportLocalDataScreen from "./components/ImportLocalDataScreen";
 import AccountDeletedScreen from "./components/AccountDeletedScreen";
@@ -40,12 +41,15 @@ function ThemedNavigation() {
   const goals = useStore((s) => s.goals);
   const setAccount = useStore((s) => s.setAccount);
   const setGoals = useStore((s) => s.setGoals);
+  const seedDemoData = useStore((s) => s.seedDemoData);
+  const resetAppData = useStore((s) => s.resetAppData);
   const cloudSyncEnabled = useStore((s) => s.cloudSyncEnabled);
   const setCloudSyncEnabled = useStore((s) => s.setCloudSyncEnabled);
   const syncRevision = useStore((s) => s.syncRevision);
   const lastSyncedRevision = useStore((s) => s.lastSyncedRevision);
   const markGoalsSynced = useStore((s) => s.markGoalsSynced);
   const [showIntroduction, setShowIntroduction] = React.useState(false);
+  const [showOnboardingChoice, setShowOnboardingChoice] = React.useState(false);
   const [hasCheckedIntroduction, setHasCheckedIntroduction] = React.useState(false);
   const [hasCheckedSession, setHasCheckedSession] = React.useState(false);
   const [session, setSession] = React.useState<Session | null>(null);
@@ -240,10 +244,25 @@ function ThemedNavigation() {
       });
   }, [cloudSyncEnabled, lastSyncedRevision, markGoalsSynced, session, syncRevision]);
 
-  const handleIntroductionDone = React.useCallback(async () => {
+  const completeOnboarding = React.useCallback(async () => {
     await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
-    setShowIntroduction(false);
+    setShowOnboardingChoice(false);
   }, []);
+
+  const handleIntroductionDone = React.useCallback(() => {
+    setShowIntroduction(false);
+    setShowOnboardingChoice(true);
+  }, []);
+
+  const handleExploreDemoGoals = React.useCallback(async () => {
+    seedDemoData();
+    await completeOnboarding();
+  }, [completeOnboarding, seedDemoData]);
+
+  const handleStartFresh = React.useCallback(async () => {
+    resetAppData();
+    await completeOnboarding();
+  }, [completeOnboarding, resetAppData]);
 
   const handleImportLocalData = React.useCallback(async () => {
     if (!session?.user) {
@@ -350,6 +369,18 @@ function ThemedNavigation() {
     return (
       <>
         <IntroductionWizard onDone={handleIntroductionDone} />
+        <StatusBar style={isDark ? "light" : "dark"} />
+      </>
+    );
+  }
+
+  if (showOnboardingChoice) {
+    return (
+      <>
+        <OnboardingChoiceScreen
+          onExploreDemo={handleExploreDemoGoals}
+          onStartFresh={handleStartFresh}
+        />
         <StatusBar style={isDark ? "light" : "dark"} />
       </>
     );

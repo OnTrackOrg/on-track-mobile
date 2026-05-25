@@ -660,6 +660,7 @@ interface State {
     syncRevision: number;
     lastSyncedRevision: number;
     frozenDays: FreezeDay[];
+    seedDemoData: () => void;
     setGoals: (goals: Goal[]) => void;
     setCloudSyncEnabled: (enabled: boolean) => void;
     markGoalsSynced: (revision: number) => void;
@@ -716,6 +717,14 @@ export const useStore = create<State>()(
             syncRevision: 0,
             lastSyncedRevision: 0,
             frozenDays: [],
+
+            seedDemoData: () =>
+                set((s) => ({
+                    goals: getSampleGoals(),
+                    selectedDate: normalizeDate(new Date()),
+                    frozenDays: [],
+                    syncRevision: s.syncRevision + 1,
+                })),
 
             /**
              * This setter is the bridge between remote reads and the existing
@@ -992,6 +1001,7 @@ export const useStore = create<State>()(
                 set((s) => ({
                     goals: getInitialGoals(),
                     selectedDate: normalizeDate(new Date()),
+                    frozenDays: [],
                     account: s.account,
                     syncRevision: s.syncRevision + 1,
                 }));

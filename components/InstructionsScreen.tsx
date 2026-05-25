@@ -71,12 +71,12 @@ export default function InstructionsScreen() {
           </Text>
         </InfoSection>
 
-        <InfoSection title="7. Start with your own goals">
+        <InfoSection title="7. Choose demo mode or start fresh">
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-            After onboarding and account setup, OnTrack starts empty. Add your own goals and tasks to build a consistency history that reflects your real routine.
+            At the end of onboarding, you can explore sample goals first or start with your own empty setup right away.
           </Text>
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-            If you ever want to clear your local history on this device and start over, open Settings and use Reset App Data.
+            Reset App Data is still available in Settings if you ever want to clear this device later, but it is no longer the main path for beginning real use.
           </Text>
         </InfoSection>
       </ScrollView>

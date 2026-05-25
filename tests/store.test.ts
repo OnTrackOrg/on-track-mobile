@@ -206,6 +206,7 @@ describe('account setup state', () => {
       goals: [],
       selectedDate: new Date('2026-05-01T12:00:00.000Z'),
       account: null,
+      frozenDays: [],
     });
   });
 
@@ -227,16 +228,31 @@ describe('account setup state', () => {
     useStore.setState({
       goals: getSampleGoals(),
       selectedDate: new Date('2026-04-20T12:00:00.000Z'),
+      frozenDays: [{ date: '2026-04-19', reason: 'Travel', createdAt: Date.now() }],
     });
 
     useStore.getState().resetAppData();
 
     expect(useStore.getState().goals).toEqual([]);
+    expect(useStore.getState().frozenDays).toEqual([]);
     expect(useStore.getState().account).toMatchObject({
       displayName: 'Adam Lin',
       username: 'adam',
       email: 'adam@example.com',
     });
+  });
+
+  it('seeds demo goals for the onboarding explore path', () => {
+    useStore.setState({
+      goals: [],
+      frozenDays: [{ date: '2026-04-19', reason: 'Travel', createdAt: Date.now() }],
+      selectedDate: new Date('2026-04-20T12:00:00.000Z'),
+    });
+
+    useStore.getState().seedDemoData();
+
+    expect(useStore.getState().goals.length).toBeGreaterThan(0);
+    expect(useStore.getState().frozenDays).toEqual([]);
   });
 });
 

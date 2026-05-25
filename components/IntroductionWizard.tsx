@@ -85,8 +85,8 @@ const slides: Slide[] = [
   },
   {
     key: "start",
-    title: "Start with a clean slate",
-    text: "After the walkthrough and account setup, the app opens empty so you can add your own goals right away instead of clearing example data first.",
+    title: "Choose how you want to begin",
+    text: "At the end of onboarding, you can explore demo goals first or start fresh with your own goals right away.",
     icon: "checkmark-circle-outline",
   },
 ];
@@ -175,7 +175,7 @@ export default function IntroductionWizard({ onDone }: IntroductionWizardProps) 
               paddingVertical: 10,
             }}
           >
-            <Text style={{ color: theme.background, fontWeight: "700" }}>Open OnTrack</Text>
+            <Text style={{ color: theme.background, fontWeight: "700" }}>Choose a starting point</Text>
           </Pressable>
         )}
         showSkipButton
