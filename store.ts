@@ -15,9 +15,10 @@ type PersistedTask = Omit<Task, "completions"> & {
   completions?: Array<Date | string>;
 };
 
-type PersistedGoal = Omit<Goal, "tasks"> & {
+type PersistedGoal = Omit<Goal, "tasks" | "completedAt"> & {
   tasks?: PersistedTask[];
   subGoals?: PersistedTask[];
+  completedAt?: number | string | null;
 };
 
 type PersistedStoreSnapshot = {
@@ -31,8 +32,22 @@ const normalizeTask = (task: PersistedTask): Task => ({
   ) || [],
 });
 
+const normalizeOptionalTimestamp = (value?: number | string | null): number | undefined => {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? undefined : parsed;
+};
+
 const normalizeGoal = (goal: PersistedGoal): Goal => ({
   ...goal,
+  completedAt: normalizeOptionalTimestamp(goal.completedAt),
   tasks: (goal.tasks ?? goal.subGoals ?? []).map(normalizeTask),
 });
 
@@ -652,6 +667,8 @@ interface State {
     reorderGoals: (goalIdsInOrder: string[]) => void;
     setSelectedDate: (date: Date) => void;
     updateGoal: (goalId: string, updates: { title?: string; target?: string | null }) => void;
+    completeGoal: (goalId: string, completedAt?: number) => void;
+    reactivateGoal: (goalId: string) => void;
     addTask: (goalId: string, title: string, frequency: Frequency, customFrequency?: CustomFrequency) => void;
     updateTask: (goalId: string, taskId: string, updates: { title?: string; frequency?: Frequency; customFrequency?: CustomFrequency | undefined }) => void;
     reorderTasks: (goalId: string, taskIdsInOrder: string[]) => void;
@@ -771,6 +788,34 @@ export const useStore = create<State>()(
                                 }
                                 : g
                         ),
+                        s.syncRevision
+                    ),
+                })),
+            completeGoal: (goalId, completedAt = Date.now()) =>
+                set((s) => ({
+                    ...buildDirtyGoalState(
+                        s.goals.map((g) =>
+                            g.id === goalId
+                                ? {
+                                    ...g,
+                                    completedAt,
+                                }
+                                : g
+                        ),
+                        s.syncRevision
+                    ),
+                })),
+            reactivateGoal: (goalId) =>
+                set((s) => ({
+                    ...buildDirtyGoalState(
+                        s.goals.map((g) => {
+                            if (g.id !== goalId) {
+                                return g;
+                            }
+
+                            const { completedAt, ...activeGoal } = g;
+                            return activeGoal;
+                        }),
                         s.syncRevision
                     ),
                 })),

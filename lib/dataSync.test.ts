@@ -13,6 +13,7 @@ describe("dataSync mappers", () => {
           title: "Fitness",
           target: "Move more",
           created_at: "2026-05-01T12:00:00.000Z",
+          completed_at: "2026-05-20T12:00:00.000Z",
         },
       ],
       [
@@ -40,6 +41,7 @@ describe("dataSync mappers", () => {
       id: "goal-1",
       title: "Fitness",
       target: "Move more",
+      completedAt: new Date("2026-05-20T12:00:00.000Z").getTime(),
     });
     expect(goals[0].tasks).toHaveLength(1);
     expect(goals[0].tasks[0]).toMatchObject({
@@ -95,6 +97,7 @@ describe("dataSync mappers", () => {
       {
         id: "legacy-goal-id",
         title: "Fitness",
+        completedAt: 1779278400000,
         createdAt: 1,
         tasks: [
           {
@@ -109,6 +112,7 @@ describe("dataSync mappers", () => {
 
     expect(prepared.hadLegacyIds).toBe(true);
     expect(prepared.goals[0].id).not.toBe("legacy-goal-id");
+    expect(prepared.goals[0].completedAt).toBe(1779278400000);
     expect(prepared.goals[0].tasks[0].id).not.toBe("legacy-task-id");
     expect(prepared.goals[0].tasks[0].completions[0].toISOString()).toBe("2026-05-03T00:00:00.000Z");
   });

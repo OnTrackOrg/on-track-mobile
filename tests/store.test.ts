@@ -297,6 +297,63 @@ describe('updateGoal', () => {
   });
 });
 
+describe('goal completion state', () => {
+  const originalState = useStore.getState();
+
+  afterEach(() => {
+    useStore.setState(originalState, true);
+  });
+
+  it('marks a goal complete without deleting its task history', () => {
+    const completedAt = new Date('2026-05-20T12:00:00.000Z').getTime();
+
+    useStore.setState({
+      ...originalState,
+      goals: [
+        {
+          id: 'goal-complete-1',
+          title: 'Find the next job',
+          createdAt: Date.now(),
+          tasks: [
+            {
+              id: 'task-complete-1',
+              title: 'Apply',
+              frequency: 'daily',
+              completions: [new Date('2026-05-18T12:00:00.000Z')],
+            },
+          ],
+        },
+      ],
+    });
+
+    useStore.getState().completeGoal('goal-complete-1', completedAt);
+
+    const completedGoal = useStore.getState().goals[0];
+    expect(completedGoal.completedAt).toBe(completedAt);
+    expect(completedGoal.tasks).toHaveLength(1);
+    expect(completedGoal.tasks[0].completions[0].toISOString()).toBe('2026-05-18T12:00:00.000Z');
+  });
+
+  it('can move a completed goal back to active goals', () => {
+    useStore.setState({
+      ...originalState,
+      goals: [
+        {
+          id: 'goal-reactivate-1',
+          title: 'Portfolio',
+          completedAt: new Date('2026-05-20T12:00:00.000Z').getTime(),
+          createdAt: Date.now(),
+          tasks: [],
+        },
+      ],
+    });
+
+    useStore.getState().reactivateGoal('goal-reactivate-1');
+
+    expect(useStore.getState().goals[0].completedAt).toBeUndefined();
+  });
+});
+
 // ─── Freeze Days ─────────────────────────────────────────────────────────────
 
 describe('freeze day store actions', () => {

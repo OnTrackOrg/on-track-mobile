@@ -17,6 +17,7 @@ import { RadarChartMode } from "./RadarChart";
 import { getNextTrackingDate, getPreviousTrackingDate } from "../lib/dateContext";
 import { deleteCurrentAccount } from "../lib/auth";
 import { ONBOARDING_STORAGE_KEY } from "../onboarding";
+import { Goal } from "../types";
 
 type HomeProps = NativeStackScreenProps<RootStackParamList, "Home">;
 
@@ -44,13 +45,21 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [isReorderingGoals, setIsReorderingGoals] = useState(false);
   const [radarMode, setRadarMode] = useState<RadarChartMode>("current");
+  const activeGoals = React.useMemo(
+    () => goals.filter((goal) => goal.completedAt === undefined),
+    [goals]
+  );
+  const completedGoals = React.useMemo(
+    () => goals.filter((goal) => goal.completedAt !== undefined),
+    [goals]
+  );
   const isDevToolsVisible = currentMode === "DEV";
-  const canReorderGoals = goals.length > 1;
+  const canReorderGoals = activeGoals.length > 1;
 
   // Check if any recurring tasks have completions on the selected date
   const hasCompletionsOnDate = React.useMemo(() => {
     const dateKey = selectedDate.toISOString().split("T")[0];
-    return goals.some((goal) =>
+    return activeGoals.some((goal) =>
       goal.tasks.some(
         (task) =>
           task.frequency !== "once" &&
@@ -59,7 +68,7 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
           )
       )
     );
-  }, [goals, selectedDate]);
+  }, [activeGoals, selectedDate]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -95,8 +104,14 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
     };
   }, [setSelectedDate]);
 
+  React.useEffect(() => {
+    if (!canReorderGoals && isReorderingGoals) {
+      setIsReorderingGoals(false);
+    }
+  }, [canReorderGoals, isReorderingGoals]);
+
   const renderGoalCard = (
-    item: (typeof goals)[number],
+    item: Goal,
     options?: { drag?: () => void; isActive?: boolean; showDragHandle?: boolean }
   ) => {
     const progress = getGoalProgress(item, selectedDate);
@@ -246,7 +261,51 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
               </Pressable>
             ))}
           </View>
-          <RadarChart goals={goals} size={250} referenceDate={selectedDate} mode={radarMode} />
+          <RadarChart
+            goals={activeGoals}
+            size={250}
+            referenceDate={selectedDate}
+            mode={radarMode}
+            emptyTitle={goals.length > 0 ? "No active goals" : undefined}
+            emptyHelperText={goals.length > 0 ? "Complete or add a goal to compare active progress" : undefined}
+          />
+
+          <Pressable
+            onPress={() => {
+              void haptics.navigate();
+              navigation.navigate("CompletedGoals");
+            }}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
+              backgroundColor: theme.surface,
+              borderWidth: 1,
+              borderColor: theme.border,
+              padding: 12,
+              borderRadius: 10,
+            }}
+          >
+            <View
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: theme.warning + "20",
+              }}
+            >
+              <Ionicons name="trophy-outline" size={18} color={theme.warning} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: theme.text, fontWeight: "700", fontSize: 16 }}>Completed Goals</Text>
+              <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
+                {completedGoals.length} achieved
+              </Text>
+            </View>
+            <Ionicons name="arrow-forward" size={16} color={theme.textSecondary} />
+          </Pressable>
 
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
             <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text }}>Goals</Text>
@@ -281,7 +340,7 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
           </View>
           
           {/* Goals list */}
-          {goals.length > 0 ? (
+          {activeGoals.length > 0 ? (
             <>
               {isReorderingGoals ? (
                 <View style={{ gap: 8 }}>
@@ -289,7 +348,7 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
                     Long press and drag goals to reorder them.
                   </Text>
                   <DraggableFlatList
-                    data={goals}
+                    data={activeGoals}
                     keyExtractor={(item) => item.id}
                     scrollEnabled={false}
                     onDragEnd={({ data }) => {
@@ -297,7 +356,7 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
                       void haptics.success();
                     }}
                     ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-                    renderItem={({ item, drag, isActive }: RenderItemParams<(typeof goals)[number]>) => (
+                    renderItem={({ item, drag, isActive }: RenderItemParams<Goal>) => (
                       <ScaleDecorator>
                         {renderGoalCard(item, { drag, isActive, showDragHandle: true })}
                       </ScaleDecorator>
@@ -306,7 +365,7 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
                 </View>
               ) : (
                 <View style={{ gap: 8 }}>
-                  {goals.map((goal) => (
+                  {activeGoals.map((goal) => (
                     <View key={goal.id}>
                       {renderGoalCard(goal)}
                     </View>
@@ -314,7 +373,22 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
                 </View>
               )}
             </>
-          ) : null}
+          ) : (
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: theme.border,
+                borderRadius: 10,
+                padding: 14,
+                backgroundColor: theme.surface,
+              }}
+            >
+              <Text style={{ color: theme.text, fontWeight: "700" }}>No active goals</Text>
+              <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
+                Add a goal when you are ready for the next thing.
+              </Text>
+            </View>
+          )}
 
           <Pressable
             onPress={() => {

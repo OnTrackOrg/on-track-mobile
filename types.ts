@@ -25,6 +25,7 @@ export interface Goal {
   target?: string;
   tasks: Task[];
   createdAt: number;
+  completedAt?: number;
 }
 
 export interface UserAccount {

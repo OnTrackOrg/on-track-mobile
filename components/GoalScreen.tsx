@@ -17,11 +17,13 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const MAX_WEEKLY_CUSTOM_TARGET = 7;
   const MAX_MONTHLY_CUSTOM_TARGET = 31;
   const { goalId } = route.params;
-  const goal = useStore((s) => s.goals.find((g) => g.id === goalId)!);
+  const goal = useStore((s) => s.goals.find((g) => g.id === goalId));
   const selectedDate = useStore((s) => s.selectedDate);
   const addTask = useStore((s) => s.addTask);
   const updateTask = useStore((s) => s.updateTask);
   const updateGoal = useStore((s) => s.updateGoal);
+  const completeGoal = useStore((s) => s.completeGoal);
+  const reactivateGoal = useStore((s) => s.reactivateGoal);
   const reorderTasks = useStore((s) => s.reorderTasks);
   const deleteTask = useStore((s) => s.deleteTask);
   const toggleTask = useStore((s) => s.toggleTaskCompletion);
@@ -33,18 +35,23 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const [isEditing, setIsEditing] = React.useState(false);
   const [editingTaskId, setEditingTaskId] = React.useState<string | null>(null);
   const [isEditingGoalDetails, setIsEditingGoalDetails] = React.useState(false);
-  const [goalTitleDraft, setGoalTitleDraft] = React.useState(goal.title);
-  const [goalTargetDraft, setGoalTargetDraft] = React.useState(goal.target ?? "");
+  const [goalTitleDraft, setGoalTitleDraft] = React.useState(goal?.title ?? "");
+  const [goalTargetDraft, setGoalTargetDraft] = React.useState(goal?.target ?? "");
   const [isReorderingTasks, setIsReorderingTasks] = React.useState(false);
 
-  if (!goal) return <Text>Not found</Text>;
-
   React.useEffect(() => {
-    if (!isEditingGoalDetails) {
+    if (goal && !isEditingGoalDetails) {
       setGoalTitleDraft(goal.title);
       setGoalTargetDraft(goal.target ?? "");
     }
-  }, [goal.title, goal.target, isEditingGoalDetails]);
+  }, [goal, isEditingGoalDetails]);
+
+  if (!goal) return <Text>Not found</Text>;
+
+  const isGoalCompleted = goal.completedAt !== undefined;
+  const completedAtLabel = goal.completedAt
+    ? `Achieved ${format(new Date(goal.completedAt), "MMM d, yyyy")}`
+    : "Achieved";
 
   const saveGoalDetails = () => {
     const trimmedTitle = goalTitleDraft.trim();
@@ -61,6 +68,43 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     });
     void haptics.success();
     setIsEditingGoalDetails(false);
+  };
+
+  const confirmCompleteGoal = () => {
+    void haptics.warning();
+    Alert.alert(
+      "Complete goal?",
+      `This moves "${goal.title}" to Completed Goals. Its tasks and consistency history stay saved.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Complete",
+          onPress: () => {
+            completeGoal(goalId);
+            void haptics.success();
+            navigation.navigate("CompletedGoals");
+          },
+        },
+      ]
+    );
+  };
+
+  const confirmReactivateGoal = () => {
+    void haptics.warning();
+    Alert.alert(
+      "Move back to active goals?",
+      `"${goal.title}" will appear on the home screen and radar chart again.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Move back",
+          onPress: () => {
+            reactivateGoal(goalId);
+            void haptics.success();
+          },
+        },
+      ]
+    );
   };
 
   const isCompletedToday = (dates: Date[], referenceDate: Date) =>
@@ -354,6 +398,23 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
         ) : goal.target ? (
           <Text style={{ color: theme.textSecondary }}>Target: {goal.target}</Text>
         ) : null}
+        {isGoalCompleted ? (
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              borderWidth: 1,
+              borderColor: theme.warning + "55",
+              borderRadius: 10,
+              padding: 12,
+              backgroundColor: theme.warning + "14",
+            }}
+          >
+            <Ionicons name="trophy-outline" size={18} color={theme.warning} />
+            <Text style={{ color: theme.text, fontWeight: "700" }}>{completedAtLabel}</Text>
+          </View>
+        ) : null}
         <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
           <Pressable
             onPress={() => {
@@ -386,6 +447,40 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             </View>
             <Text style={{ color: theme.text, fontWeight: "700" }}>See Consistency</Text>
             <Ionicons name="arrow-forward" size={14} color={theme.textSecondary} />
+          </Pressable>
+          <Pressable
+            onPress={isGoalCompleted ? confirmReactivateGoal : confirmCompleteGoal}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              backgroundColor: theme.surface,
+              borderWidth: 1,
+              borderColor: isGoalCompleted ? theme.border : theme.success + "55",
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              borderRadius: 9999,
+            }}
+          >
+            <View
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: 12,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: isGoalCompleted ? theme.background : theme.success + "20",
+              }}
+            >
+              <Ionicons
+                name={isGoalCompleted ? "refresh-outline" : "trophy-outline"}
+                size={14}
+                color={isGoalCompleted ? theme.textSecondary : theme.success}
+              />
+            </View>
+            <Text style={{ color: theme.text, fontWeight: "700" }}>
+              {isGoalCompleted ? "Move Back" : "Complete Goal"}
+            </Text>
           </Pressable>
         </View>
 

@@ -13,6 +13,8 @@ interface RadarChartProps {
   size?: number;
   referenceDate?: Date;
   mode?: RadarChartMode;
+  emptyTitle?: string;
+  emptyHelperText?: string;
 }
 
 const CHART_TITLE = "Goal Radar";
@@ -62,7 +64,14 @@ export const getCustomTrendScore = (completionDates: Date[], target: number, per
   return Math.min(1, completionDates.length / (target * expectedPeriods));
 };
 
-export default function RadarChart({ goals, size = 200, referenceDate = new Date(), mode = "current" }: RadarChartProps) {
+export default function RadarChart({
+  goals,
+  size = 200,
+  referenceDate = new Date(),
+  mode = "current",
+  emptyTitle,
+  emptyHelperText,
+}: RadarChartProps) {
   const { theme, isDark } = useTheme();
 
   const renderChartContainer = (children: React.ReactNode) => (
@@ -95,7 +104,7 @@ export default function RadarChart({ goals, size = 200, referenceDate = new Date
   );
   
   if (goals.length === 0) {
-    return renderEmptyChart("No goals yet", "Create goals to see radar chart");
+    return renderEmptyChart(emptyTitle ?? "No goals yet", emptyHelperText ?? "Create goals to see radar chart");
   }
 
   const centerX = size / 2;

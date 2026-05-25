@@ -8,6 +8,7 @@ type GoalRow = {
   target?: string | null;
   position?: number | null;
   created_at?: string | null;
+  completed_at?: string | null;
 };
 
 type TaskRow = {
@@ -45,6 +46,29 @@ const toTimestamp = (value?: string | null): number => {
 
   const parsed = new Date(value).getTime();
   return Number.isNaN(parsed) ? Date.now() : parsed;
+};
+
+const toOptionalTimestamp = (value?: string | null): number | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? undefined : parsed;
+};
+
+const isMissingCompletedAtColumnError = (error: unknown): boolean => {
+  const postgresError = error as { message?: string; details?: string; hint?: string };
+  const errorText = [
+    postgresError.message,
+    postgresError.details,
+    postgresError.hint,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return errorText.includes("completed_at");
 };
 
 const isUuid = (value: string): boolean => UUID_PATTERN.test(value);
@@ -155,6 +179,7 @@ const buildGoals = (goalRows: GoalRow[], taskRows: TaskRow[], completionRows: Co
       title: goal.title,
       target: goal.target ?? undefined,
       createdAt: toTimestamp(goal.created_at),
+      completedAt: toOptionalTimestamp(goal.completed_at),
       tasks: buildTasks(tasksByGoalId.get(goal.id) ?? [], completionRows),
     }));
 };
@@ -214,15 +239,29 @@ const prepareGoalsForRemote = (goals: Goal[]): PreparedGoalGraph => {
 export const fetchRemoteGoalsForUser = async (user: User): Promise<Goal[]> => {
   const { data: goalRows, error: goalsError } = await supabase
     .from("goals")
-    .select("id, title, target, position, created_at")
+    .select("id, title, target, position, created_at, completed_at")
     .eq("owner_user_id", user.id)
     .order("created_at", { ascending: true });
 
-  if (goalsError) {
+  if (goalsError && !isMissingCompletedAtColumnError(goalsError)) {
     throw goalsError;
   }
 
-  const typedGoalRows = (goalRows ?? []) as GoalRow[];
+  const typedGoalRows = goalsError
+    ? await (async () => {
+        const { data: fallbackGoalRows, error: fallbackGoalsError } = await supabase
+          .from("goals")
+          .select("id, title, target, position, created_at")
+          .eq("owner_user_id", user.id)
+          .order("created_at", { ascending: true });
+
+        if (fallbackGoalsError) {
+          throw fallbackGoalsError;
+        }
+
+        return (fallbackGoalRows ?? []) as GoalRow[];
+      })()
+    : (goalRows ?? []) as GoalRow[];
 
   if (typedGoalRows.length === 0) {
     return [];
@@ -320,6 +359,7 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
     visibility: "private",
     position: index,
     created_at: new Date(goal.createdAt).toISOString(),
+    completed_at: goal.completedAt ? new Date(goal.completedAt).toISOString() : null,
   }));
 
   const taskPayload = preparedGoals.flatMap((goal) =>
@@ -370,7 +410,16 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
   if (goalPayload.length > 0) {
     const { error } = await supabase.from("goals").upsert(goalPayload, { onConflict: "id" });
     if (error) {
-      throw error;
+      if (!isMissingCompletedAtColumnError(error)) {
+        throw error;
+      }
+
+      const fallbackGoalPayload = goalPayload.map(({ completed_at, ...goal }) => goal);
+      const { error: fallbackError } = await supabase.from("goals").upsert(fallbackGoalPayload, { onConflict: "id" });
+
+      if (fallbackError) {
+        throw fallbackError;
+      }
     }
   }
 
@@ -477,6 +526,7 @@ export const __internal = {
   buildGoals,
   buildTasks,
   deleteRemoteAccountDataForUser,
+  isMissingCompletedAtColumnError,
   loadExistingRemoteGraph,
   prepareGoalsForRemote,
   replaceRemoteGoalsForUser,
