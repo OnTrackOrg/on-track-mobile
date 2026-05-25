@@ -66,7 +66,7 @@ npm test
 
 This is intended as the foundation for adding regression tests around existing bugs and future behavior changes.
 
-TypeScript and lint checks are also part of the pull request baseline:
+Useful local checks:
 
 ```bash
 npm run typecheck
