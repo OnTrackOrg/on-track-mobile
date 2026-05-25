@@ -37,7 +37,8 @@ type PreparedGoalGraph = {
   hadLegacyIds: boolean;
 };
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const toTimestamp = (value?: string | null): number => {
   if (!value) {
@@ -58,7 +59,11 @@ const toOptionalTimestamp = (value?: string | null): number | undefined => {
 };
 
 const isMissingCompletedAtColumnError = (error: unknown): boolean => {
-  const postgresError = error as { message?: string; details?: string; hint?: string };
+  const postgresError = error as {
+    message?: string;
+    details?: string;
+    hint?: string;
+  };
   const errorText = [
     postgresError.message,
     postgresError.details,
@@ -82,16 +87,21 @@ const makeUuid = (): string => {
    * Fallback for environments where `crypto.randomUUID()` is unavailable.
    * This keeps import-time id upgrades working in tests and older runtimes.
    */
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
-    const randomNibble = Math.floor(Math.random() * 16);
-    const value = character === "x" ? randomNibble : (randomNibble & 0x3) | 0x8;
-    return value.toString(16);
-  });
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
+    /[xy]/g,
+    (character) => {
+      const randomNibble = Math.floor(Math.random() * 16);
+      const value =
+        character === "x" ? randomNibble : (randomNibble & 0x3) | 0x8;
+      return value.toString(16);
+    },
+  );
 };
 
-const toCompletedAt = (completion: Date): string => (
-  Number.isNaN(completion.getTime()) ? new Date().toISOString() : completion.toISOString()
-);
+const toCompletedAt = (completion: Date): string =>
+  Number.isNaN(completion.getTime())
+    ? new Date().toISOString()
+    : completion.toISOString();
 
 const toCompletedDay = (completion: Date): string => {
   if (Number.isNaN(completion.getTime())) {
@@ -120,7 +130,10 @@ const toDate = (value: string): Date => {
   return new Date(year, month - 1, day);
 };
 
-const buildTasks = (taskRows: TaskRow[], completionRows: CompletionRow[]): Task[] => {
+const buildTasks = (
+  taskRows: TaskRow[],
+  completionRows: CompletionRow[],
+): Task[] => {
   const completionsByTaskId = new Map<string, Date[]>();
 
   for (const completion of completionRows) {
@@ -144,17 +157,22 @@ const buildTasks = (taskRows: TaskRow[], completionRows: CompletionRow[]): Task[
       id: task.id,
       title: task.title,
       frequency: task.frequency,
-      customFrequency: task.frequency === "custom" && task.custom_type && task.custom_target
-        ? {
-            type: task.custom_type,
-            target: task.custom_target,
-          }
-        : undefined,
+      customFrequency:
+        task.frequency === "custom" && task.custom_type && task.custom_target
+          ? {
+              type: task.custom_type,
+              target: task.custom_target,
+            }
+          : undefined,
       completions: completionsByTaskId.get(task.id) ?? [],
     }));
 };
 
-const buildGoals = (goalRows: GoalRow[], taskRows: TaskRow[], completionRows: CompletionRow[]): Goal[] => {
+const buildGoals = (
+  goalRows: GoalRow[],
+  taskRows: TaskRow[],
+  completionRows: CompletionRow[],
+): Goal[] => {
   const tasksByGoalId = new Map<string, TaskRow[]>();
 
   for (const task of taskRows) {
@@ -249,11 +267,12 @@ export const fetchRemoteGoalsForUser = async (user: User): Promise<Goal[]> => {
 
   const typedGoalRows = goalsError
     ? await (async () => {
-        const { data: fallbackGoalRows, error: fallbackGoalsError } = await supabase
-          .from("goals")
-          .select("id, title, target, position, created_at")
-          .eq("owner_user_id", user.id)
-          .order("created_at", { ascending: true });
+        const { data: fallbackGoalRows, error: fallbackGoalsError } =
+          await supabase
+            .from("goals")
+            .select("id, title, target, position, created_at")
+            .eq("owner_user_id", user.id)
+            .order("created_at", { ascending: true });
 
         if (fallbackGoalsError) {
           throw fallbackGoalsError;
@@ -261,7 +280,7 @@ export const fetchRemoteGoalsForUser = async (user: User): Promise<Goal[]> => {
 
         return (fallbackGoalRows ?? []) as GoalRow[];
       })()
-    : (goalRows ?? []) as GoalRow[];
+    : ((goalRows ?? []) as GoalRow[]);
 
   if (typedGoalRows.length === 0) {
     return [];
@@ -271,7 +290,9 @@ export const fetchRemoteGoalsForUser = async (user: User): Promise<Goal[]> => {
 
   const { data: taskRows, error: tasksError } = await supabase
     .from("tasks")
-    .select("id, goal_id, title, frequency, custom_type, custom_target, position, created_at")
+    .select(
+      "id, goal_id, title, frequency, custom_type, custom_target, position, created_at",
+    )
     .in("goal_id", goalIds)
     .order("position", { ascending: true })
     .order("created_at", { ascending: true });
@@ -283,27 +304,31 @@ export const fetchRemoteGoalsForUser = async (user: User): Promise<Goal[]> => {
   const typedTaskRows = (taskRows ?? []) as TaskRow[];
   const taskIds = typedTaskRows.map((task) => task.id);
 
-  const typedCompletionRows = taskIds.length === 0
-    ? []
-    : await (async () => {
-        const { data: completionRows, error: completionsError } = await supabase
-          .from("task_completions")
-          .select("task_id, completed_day")
-          .in("task_id", taskIds)
-          .eq("completed_by_user_id", user.id)
-          .order("completed_day", { ascending: true });
+  const typedCompletionRows =
+    taskIds.length === 0
+      ? []
+      : await (async () => {
+          const { data: completionRows, error: completionsError } =
+            await supabase
+              .from("task_completions")
+              .select("task_id, completed_day")
+              .in("task_id", taskIds)
+              .eq("completed_by_user_id", user.id)
+              .order("completed_day", { ascending: true });
 
-        if (completionsError) {
-          throw completionsError;
-        }
+          if (completionsError) {
+            throw completionsError;
+          }
 
-        return (completionRows ?? []) as CompletionRow[];
-      })();
+          return (completionRows ?? []) as CompletionRow[];
+        })();
 
   return buildGoals(typedGoalRows, typedTaskRows, typedCompletionRows);
 };
 
-const loadExistingRemoteGraph = async (user: User): Promise<ExistingRemoteGraph> => {
+const loadExistingRemoteGraph = async (
+  user: User,
+): Promise<ExistingRemoteGraph> => {
   const { data: goalRows, error: goalsError } = await supabase
     .from("goals")
     .select("id")
@@ -346,7 +371,10 @@ const loadExistingRemoteGraph = async (user: User): Promise<ExistingRemoteGraph>
  * without introducing per-entity conflict resolution yet. Later slices can
  * make the queue more granular once the end-to-end behavior is stable.
  */
-export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Promise<PreparedGoalGraph> => {
+export const replaceRemoteGoalsForUser = async (
+  user: User,
+  goals: Goal[],
+): Promise<PreparedGoalGraph> => {
   const preparedGraph = prepareGoalsForRemote(goals);
   const preparedGoals = preparedGraph.goals;
   const existingGraph = await loadExistingRemoteGraph(user);
@@ -359,7 +387,9 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
     visibility: "private",
     position: index,
     created_at: new Date(goal.createdAt).toISOString(),
-    completed_at: goal.completedAt ? new Date(goal.completedAt).toISOString() : null,
+    completed_at: goal.completedAt
+      ? new Date(goal.completedAt).toISOString()
+      : null,
   }));
 
   const taskPayload = preparedGoals.flatMap((goal) =>
@@ -371,16 +401,19 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
       custom_type: task.customFrequency?.type ?? null,
       custom_target: task.customFrequency?.target ?? null,
       position: index,
-    }))
+    })),
   );
 
-  const completionPayloadByTaskAndDay = new Map<string, {
-    id: string;
-    task_id: string;
-    completed_by_user_id: string;
-    completed_at: string;
-    completed_day: string;
-  }>();
+  const completionPayloadByTaskAndDay = new Map<
+    string,
+    {
+      id: string;
+      task_id: string;
+      completed_by_user_id: string;
+      completed_at: string;
+      completed_day: string;
+    }
+  >();
 
   for (const goal of preparedGoals) {
     for (const task of goal.tasks) {
@@ -405,17 +438,25 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
 
   const localGoalIds = preparedGoals.map((goal) => goal.id);
   const localTaskIds = taskPayload.map((task) => task.id);
-  const relevantTaskIds = Array.from(new Set([...existingGraph.taskIds, ...localTaskIds]));
+  const relevantTaskIds = Array.from(
+    new Set([...existingGraph.taskIds, ...localTaskIds]),
+  );
 
   if (goalPayload.length > 0) {
-    const { error } = await supabase.from("goals").upsert(goalPayload, { onConflict: "id" });
+    const { error } = await supabase
+      .from("goals")
+      .upsert(goalPayload, { onConflict: "id" });
     if (error) {
       if (!isMissingCompletedAtColumnError(error)) {
         throw error;
       }
 
-      const fallbackGoalPayload = goalPayload.map(({ completed_at, ...goal }) => goal);
-      const { error: fallbackError } = await supabase.from("goals").upsert(fallbackGoalPayload, { onConflict: "id" });
+      const fallbackGoalPayload = goalPayload.map(
+        ({ completed_at, ...goal }) => goal,
+      );
+      const { error: fallbackError } = await supabase
+        .from("goals")
+        .upsert(fallbackGoalPayload, { onConflict: "id" });
 
       if (fallbackError) {
         throw fallbackError;
@@ -424,7 +465,9 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
   }
 
   if (taskPayload.length > 0) {
-    const { error } = await supabase.from("tasks").upsert(taskPayload, { onConflict: "id" });
+    const { error } = await supabase
+      .from("tasks")
+      .upsert(taskPayload, { onConflict: "id" });
     if (error) {
       throw error;
     }
@@ -443,23 +486,35 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
   }
 
   if (completionPayload.length > 0) {
-    const { error } = await supabase.from("task_completions").insert(completionPayload);
+    const { error } = await supabase
+      .from("task_completions")
+      .insert(completionPayload);
     if (error) {
       throw error;
     }
   }
 
-  const remoteTaskIdsToDelete = existingGraph.taskIds.filter((taskId) => !localTaskIds.includes(taskId));
+  const remoteTaskIdsToDelete = existingGraph.taskIds.filter(
+    (taskId) => !localTaskIds.includes(taskId),
+  );
   if (remoteTaskIdsToDelete.length > 0) {
-    const { error } = await supabase.from("tasks").delete().in("id", remoteTaskIdsToDelete);
+    const { error } = await supabase
+      .from("tasks")
+      .delete()
+      .in("id", remoteTaskIdsToDelete);
     if (error) {
       throw error;
     }
   }
 
-  const remoteGoalIdsToDelete = existingGraph.goalIds.filter((goalId) => !localGoalIds.includes(goalId));
+  const remoteGoalIdsToDelete = existingGraph.goalIds.filter(
+    (goalId) => !localGoalIds.includes(goalId),
+  );
   if (remoteGoalIdsToDelete.length > 0) {
-    const { error } = await supabase.from("goals").delete().in("id", remoteGoalIdsToDelete);
+    const { error } = await supabase
+      .from("goals")
+      .delete()
+      .in("id", remoteGoalIdsToDelete);
     if (error) {
       throw error;
     }
@@ -477,7 +532,9 @@ export const replaceRemoteGoalsForUser = async (user: User, goals: Goal[]): Prom
   return preparedGraph;
 };
 
-export const deleteRemoteAccountDataForUser = async (user: User): Promise<void> => {
+export const deleteRemoteAccountDataForUser = async (
+  user: User,
+): Promise<void> => {
   const existingGraph = await loadExistingRemoteGraph(user);
 
   if (existingGraph.taskIds.length > 0) {

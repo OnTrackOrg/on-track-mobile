@@ -50,6 +50,9 @@ Useful shortcuts:
 - `npm run android`
 - `npm run web`
 - `npm test`
+- `npm run typecheck`
+- `npm run lint`
+- `npm run format:check`
 
 ### Testing
 
@@ -62,6 +65,13 @@ npm test
 ```
 
 This is intended as the foundation for adding regression tests around existing bugs and future behavior changes.
+
+TypeScript and lint checks are also part of the pull request baseline:
+
+```bash
+npm run typecheck
+npm run lint
+```
 
 ## Project structure
 

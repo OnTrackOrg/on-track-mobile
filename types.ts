@@ -1,8 +1,8 @@
 export type Frequency = "once" | "daily" | "weekly" | "custom";
 
 export interface FreezeDay {
-  date: string;      // "yyyy-MM-dd" canonical day key
-  reason: string;    // required, trimmed, non-empty
+  date: string; // "yyyy-MM-dd" canonical day key
+  reason: string; // required, trimmed, non-empty
   createdAt: number; // Date.now() at freeze time
 }
 

@@ -3,7 +3,9 @@ import { getNextTrackingDate, getPreviousTrackingDate } from "./dateContext";
 
 describe("dateContext helpers", () => {
   it("moves to the previous day", () => {
-    const result = getPreviousTrackingDate(new Date("2026-05-13T12:00:00.000Z"));
+    const result = getPreviousTrackingDate(
+      new Date("2026-05-13T12:00:00.000Z"),
+    );
 
     expect(result).toEqual(new Date("2026-05-12T12:00:00.000Z"));
   });
@@ -11,7 +13,7 @@ describe("dateContext helpers", () => {
   it("moves to the next day when still in the past", () => {
     const result = getNextTrackingDate(
       new Date("2026-05-11T12:00:00.000Z"),
-      new Date("2026-05-13T18:00:00.000Z")
+      new Date("2026-05-13T18:00:00.000Z"),
     );
 
     expect(result).toEqual(new Date("2026-05-12T12:00:00.000Z"));
@@ -19,7 +21,10 @@ describe("dateContext helpers", () => {
 
   it("clamps forward navigation to today instead of allowing a future date", () => {
     const today = new Date("2026-05-13T18:00:00.000Z");
-    const result = getNextTrackingDate(new Date("2026-05-13T00:00:00.000Z"), today);
+    const result = getNextTrackingDate(
+      new Date("2026-05-13T00:00:00.000Z"),
+      today,
+    );
 
     expect(result).toEqual(startOfDay(today));
   });

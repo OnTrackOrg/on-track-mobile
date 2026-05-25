@@ -19,7 +19,8 @@ export const buildDefaultUsername = (displayName: string): string => {
   return normalized || "ontrack-user";
 };
 
-export const normalizeEmail = (email: string): string => email.trim().toLowerCase();
+export const normalizeEmail = (email: string): string =>
+  email.trim().toLowerCase();
 
 export const sanitizeUsernameInput = (username: string): string =>
   username
@@ -30,13 +31,18 @@ export const sanitizeUsernameInput = (username: string): string =>
     .slice(0, USERNAME_MAX_LENGTH);
 
 export const sanitizeUsername = (username: string): string =>
-  sanitizeUsernameInput(username)
-    .replace(/^[._-]+|[._-]+$/g, "");
+  sanitizeUsernameInput(username).replace(/^[._-]+|[._-]+$/g, "");
 
-export const normalizeAccountDraft = (displayName: string, username?: string, email?: string) => {
+export const normalizeAccountDraft = (
+  displayName: string,
+  username?: string,
+  email?: string,
+) => {
   const trimmedDisplayName = displayName.trim();
   const trimmedUsername = username?.trim() ?? "";
-  const normalizedUsername = sanitizeUsername(trimmedUsername || buildDefaultUsername(trimmedDisplayName));
+  const normalizedUsername = sanitizeUsername(
+    trimmedUsername || buildDefaultUsername(trimmedDisplayName),
+  );
 
   return {
     displayName: trimmedDisplayName,
@@ -45,9 +51,11 @@ export const normalizeAccountDraft = (displayName: string, username?: string, em
   };
 };
 
-export const isValidUsername = (username: string) => USERNAME_PATTERN.test(username.trim().toLowerCase());
+export const isValidUsername = (username: string) =>
+  USERNAME_PATTERN.test(username.trim().toLowerCase());
 
-export const isValidEmail = (email: string) => EMAIL_PATTERN.test(normalizeEmail(email));
+export const isValidEmail = (email: string) =>
+  EMAIL_PATTERN.test(normalizeEmail(email));
 
 export const isValidPassword = (password: string) => {
   const trimmedPassword = password.trim();
@@ -67,12 +75,13 @@ export const getAccountDraftErrors = (
   username?: string,
   email?: string,
   password?: string,
-  confirmPassword?: string
+  confirmPassword?: string,
 ) => {
   const normalized = normalizeAccountDraft(displayName, username, email);
 
   return {
-    displayName: normalized.displayName.length > 0 ? "" : "Enter a display name.",
+    displayName:
+      normalized.displayName.length > 0 ? "" : "Enter a display name.",
     username: isValidUsername(normalized.username)
       ? ""
       : `Username must be ${USERNAME_MIN_LENGTH}-${USERNAME_MAX_LENGTH} characters and use letters, numbers, periods, underscores, or hyphens.`,
@@ -91,10 +100,18 @@ export const isValidAccountDraft = (
   username?: string,
   email?: string,
   password?: string,
-  confirmPassword?: string
+  confirmPassword?: string,
 ) => {
-  const errors = getAccountDraftErrors(displayName, username, email, password, confirmPassword);
+  const errors = getAccountDraftErrors(
+    displayName,
+    username,
+    email,
+    password,
+    confirmPassword,
+  );
   return Object.values(errors).every((error) => !error);
 };
 
-export const shouldPromptForAccountSetup = (account: UserAccount | null | undefined) => !account;
+export const shouldPromptForAccountSetup = (
+  account: UserAccount | null | undefined,
+) => !account;

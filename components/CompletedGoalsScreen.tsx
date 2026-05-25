@@ -10,7 +10,10 @@ import { useStore } from "../store";
 import { Goal } from "../types";
 import { haptics } from "../utils/haptics";
 
-type CompletedGoalsProps = NativeStackScreenProps<RootStackParamList, "CompletedGoals">;
+type CompletedGoalsProps = NativeStackScreenProps<
+  RootStackParamList,
+  "CompletedGoals"
+>;
 
 const getCompletedLabel = (goal: Goal) => {
   if (!goal.completedAt) {
@@ -20,7 +23,9 @@ const getCompletedLabel = (goal: Goal) => {
   return `Achieved ${format(new Date(goal.completedAt), "MMM d, yyyy")}`;
 };
 
-export default function CompletedGoalsScreen({ navigation }: CompletedGoalsProps) {
+export default function CompletedGoalsScreen({
+  navigation,
+}: CompletedGoalsProps) {
   const goals = useStore((s) => s.goals);
   const reactivateGoal = useStore((s) => s.reactivateGoal);
   const { theme } = useTheme();
@@ -28,8 +33,10 @@ export default function CompletedGoalsScreen({ navigation }: CompletedGoalsProps
     () =>
       goals
         .filter((goal) => goal.completedAt !== undefined)
-        .sort((left, right) => (right.completedAt ?? 0) - (left.completedAt ?? 0)),
-    [goals]
+        .sort(
+          (left, right) => (right.completedAt ?? 0) - (left.completedAt ?? 0),
+        ),
+    [goals],
   );
 
   const confirmReactivateGoal = (goal: Goal) => {
@@ -47,16 +54,26 @@ export default function CompletedGoalsScreen({ navigation }: CompletedGoalsProps
             navigation.navigate("Goal", { goalId: goal.id });
           },
         },
-      ]
+      ],
     );
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }} edges={["bottom", "left", "right"]}>
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: theme.background }}
+      edges={["bottom", "left", "right"]}
+    >
+      <ScrollView
+        contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 28 }}
+        showsVerticalScrollIndicator={false}
+      >
         <View>
-          <Text style={{ fontSize: 22, fontWeight: "800", color: theme.text }}>Completed Goals</Text>
-          <Text style={{ color: theme.textSecondary, marginTop: 4 }}>{completedGoals.length} achieved</Text>
+          <Text style={{ fontSize: 22, fontWeight: "800", color: theme.text }}>
+            Completed Goals
+          </Text>
+          <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
+            {completedGoals.length} achieved
+          </Text>
         </View>
 
         {completedGoals.length === 0 ? (
@@ -83,7 +100,11 @@ export default function CompletedGoalsScreen({ navigation }: CompletedGoalsProps
             >
               <Ionicons name="trophy-outline" size={24} color={theme.warning} />
             </View>
-            <Text style={{ color: theme.text, fontWeight: "700", fontSize: 16 }}>No completed goals yet</Text>
+            <Text
+              style={{ color: theme.text, fontWeight: "700", fontSize: 16 }}
+            >
+              No completed goals yet
+            </Text>
           </View>
         ) : (
           completedGoals.map((goal) => (
@@ -115,19 +136,45 @@ export default function CompletedGoalsScreen({ navigation }: CompletedGoalsProps
                     backgroundColor: theme.warning + "20",
                   }}
                 >
-                  <Ionicons name="trophy-outline" size={22} color={theme.warning} />
+                  <Ionicons
+                    name="trophy-outline"
+                    size={22}
+                    color={theme.warning}
+                  />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.text, fontWeight: "800", fontSize: 16 }}>{goal.title}</Text>
+                  <Text
+                    style={{
+                      color: theme.text,
+                      fontWeight: "800",
+                      fontSize: 16,
+                    }}
+                  >
+                    {goal.title}
+                  </Text>
                   {goal.target ? (
-                    <Text style={{ color: theme.textSecondary, marginTop: 2 }}>Target: {goal.target}</Text>
+                    <Text style={{ color: theme.textSecondary, marginTop: 2 }}>
+                      Target: {goal.target}
+                    </Text>
                   ) : null}
-                  <Text style={{ color: theme.textSecondary, marginTop: 2 }}>{getCompletedLabel(goal)}</Text>
+                  <Text style={{ color: theme.textSecondary, marginTop: 2 }}>
+                    {getCompletedLabel(goal)}
+                  </Text>
                 </View>
-                <Ionicons name="analytics-outline" size={18} color={theme.textSecondary} />
+                <Ionicons
+                  name="analytics-outline"
+                  size={18}
+                  color={theme.textSecondary}
+                />
               </Pressable>
 
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
                 <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
                   {goal.tasks.length} task{goal.tasks.length === 1 ? "" : "s"}
                 </Text>
@@ -146,8 +193,20 @@ export default function CompletedGoalsScreen({ navigation }: CompletedGoalsProps
                     backgroundColor: theme.background,
                   }}
                 >
-                  <Ionicons name="refresh-outline" size={14} color={theme.textSecondary} />
-                  <Text style={{ color: theme.textSecondary, fontWeight: "700", fontSize: 12 }}>Move back</Text>
+                  <Ionicons
+                    name="refresh-outline"
+                    size={14}
+                    color={theme.textSecondary}
+                  />
+                  <Text
+                    style={{
+                      color: theme.textSecondary,
+                      fontWeight: "700",
+                      fontSize: 12,
+                    }}
+                  >
+                    Move back
+                  </Text>
                 </Pressable>
               </View>
             </View>

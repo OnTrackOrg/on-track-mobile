@@ -44,7 +44,9 @@ export default function LabeledTextField({
 
   return (
     <View style={{ gap: 8 }}>
-      <Text style={{ fontWeight: "700", fontSize: 16, color: theme.text }}>{label}</Text>
+      <Text style={{ fontWeight: "700", fontSize: 16, color: theme.text }}>
+        {label}
+      </Text>
       <View
         style={{
           borderWidth: 1,
@@ -82,7 +84,11 @@ export default function LabeledTextField({
             accessibilityLabel={accessoryLabel ?? "Toggle field option"}
           >
             <Ionicons
-              name={accessoryLabel === "Show password" ? "eye-outline" : "eye-off-outline"}
+              name={
+                accessoryLabel === "Show password"
+                  ? "eye-outline"
+                  : "eye-off-outline"
+              }
               size={20}
               color={theme.textSecondary}
             />
@@ -90,9 +96,15 @@ export default function LabeledTextField({
         ) : null}
       </View>
       {errorText ? (
-        <Text style={{ color: "#dc2626", fontSize: 13, lineHeight: 18 }}>{errorText}</Text>
+        <Text style={{ color: "#dc2626", fontSize: 13, lineHeight: 18 }}>
+          {errorText}
+        </Text>
       ) : helpText ? (
-        <Text style={{ color: theme.textSecondary, fontSize: 13, lineHeight: 18 }}>{helpText}</Text>
+        <Text
+          style={{ color: theme.textSecondary, fontSize: 13, lineHeight: 18 }}
+        >
+          {helpText}
+        </Text>
       ) : null}
     </View>
   );

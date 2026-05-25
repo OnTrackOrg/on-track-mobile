@@ -1,4 +1,5 @@
 import React from "react";
+import { Linking } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
@@ -16,6 +17,7 @@ import PrivacyScreen from "./components/PrivacyScreen";
 import InstructionsScreen from "./components/InstructionsScreen";
 import IntroductionWizard from "./components/IntroductionWizard";
 import AuthScreen from "./components/AuthScreen";
+import UpdatePasswordScreen from "./components/UpdatePasswordScreen";
 import ImportLocalDataScreen from "./components/ImportLocalDataScreen";
 import AccountDeletedScreen from "./components/AccountDeletedScreen";
 import { RootStackParamList } from "./navigation";
@@ -23,11 +25,15 @@ import { ONBOARDING_STORAGE_KEY, shouldShowOnboarding } from "./onboarding";
 import { useStore } from "./store";
 import {
   AuthMode,
+  exchangeAuthCodeForSession,
   ensureProfileForUser,
   getPersistedSession,
+  requestPasswordReset,
   resendSignupVerification,
   signInWithEmail,
+  signOut,
   signUpWithEmail,
+  updateCurrentUserPassword,
 } from "./lib/auth";
 import { fetchRemoteGoalsForUser } from "./lib/dataSync";
 import { replaceRemoteGoalsForUser } from "./lib/dataSync";
@@ -46,22 +52,35 @@ function ThemedNavigation() {
   const lastSyncedRevision = useStore((s) => s.lastSyncedRevision);
   const markGoalsSynced = useStore((s) => s.markGoalsSynced);
   const [showIntroduction, setShowIntroduction] = React.useState(false);
-  const [hasCheckedIntroduction, setHasCheckedIntroduction] = React.useState(false);
+  const [hasCheckedIntroduction, setHasCheckedIntroduction] =
+    React.useState(false);
   const [hasCheckedSession, setHasCheckedSession] = React.useState(false);
   const [session, setSession] = React.useState<Session | null>(null);
   const [authMode, setAuthMode] = React.useState<AuthMode>("sign-up");
-  const [authErrorMessage, setAuthErrorMessage] = React.useState<string | null>(null);
-  const [authInfoMessage, setAuthInfoMessage] = React.useState<string | null>(null);
-  const [pendingVerificationEmail, setPendingVerificationEmail] = React.useState<string | null>(null);
+  const [authErrorMessage, setAuthErrorMessage] = React.useState<string | null>(
+    null,
+  );
+  const [authInfoMessage, setAuthInfoMessage] = React.useState<string | null>(
+    null,
+  );
+  const [pendingVerificationEmail, setPendingVerificationEmail] =
+    React.useState<string | null>(null);
   const [isSubmittingAuth, setIsSubmittingAuth] = React.useState(false);
+  const [showPasswordUpdate, setShowPasswordUpdate] = React.useState(false);
+  const [passwordUpdateErrorMessage, setPasswordUpdateErrorMessage] =
+    React.useState<string | null>(null);
   const [isImportingLocalData, setIsImportingLocalData] = React.useState(false);
-  const [importErrorMessage, setImportErrorMessage] = React.useState<string | null>(null);
-  const [hasDismissedImportPrompt, setHasDismissedImportPrompt] = React.useState(false);
-  const [showAccountDeletedScreen, setShowAccountDeletedScreen] = React.useState(false);
+  const [importErrorMessage, setImportErrorMessage] = React.useState<
+    string | null
+  >(null);
+  const [hasDismissedImportPrompt, setHasDismissedImportPrompt] =
+    React.useState(false);
+  const [showAccountDeletedScreen, setShowAccountDeletedScreen] =
+    React.useState(false);
   const syncInFlightRevisionRef = React.useRef<number | null>(null);
   const totalLocalTaskCount = React.useMemo(
     () => goals.reduce((count, goal) => count + goal.tasks.length, 0),
-    [goals]
+    [goals],
   );
 
   React.useEffect(() => {
@@ -70,7 +89,9 @@ function ThemedNavigation() {
     const hydrateIntroductionState = async () => {
       await useStore.persist.rehydrate();
 
-      const hasCompletedOnboarding = await AsyncStorage.getItem(ONBOARDING_STORAGE_KEY);
+      const hasCompletedOnboarding = await AsyncStorage.getItem(
+        ONBOARDING_STORAGE_KEY,
+      );
       const hasExistingGoals = useStore.getState().goals.length > 0;
 
       if (isCancelled) {
@@ -118,8 +139,12 @@ function ThemedNavigation() {
         setSession(persistedSession);
 
         if (persistedSession?.user) {
-          const syncedAccount = await ensureProfileForUser(persistedSession.user);
-          const remoteGoals = await fetchRemoteGoalsForUser(persistedSession.user);
+          const syncedAccount = await ensureProfileForUser(
+            persistedSession.user,
+          );
+          const remoteGoals = await fetchRemoteGoalsForUser(
+            persistedSession.user,
+          );
           const existingLocalGoals = useStore.getState().goals;
 
           if (isActive) {
@@ -141,7 +166,9 @@ function ThemedNavigation() {
       } catch (error) {
         if (isActive) {
           console.error("Failed to hydrate Supabase session", error);
-          setAuthErrorMessage("We could not restore your account session. You can sign in again below.");
+          setAuthErrorMessage(
+            "We could not restore your account session. You can sign in again below.",
+          );
         }
       } finally {
         if (isActive) {
@@ -185,8 +212,13 @@ function ThemedNavigation() {
           setAuthMode("sign-in");
         })
         .catch((error) => {
-          console.error("Failed to sync profile after auth state change", error);
-          setAuthErrorMessage("We signed you in, but could not finish syncing your profile yet.");
+          console.error(
+            "Failed to sync profile after auth state change",
+            error,
+          );
+          setAuthErrorMessage(
+            "We signed you in, but could not finish syncing your profile yet.",
+          );
         });
     });
 
@@ -195,6 +227,69 @@ function ThemedNavigation() {
       subscription.unsubscribe();
     };
   }, [setAccount, setCloudSyncEnabled, setGoals]);
+
+  const handleAuthCallbackUrl = React.useCallback(async (url: string) => {
+    let parsedUrl: URL;
+
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return;
+    }
+
+    if (
+      parsedUrl.hostname !== "auth" ||
+      !parsedUrl.pathname.includes("callback")
+    ) {
+      return;
+    }
+
+    const code = parsedUrl.searchParams.get("code");
+    const callbackType = parsedUrl.searchParams.get("type");
+
+    if (!code) {
+      return;
+    }
+
+    setAuthErrorMessage(null);
+    setPasswordUpdateErrorMessage(null);
+
+    try {
+      const nextSession = await exchangeAuthCodeForSession(code);
+      setSession(nextSession);
+
+      if (callbackType === "recovery") {
+        setShowPasswordUpdate(true);
+        return;
+      }
+
+      setAuthMode("sign-in");
+      setAuthInfoMessage("Your email is verified. You can sign in now.");
+      setPendingVerificationEmail(null);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "We could not finish opening that account link.";
+      setAuthErrorMessage(message);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void Linking.getInitialURL().then((url) => {
+      if (url) {
+        void handleAuthCallbackUrl(url);
+      }
+    });
+
+    const subscription = Linking.addEventListener("url", ({ url }) => {
+      void handleAuthCallbackUrl(url);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [handleAuthCallbackUrl]);
 
   React.useEffect(() => {
     if (!session?.user || !cloudSyncEnabled) {
@@ -238,7 +333,13 @@ function ThemedNavigation() {
           syncInFlightRevisionRef.current = null;
         }
       });
-  }, [cloudSyncEnabled, lastSyncedRevision, markGoalsSynced, session, syncRevision]);
+  }, [
+    cloudSyncEnabled,
+    lastSyncedRevision,
+    markGoalsSynced,
+    session,
+    syncRevision,
+  ]);
 
   const handleIntroductionDone = React.useCallback(async () => {
     await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
@@ -259,7 +360,8 @@ function ThemedNavigation() {
        * local-only copy of the user's data, we wait for a yes/no choice here
        * instead of silently uploading that history during sign-in.
        */
-      const { goals: importedGoals, hadLegacyIds } = await replaceRemoteGoalsForUser(session.user, goals);
+      const { goals: importedGoals, hadLegacyIds } =
+        await replaceRemoteGoalsForUser(session.user, goals);
 
       if (hadLegacyIds) {
         /**
@@ -274,58 +376,79 @@ function ThemedNavigation() {
       markGoalsSynced(syncRevision);
       setHasDismissedImportPrompt(false);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "We could not import this device's local data yet.";
+      const message =
+        error instanceof Error
+          ? error.message
+          : "We could not import this device's local data yet.";
       setImportErrorMessage(message);
     } finally {
       setIsImportingLocalData(false);
     }
-  }, [goals, markGoalsSynced, session, setCloudSyncEnabled, setGoals, syncRevision]);
+  }, [
+    goals,
+    markGoalsSynced,
+    session,
+    setCloudSyncEnabled,
+    setGoals,
+    syncRevision,
+  ]);
 
   const shouldShowImportPrompt = Boolean(
     session &&
     !cloudSyncEnabled &&
     goals.length > 0 &&
-    !hasDismissedImportPrompt
+    !hasDismissedImportPrompt,
   );
 
-  const handleAuthSubmit = React.useCallback(async ({
-    displayName,
-    username,
-    email,
-    password,
-  }: {
-    displayName: string;
-    username: string;
-    email: string;
-    password: string;
-  }) => {
-    setIsSubmittingAuth(true);
-    setAuthErrorMessage(null);
-    setAuthInfoMessage(null);
-
-    try {
-      if (authMode === "sign-up") {
-        const result = await signUpWithEmail({ displayName, username, email, password });
-
-        setPendingVerificationEmail(email.trim().toLowerCase());
-        setAuthMode("sign-in");
-        setAuthInfoMessage(
-          result.session
-            ? "Your account was created and you are signed in."
-            : "Your account was created. Check your inbox, verify your email, then sign in."
-        );
-        return;
-      }
-
-      await signInWithEmail({ email, password });
+  const handleAuthSubmit = React.useCallback(
+    async ({
+      displayName,
+      username,
+      email,
+      password,
+    }: {
+      displayName: string;
+      username: string;
+      email: string;
+      password: string;
+    }) => {
+      setIsSubmittingAuth(true);
+      setAuthErrorMessage(null);
       setAuthInfoMessage(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Something went wrong while contacting Supabase.";
-      setAuthErrorMessage(message);
-    } finally {
-      setIsSubmittingAuth(false);
-    }
-  }, [authMode]);
+
+      try {
+        if (authMode === "sign-up") {
+          const result = await signUpWithEmail({
+            displayName,
+            username,
+            email,
+            password,
+          });
+
+          setPendingVerificationEmail(email.trim().toLowerCase());
+          setAuthMode("sign-in");
+          setAuthInfoMessage(
+            result.session
+              ? "Your account was created and you are signed in."
+              : "Your account was created. Check your inbox, verify your email, then sign in.",
+          );
+          return;
+        }
+
+        await signInWithEmail({ email, password });
+        setAuthInfoMessage(null);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Something went wrong while contacting Supabase.";
+        setAuthErrorMessage(message);
+      } finally {
+        setIsSubmittingAuth(false);
+      }
+    },
+    [authMode],
+  );
 
   const handleResendVerification = React.useCallback(async (email: string) => {
     setIsSubmittingAuth(true);
@@ -335,12 +458,66 @@ function ThemedNavigation() {
       await resendSignupVerification(email);
       setAuthInfoMessage(`We sent another verification email to ${email}.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "We could not resend the verification email.";
+      const message =
+        error instanceof Error
+          ? error.message
+          : "We could not resend the verification email.";
       setAuthErrorMessage(message);
     } finally {
       setIsSubmittingAuth(false);
     }
   }, []);
+
+  const handlePasswordResetRequest = React.useCallback(
+    async (email: string) => {
+      setIsSubmittingAuth(true);
+      setAuthErrorMessage(null);
+      setAuthInfoMessage(null);
+
+      try {
+        await requestPasswordReset(email);
+        setAuthInfoMessage(
+          `We sent a password reset link to ${email.trim().toLowerCase()}.`,
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "We could not send the password reset email.";
+        setAuthErrorMessage(message);
+      } finally {
+        setIsSubmittingAuth(false);
+      }
+    },
+    [],
+  );
+
+  const handlePasswordUpdateSubmit = React.useCallback(
+    async (password: string) => {
+      setIsSubmittingAuth(true);
+      setPasswordUpdateErrorMessage(null);
+
+      try {
+        await updateCurrentUserPassword(password);
+        await signOut();
+        setSession(null);
+        setShowPasswordUpdate(false);
+        setAuthMode("sign-in");
+        setAuthInfoMessage(
+          "Your password was updated. Sign in with your new password.",
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "We could not update your password.";
+        setPasswordUpdateErrorMessage(message);
+      } finally {
+        setIsSubmittingAuth(false);
+      }
+    },
+    [],
+  );
 
   if (!hasCheckedIntroduction || !hasCheckedSession) {
     return null;
@@ -364,6 +541,19 @@ function ThemedNavigation() {
     );
   }
 
+  if (showPasswordUpdate) {
+    return (
+      <>
+        <UpdatePasswordScreen
+          isSubmitting={isSubmittingAuth}
+          errorMessage={passwordUpdateErrorMessage}
+          onSubmit={handlePasswordUpdateSubmit}
+        />
+        <StatusBar style={isDark ? "light" : "dark"} />
+      </>
+    );
+  }
+
   if (!session) {
     return (
       <>
@@ -381,6 +571,7 @@ function ThemedNavigation() {
           }}
           onSubmit={handleAuthSubmit}
           onResendVerification={handleResendVerification}
+          onPasswordResetRequest={handlePasswordResetRequest}
         />
         <StatusBar style={isDark ? "light" : "dark"} />
       </>
@@ -405,7 +596,7 @@ function ThemedNavigation() {
       </>
     );
   }
-  
+
   return (
     <NavigationContainer>
       <Stack.Navigator
@@ -429,12 +620,36 @@ function ThemedNavigation() {
             />
           )}
         </Stack.Screen>
-        <Stack.Screen name="Goal" component={GoalScreen} options={{ title: "Goal" }} />
-        <Stack.Screen name="NewGoal" component={NewGoalScreen} options={{ title: "New Goal" }} />
-        <Stack.Screen name="CompletedGoals" component={CompletedGoalsScreen} options={{ title: "Completed Goals" }} />
-        <Stack.Screen name="Consistency" component={OverviewScreen} options={{ title: "Consistency" }} />
-        <Stack.Screen name="Instructions" component={InstructionsScreen} options={{ title: "How It Works" }} />
-        <Stack.Screen name="Privacy" component={PrivacyScreen} options={{ title: "Privacy & Data" }} />
+        <Stack.Screen
+          name="Goal"
+          component={GoalScreen}
+          options={{ title: "Goal" }}
+        />
+        <Stack.Screen
+          name="NewGoal"
+          component={NewGoalScreen}
+          options={{ title: "New Goal" }}
+        />
+        <Stack.Screen
+          name="CompletedGoals"
+          component={CompletedGoalsScreen}
+          options={{ title: "Completed Goals" }}
+        />
+        <Stack.Screen
+          name="Consistency"
+          component={OverviewScreen}
+          options={{ title: "Consistency" }}
+        />
+        <Stack.Screen
+          name="Instructions"
+          component={InstructionsScreen}
+          options={{ title: "How It Works" }}
+        />
+        <Stack.Screen
+          name="Privacy"
+          component={PrivacyScreen}
+          options={{ title: "Privacy & Data" }}
+        />
       </Stack.Navigator>
       <StatusBar style={isDark ? "light" : "dark"} />
     </NavigationContainer>

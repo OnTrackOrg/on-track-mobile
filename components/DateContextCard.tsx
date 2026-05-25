@@ -59,7 +59,9 @@ export default function DateContextCard({
     void haptics.warning();
     Alert.alert(
       "Unfreeze this day?",
-      freezeReason ? `Reason: "${freezeReason}"\n\nRemoving the freeze will allow this day to affect your streaks again.` : "Removing the freeze will allow this day to affect your streaks again.",
+      freezeReason
+        ? `Reason: "${freezeReason}"\n\nRemoving the freeze will allow this day to affect your streaks again.`
+        : "Removing the freeze will allow this day to affect your streaks again.",
       [
         { text: "Keep Frozen", style: "cancel" },
         {
@@ -70,7 +72,7 @@ export default function DateContextCard({
             onUnfreezeDay();
           },
         },
-      ]
+      ],
     );
   };
 
@@ -86,8 +88,22 @@ export default function DateContextCard({
           gap: 12,
         }}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
+              flex: 1,
+            }}
+          >
             <View
               style={{
                 width: 38,
@@ -101,23 +117,47 @@ export default function DateContextCard({
               {isFrozen ? (
                 <Text style={{ fontSize: 20 }}>❄️</Text>
               ) : (
-                <Ionicons name="calendar-outline" size={18} color={theme.primary} />
+                <Ionicons
+                  name="calendar-outline"
+                  size={18}
+                  color={theme.primary}
+                />
               )}
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ color: theme.textSecondary, fontSize: 12, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.6 }}>
+              <Text
+                style={{
+                  color: theme.textSecondary,
+                  fontSize: 12,
+                  fontWeight: "600",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.6,
+                }}
+              >
                 {isFrozen ? "Frozen Day" : "Tracking Date"}
               </Text>
-              <Text style={{ color: theme.text, fontSize: 16, fontWeight: "700", marginTop: 2 }}>
+              <Text
+                style={{
+                  color: theme.text,
+                  fontSize: 16,
+                  fontWeight: "700",
+                  marginTop: 2,
+                }}
+              >
                 {format(selectedDate, "EEEE, MMM d, yyyy")}
               </Text>
               {isFrozen && freezeReason ? (
-                <Text style={{ color: frozenTextColor, marginTop: 2, fontSize: 13 }} numberOfLines={2}>
+                <Text
+                  style={{ color: frozenTextColor, marginTop: 2, fontSize: 13 }}
+                  numberOfLines={2}
+                >
                   {freezeReason}
                 </Text>
               ) : (
                 <Text style={{ color: theme.textSecondary, marginTop: 2 }}>
-                  {viewingToday ? "Tap to switch days" : "Viewing and editing this day"}
+                  {viewingToday
+                    ? "Tap to switch days"
+                    : "Viewing and editing this day"}
                 </Text>
               )}
             </View>
@@ -142,7 +182,9 @@ export default function DateContextCard({
             }}
           >
             <Ionicons name="chevron-back" size={16} color={theme.text} />
-            <Text style={{ color: theme.text, fontWeight: "700" }}>Previous</Text>
+            <Text style={{ color: theme.text, fontWeight: "700" }}>
+              Previous
+            </Text>
           </Pressable>
 
           <Pressable
@@ -168,43 +210,48 @@ export default function DateContextCard({
         </View>
 
         {/* Freeze / Unfreeze row - only for today or past dates without completions */}
-        {!isFutureDate && (isFrozen ? (
-          <Pressable
-            onPress={handleUnfreezePress}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 6,
-              backgroundColor: theme.background,
-              borderWidth: 1,
-              borderColor: frozenBorderColor,
-              borderRadius: 10,
-              paddingVertical: 10,
-            }}
-          >
-            <Text style={{ fontSize: 16 }}>❄️</Text>
-            <Text style={{ color: frozenTextColor, fontWeight: "700" }}>Day Frozen — Tap to Unfreeze</Text>
-          </Pressable>
-        ) : !hasCompletions ? (
-          <Pressable
-            onPress={handleFreezePress}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 6,
-              backgroundColor: theme.background,
-              borderWidth: 1,
-              borderColor: theme.border,
-              borderRadius: 10,
-              paddingVertical: 10,
-            }}
-          >
-            <Text style={{ fontSize: 16 }}>❄️</Text>
-            <Text style={{ color: theme.textSecondary, fontWeight: "600" }}>Freeze This Day</Text>
-          </Pressable>
-        ) : null)}
+        {!isFutureDate &&
+          (isFrozen ? (
+            <Pressable
+              onPress={handleUnfreezePress}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                backgroundColor: theme.background,
+                borderWidth: 1,
+                borderColor: frozenBorderColor,
+                borderRadius: 10,
+                paddingVertical: 10,
+              }}
+            >
+              <Text style={{ fontSize: 16 }}>❄️</Text>
+              <Text style={{ color: frozenTextColor, fontWeight: "700" }}>
+                Day Frozen — Tap to Unfreeze
+              </Text>
+            </Pressable>
+          ) : !hasCompletions ? (
+            <Pressable
+              onPress={handleFreezePress}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                backgroundColor: theme.background,
+                borderWidth: 1,
+                borderColor: theme.border,
+                borderRadius: 10,
+                paddingVertical: 10,
+              }}
+            >
+              <Text style={{ fontSize: 16 }}>❄️</Text>
+              <Text style={{ color: theme.textSecondary, fontWeight: "600" }}>
+                Freeze This Day
+              </Text>
+            </Pressable>
+          ) : null)}
       </View>
 
       <FreezeDayModal

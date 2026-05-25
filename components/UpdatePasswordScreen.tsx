@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -9,54 +10,36 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { getAccountDraftErrors } from "../account";
 import { useTheme } from "../contexts/ThemeContext";
 import LabeledTextField from "./LabeledTextField";
-import {
-  buildDefaultUsername,
-  getAccountDraftErrors,
-  isValidAccountDraft,
-  sanitizeUsernameInput,
-} from "../account";
 
-type AccountSetupScreenProps = {
-  onSubmit: (input: {
-    displayName: string;
-    username: string;
-    email: string;
-    password: string;
-  }) => void;
-  hasExistingData: boolean;
+type UpdatePasswordScreenProps = {
+  isSubmitting?: boolean;
+  errorMessage?: string | null;
+  onSubmit: (password: string) => void;
 };
 
-export default function AccountSetupScreen({
+export default function UpdatePasswordScreen({
+  isSubmitting = false,
+  errorMessage,
   onSubmit,
-  hasExistingData,
-}: AccountSetupScreenProps) {
+}: UpdatePasswordScreenProps) {
   const { theme } = useTheme();
-  const [displayName, setDisplayName] = React.useState("");
-  const [username, setUsername] = React.useState("");
-  const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [confirmPassword, setConfirmPassword] = React.useState("");
   const [showPassword, setShowPassword] = React.useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [attemptedSubmit, setAttemptedSubmit] = React.useState(false);
-
   const errors = getAccountDraftErrors(
-    displayName,
-    username,
-    email,
+    "Reset User",
+    "reset-user",
+    "reset@example.com",
     password,
     confirmPassword,
   );
-  const isValid = isValidAccountDraft(
-    displayName,
-    username,
-    email,
-    password,
-    confirmPassword,
-  );
-  const passwordFieldTextContentType =
+  const isValid = !errors.password && !errors.confirmPassword;
+  const passwordTextContentType =
     Platform.OS === "ios" && showPassword ? "oneTimeCode" : "newPassword";
   const confirmPasswordTextContentType =
     Platform.OS === "ios" && showConfirmPassword ? "oneTimeCode" : "password";
@@ -90,11 +73,7 @@ export default function AccountSetupScreen({
                 alignSelf: "center",
               }}
             >
-              <Ionicons
-                name="person-circle-outline"
-                size={42}
-                color={theme.primary}
-              />
+              <Ionicons name="key-outline" size={42} color={theme.primary} />
             </View>
 
             <View style={{ gap: 10 }}>
@@ -106,7 +85,7 @@ export default function AccountSetupScreen({
                   textAlign: "center",
                 }}
               >
-                Welcome! Let&apos;s set up an account.
+                Choose a new password
               </Text>
               <Text
                 style={{
@@ -116,70 +95,38 @@ export default function AccountSetupScreen({
                   textAlign: "center",
                 }}
               >
-                {hasExistingData
-                  ? "Your current goals and history will stay on this device and be linked to this profile."
-                  : "Create your profile now so your goals are linked to you from the start."}
+                Enter a new password for your OnTrack account.
               </Text>
             </View>
 
+            {errorMessage ? (
+              <View
+                style={{
+                  padding: 12,
+                  borderRadius: 10,
+                  backgroundColor: "#7f1d1d",
+                }}
+              >
+                <Text style={{ color: "#fecaca", lineHeight: 20 }}>
+                  {errorMessage}
+                </Text>
+              </View>
+            ) : null}
+
             <View style={{ gap: 14 }}>
               <LabeledTextField
-                label="Display name"
-                value={displayName}
-                onChangeText={(text) => {
-                  setDisplayName(text);
-                  if (!username.trim()) {
-                    setUsername(buildDefaultUsername(text));
-                  }
-                }}
-                placeholder="Adam"
-                autoCapitalize="words"
-                textContentType="name"
-                returnKeyType="next"
-                errorText={attemptedSubmit ? errors.displayName : undefined}
-              />
-              <LabeledTextField
-                label="Username"
-                value={username}
-                onChangeText={(text) =>
-                  setUsername(sanitizeUsernameInput(text))
-                }
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="adam"
-                textContentType="username"
-                autoComplete="username"
-                returnKeyType="next"
-                helpText="3-32 characters. Letters, numbers, periods, underscores, and hyphens are allowed."
-                errorText={attemptedSubmit ? errors.username : undefined}
-              />
-              <LabeledTextField
-                label="Email"
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="adam@example.com"
-                textContentType="emailAddress"
-                autoComplete="email"
-                keyboardType="email-address"
-                returnKeyType="next"
-                errorText={attemptedSubmit ? errors.email : undefined}
-              />
-              <LabeledTextField
-                label="Password"
+                label="New password"
                 value={password}
                 onChangeText={setPassword}
                 autoCapitalize="none"
                 autoCorrect={false}
-                placeholder="Choose a password"
-                textContentType={passwordFieldTextContentType}
+                placeholder="Choose a new password"
+                textContentType={passwordTextContentType}
                 autoComplete="new-password"
                 passwordRules="minlength: 10; required: lower; required: upper; required: digit;"
                 secureTextEntry={!showPassword}
                 returnKeyType="next"
-                selectTextOnFocus={Platform.OS === "ios"}
-                contextMenuHidden={false}
+                editable={!isSubmitting}
                 helpText="Use at least 10 characters with at least one letter and one number."
                 errorText={attemptedSubmit ? errors.password : undefined}
                 accessoryLabel={
@@ -187,8 +134,9 @@ export default function AccountSetupScreen({
                 }
                 onAccessoryPress={() => setShowPassword((current) => !current)}
               />
+
               <LabeledTextField
-                label="Confirm password"
+                label="Confirm new password"
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 autoCapitalize="none"
@@ -198,8 +146,7 @@ export default function AccountSetupScreen({
                 autoComplete="off"
                 secureTextEntry={!showConfirmPassword}
                 returnKeyType="done"
-                selectTextOnFocus={Platform.OS === "ios"}
-                contextMenuHidden={false}
+                editable={!isSubmitting}
                 errorText={attemptedSubmit ? errors.confirmPassword : undefined}
                 accessoryLabel={
                   showConfirmPassword ? "Hide password" : "Show password"
@@ -213,21 +160,28 @@ export default function AccountSetupScreen({
             <Pressable
               onPress={() => {
                 setAttemptedSubmit(true);
-                if (!isValid) {
+                if (!isValid || isSubmitting) {
                   return;
                 }
 
-                onSubmit({ displayName, username, email, password });
+                onSubmit(password);
               }}
               style={{
-                backgroundColor: isValid ? theme.primary : theme.border,
+                backgroundColor:
+                  isValid && !isSubmitting ? theme.primary : theme.border,
                 borderRadius: 999,
                 paddingHorizontal: 18,
                 paddingVertical: 14,
                 alignItems: "center",
                 marginTop: 8,
+                flexDirection: "row",
+                justifyContent: "center",
+                gap: 10,
               }}
             >
+              {isSubmitting ? (
+                <ActivityIndicator color={theme.background} />
+              ) : null}
               <Text
                 style={{
                   color: theme.background,
@@ -235,7 +189,7 @@ export default function AccountSetupScreen({
                   fontSize: 16,
                 }}
               >
-                Continue
+                Update password
               </Text>
             </Pressable>
           </View>

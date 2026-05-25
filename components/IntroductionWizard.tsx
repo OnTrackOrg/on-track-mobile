@@ -1,8 +1,14 @@
 import React from "react";
-import { View, Text, Pressable, Image, ImageSourcePropType, useWindowDimensions } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  Image,
+  ImageSourcePropType,
+  useWindowDimensions,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import AppIntroSlider from "react-native-app-intro-slider";
 import { useTheme } from "../contexts/ThemeContext";
 
 type SlideImage = {
@@ -91,14 +97,24 @@ const slides: Slide[] = [
   },
 ];
 
-export default function IntroductionWizard({ onDone }: IntroductionWizardProps) {
+export default function IntroductionWizard({
+  onDone,
+}: IntroductionWizardProps) {
   const { theme } = useTheme();
   const { width, height } = useWindowDimensions();
+  const [slideIndex, setSlideIndex] = React.useState(0);
+  const slide = slides[slideIndex];
+  const isLastSlide = slideIndex === slides.length - 1;
 
   const renderImage = (image: SlideImage) => {
-    const maxImageWidth = image.compact ? Math.min(width - 64, 300) : Math.min(width - 48, 360);
+    const maxImageWidth = image.compact
+      ? Math.min(width - 64, 300)
+      : Math.min(width - 48, 360);
     const maxImageHeight = image.compact ? 110 : Math.min(height * 0.38, 320);
-    const imageWidth = Math.min(maxImageWidth, maxImageHeight * image.aspectRatio);
+    const imageWidth = Math.min(
+      maxImageWidth,
+      maxImageHeight * image.aspectRatio,
+    );
     const imageHeight = imageWidth / image.aspectRatio;
 
     return (
@@ -128,64 +144,167 @@ export default function IntroductionWizard({ onDone }: IntroductionWizardProps) 
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
-      <AppIntroSlider
-        data={slides}
-        onDone={onDone}
-        renderItem={({ item }) => (
-          <View style={{ flex: 1, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 96, justifyContent: "center", alignItems: "center", gap: 24 }}>
-            {item.image ? (
-              renderImage(item.image)
-            ) : (
-              <View
-                style={{
-                  width: 96,
-                  height: 96,
-                  borderRadius: 48,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: theme.surface,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                }}
-              >
-                <Ionicons name={item.icon} size={42} color={theme.primary} />
-              </View>
-            )}
-
-            <View style={{ gap: 12, alignItems: "center", width: "100%", maxWidth: 360 }}>
-              <Text style={{ color: theme.text, fontSize: 26, lineHeight: 32, fontWeight: "800", textAlign: "center" }}>{item.title}</Text>
-              <Text style={{ color: theme.textSecondary, fontSize: 16, lineHeight: 23, textAlign: "center" }}>{item.text}</Text>
+      <View style={{ flex: 1 }}>
+        <View
+          style={{
+            flex: 1,
+            paddingHorizontal: 24,
+            paddingTop: 24,
+            paddingBottom: 96,
+            justifyContent: "center",
+            alignItems: "center",
+            gap: 24,
+          }}
+        >
+          {slide.image ? (
+            renderImage(slide.image)
+          ) : (
+            <View
+              style={{
+                width: 96,
+                height: 96,
+                borderRadius: 48,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: theme.surface,
+                borderWidth: 1,
+                borderColor: theme.border,
+              }}
+            >
+              <Ionicons name={slide.icon} size={42} color={theme.primary} />
             </View>
-          </View>
-        )}
-        activeDotStyle={{ backgroundColor: theme.primary, width: 24 }}
-        dotStyle={{ backgroundColor: theme.border }}
-        renderNextButton={() => (
-          <View style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
-            <Text style={{ color: theme.primary, fontWeight: "700" }}>Next</Text>
-          </View>
-        )}
-        renderDoneButton={() => (
-          <Pressable
-            onPress={onDone}
+          )}
+
+          <View
             style={{
-              backgroundColor: theme.primary,
-              borderRadius: 999,
-              paddingHorizontal: 16,
-              paddingVertical: 10,
+              gap: 12,
+              alignItems: "center",
+              width: "100%",
+              maxWidth: 360,
             }}
           >
-            <Text style={{ color: theme.background, fontWeight: "700" }}>Open OnTrack</Text>
-          </Pressable>
-        )}
-        showSkipButton
-        renderSkipButton={() => (
-          <View style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
-            <Text style={{ color: theme.textSecondary, fontWeight: "600" }}>Skip</Text>
+            <Text
+              style={{
+                color: theme.text,
+                fontSize: 26,
+                lineHeight: 32,
+                fontWeight: "800",
+                textAlign: "center",
+              }}
+            >
+              {slide.title}
+            </Text>
+            <Text
+              style={{
+                color: theme.textSecondary,
+                fontSize: 16,
+                lineHeight: 23,
+                textAlign: "center",
+              }}
+            >
+              {slide.text}
+            </Text>
           </View>
-        )}
-        onSkip={onDone}
-      />
+        </View>
+
+        <View
+          style={{
+            position: "absolute",
+            left: 24,
+            right: 24,
+            bottom: 26,
+            gap: 18,
+          }}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+            }}
+          >
+            {slides.map((item, index) => (
+              <View
+                key={item.key}
+                style={{
+                  width: index === slideIndex ? 24 : 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor:
+                    index === slideIndex ? theme.primary : theme.border,
+                }}
+              />
+            ))}
+          </View>
+
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Pressable
+              onPress={onDone}
+              style={{ paddingHorizontal: 8, paddingVertical: 6 }}
+            >
+              <Text style={{ color: theme.textSecondary, fontWeight: "600" }}>
+                Skip
+              </Text>
+            </Pressable>
+
+            {slideIndex > 0 ? (
+              <Pressable
+                onPress={() =>
+                  setSlideIndex((current) => Math.max(0, current - 1))
+                }
+                style={{ paddingHorizontal: 8, paddingVertical: 6 }}
+              >
+                <Text style={{ color: theme.textSecondary, fontWeight: "700" }}>
+                  Back
+                </Text>
+              </Pressable>
+            ) : (
+              <View style={{ width: 54 }} />
+            )}
+
+            {isLastSlide ? (
+              <Pressable
+                onPress={onDone}
+                style={{
+                  backgroundColor: theme.primary,
+                  borderRadius: 999,
+                  paddingHorizontal: 16,
+                  paddingVertical: 10,
+                }}
+              >
+                <Text style={{ color: theme.background, fontWeight: "700" }}>
+                  Open OnTrack
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() =>
+                  setSlideIndex((current) =>
+                    Math.min(slides.length - 1, current + 1),
+                  )
+                }
+                style={{
+                  backgroundColor: theme.primary,
+                  borderRadius: 999,
+                  paddingHorizontal: 16,
+                  paddingVertical: 10,
+                }}
+              >
+                <Text style={{ color: theme.background, fontWeight: "700" }}>
+                  Next
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </View>
     </SafeAreaView>
   );
 }
