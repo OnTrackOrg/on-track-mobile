@@ -13,7 +13,6 @@ import DateContextCard from "./DateContextCard";
 import CalendarModal from "./CalendarModal";
 import { haptics } from "../utils/haptics";
 import { RootStackParamList } from "../navigation";
-import { RadarChartMode } from "./RadarChart";
 import { getNextTrackingDate, getPreviousTrackingDate } from "../lib/dateContext";
 import { deleteCurrentAccount } from "../lib/auth";
 import { ONBOARDING_STORAGE_KEY } from "../onboarding";
@@ -40,11 +39,12 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
   const isDayFrozen = useStore((s) => s.isDayFrozen);
   const getFreezeReason = useStore((s) => s.getFreezeReason);
   const currentMode = getCurrentMode();
+  const homeRadarMode = useStore((s) => s.homeRadarMode);
+  const setHomeRadarMode = useStore((s) => s.setHomeRadarMode);
   const { theme, isDark, toggleTheme } = useTheme();
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [isReorderingGoals, setIsReorderingGoals] = useState(false);
-  const [radarMode, setRadarMode] = useState<RadarChartMode>("current");
   const activeGoals = React.useMemo(
     () => goals.filter((goal) => goal.completedAt === undefined),
     [goals]
@@ -243,7 +243,7 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
               <Pressable
                 key={option.key}
                 onPress={() => {
-                  setRadarMode(option.key);
+                  setHomeRadarMode(option.key);
                   void haptics.tap();
                 }}
                 style={{
@@ -251,11 +251,11 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
                   paddingVertical: 6,
                   borderRadius: 9999,
                   borderWidth: 1,
-                  borderColor: radarMode === option.key ? theme.primary : theme.border,
-                  backgroundColor: radarMode === option.key ? theme.primary + "20" : theme.surface,
+                  borderColor: homeRadarMode === option.key ? theme.primary : theme.border,
+                  backgroundColor: homeRadarMode === option.key ? theme.primary + "20" : theme.surface,
                 }}
               >
-                <Text style={{ color: radarMode === option.key ? theme.primary : theme.textSecondary, fontWeight: "600", fontSize: 12 }}>
+                <Text style={{ color: homeRadarMode === option.key ? theme.primary : theme.textSecondary, fontWeight: "600", fontSize: 12 }}>
                   {option.label}
                 </Text>
               </Pressable>
@@ -265,7 +265,7 @@ export default function HomeScreen({ navigation, onAccountDeleted }: HomeScreenP
             goals={activeGoals}
             size={250}
             referenceDate={selectedDate}
-            mode={radarMode}
+            mode={homeRadarMode}
             emptyTitle={goals.length > 0 ? "No active goals" : undefined}
             emptyHelperText={goals.length > 0 ? "Complete or add a goal to compare active progress" : undefined}
           />

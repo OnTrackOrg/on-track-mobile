@@ -30,8 +30,9 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
   const goal = useStore((s) => s.goals.find((g) => g.id === goalId)!);
   const selectedDate = useStore((s) => s.selectedDate);
   const frozenDays = useStore((s) => s.frozenDays);
+  const viewMode = useStore((s) => s.consistencyViewMode);
+  const setConsistencyViewMode = useStore((s) => s.setConsistencyViewMode);
   const { theme } = useTheme();
-  const [viewMode, setViewMode] = React.useState<"summary" | "tasks">("tasks");
 
   if (!goal) return <Text>Goal not found</Text>;
 
@@ -96,7 +97,7 @@ export default function OverviewScreen({ navigation, route }: OverviewProps) {
           ] as const).map((option) => (
             <Pressable
               key={option.key}
-              onPress={() => setViewMode(option.key)}
+              onPress={() => setConsistencyViewMode(option.key)}
               style={{
                 paddingHorizontal: 10,
                 paddingVertical: 6,

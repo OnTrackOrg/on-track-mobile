@@ -45,9 +45,13 @@ jest.mock('./contexts/ThemeContext', () => ({
   }),
 }));
 
+const setConsistencyViewMode = jest.fn();
+
 const mockState = {
   selectedDate: new Date('2026-05-06T12:00:00.000Z'),
   frozenDays: [] as Array<{ date: string; reason: string; createdAt: number }>,
+  consistencyViewMode: 'tasks' as const,
+  setConsistencyViewMode,
   goals: [
     {
       id: 'goal-1',
@@ -90,8 +94,13 @@ jest.mock('./store', () => ({
 }));
 
 describe('OverviewScreen', () => {
+  beforeEach(() => {
+    setConsistencyViewMode.mockClear();
+    mockState.consistencyViewMode = 'tasks';
+  });
+
   it('lets users switch to a goal-level summary heatmap', () => {
-    const { getByText, getAllByTestId, queryByText } = render(
+    const { getByText, getAllByTestId, queryByText, rerender } = render(
       <OverviewScreen
         navigation={{} as never}
         route={{ key: 'Consistency-1', name: 'Consistency', params: { goalId: 'goal-1' } } as never}
@@ -103,6 +112,15 @@ describe('OverviewScreen', () => {
     expect(queryByText('Goal summary heatmap')).toBeNull();
 
     fireEvent.press(getByText('Summary'));
+
+    expect(setConsistencyViewMode).toHaveBeenCalledWith('summary');
+    mockState.consistencyViewMode = 'summary';
+    rerender(
+      <OverviewScreen
+        navigation={{} as never}
+        route={{ key: 'Consistency-1', name: 'Consistency', params: { goalId: 'goal-1' } } as never}
+      />,
+    );
 
     expect(getByText('Goal summary heatmap')).toBeTruthy();
     expect(getByText(/what percentage of this goal’s recurring tasks/i)).toBeTruthy();
@@ -134,5 +152,19 @@ describe('OverviewScreen', () => {
     expect(getByText('Stretch')).toBeTruthy();
     expect(queryByText('Buy shoes')).toBeNull();
     expect(queryByText('Book physio')).toBeNull();
+  });
+
+  it('respects the persisted summary view preference on first render', () => {
+    mockState.consistencyViewMode = 'summary';
+
+    const { getByText, queryByText } = render(
+      <OverviewScreen
+        navigation={{} as never}
+        route={{ key: 'Consistency-1', name: 'Consistency', params: { goalId: 'goal-1' } } as never}
+      />,
+    );
+
+    expect(getByText('Goal summary heatmap')).toBeTruthy();
+    expect(queryByText('Walk')).toBeNull();
   });
 });

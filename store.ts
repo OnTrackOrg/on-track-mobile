@@ -660,6 +660,8 @@ interface State {
     syncRevision: number;
     lastSyncedRevision: number;
     frozenDays: FreezeDay[];
+    homeRadarMode: "current" | "trend";
+    consistencyViewMode: "summary" | "tasks";
     setGoals: (goals: Goal[]) => void;
     setCloudSyncEnabled: (enabled: boolean) => void;
     markGoalsSynced: (revision: number) => void;
@@ -678,6 +680,8 @@ interface State {
     unfreezeDay: (date: Date) => void;
     isDayFrozen: (date: Date) => boolean;
     getFreezeReason: (date: Date) => string | undefined;
+    setHomeRadarMode: (mode: "current" | "trend") => void;
+    setConsistencyViewMode: (mode: "summary" | "tasks") => void;
     completionsByDate: () => Record<string, number>;
     deleteGoal: (goalId: string) => void;
     resetAppData: () => void;
@@ -716,6 +720,8 @@ export const useStore = create<State>()(
             syncRevision: 0,
             lastSyncedRevision: 0,
             frozenDays: [],
+            homeRadarMode: "current",
+            consistencyViewMode: "tasks",
 
             /**
              * This setter is the bridge between remote reads and the existing
@@ -965,6 +971,14 @@ export const useStore = create<State>()(
                 return get().frozenDays.find((fd) => fd.date === dateKey)?.reason;
             },
 
+            setHomeRadarMode: (mode) => {
+                set({ homeRadarMode: mode });
+            },
+
+            setConsistencyViewMode: (mode) => {
+                set({ consistencyViewMode: mode });
+            },
+
             completionsByDate: () => {
                 const map: Record<string, number> = {};
                 for (const g of get().goals) {
@@ -1033,6 +1047,11 @@ export const useStore = create<State>()(
                             : state.selectedDate;
                     } else if (state) {
                         state.selectedDate = normalizeDate(new Date());
+                    }
+
+                    if (state) {
+                        state.homeRadarMode = state.homeRadarMode === "trend" ? "trend" : "current";
+                        state.consistencyViewMode = state.consistencyViewMode === "summary" ? "summary" : "tasks";
                     }
                 };
             },
