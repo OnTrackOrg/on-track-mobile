@@ -548,6 +548,15 @@ function localDate(daysAgo: number): Date {
 }
 
 describe("getGoalStreak with frozen days", () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-05-20T12:00:00"));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it("daily streak: frozen gap day does not break the streak", () => {
     // today=0, yesterday=1, twoDaysAgo=2 (frozen), threeDaysAgo=3
     const task: Task = {
