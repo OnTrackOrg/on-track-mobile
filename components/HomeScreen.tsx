@@ -46,6 +46,10 @@ import {
   saveReminderSettings,
   syncDailyReminder,
 } from "../lib/reminders";
+import {
+  getAccountSettingsDescription,
+  getPrivacySettingsDescription,
+} from "./homeSettingsCopy";
 
 type HomeProps = NativeStackScreenProps<RootStackParamList, "Home">;
 
@@ -60,6 +64,7 @@ export default function HomeScreen({
   const goals = useStore((s) => s.goals);
   const selectedDate = useStore((s) => s.selectedDate);
   const account = useStore((s) => s.account);
+  const cloudSyncEnabled = useStore((s) => s.cloudSyncEnabled);
   const setSelectedDate = useStore((s) => s.setSelectedDate);
   const reorderGoals = useStore((s) => s.reorderGoals);
   const deleteGoal = useStore((s) => s.deleteGoal);
@@ -807,8 +812,7 @@ export default function HomeScreen({
                   {account.displayName} @{account.username}
                 </Text>
                 <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
-                  This profile will be used for future sync and communication
-                  features.
+                  {getAccountSettingsDescription(cloudSyncEnabled)}
                 </Text>
               </View>
             ) : null}
@@ -860,7 +864,7 @@ export default function HomeScreen({
                 Privacy & Data
               </Text>
               <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
-                Goals and completion history stay on this device.
+                {getPrivacySettingsDescription(cloudSyncEnabled)}
               </Text>
             </Pressable>
 
