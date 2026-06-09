@@ -33,7 +33,7 @@ OnTrack is a habit tracking mobile app built with React Native and Expo. It focu
 ### Install
 
 ```bash
-git clone https://github.com/KyleNewbigging/OnTrack.git
+git clone https://github.com/OnTrackOrg/on-track-mobile.git OnTrack
 cd OnTrack
 npm install
 ```
@@ -77,12 +77,16 @@ npm run lint
 
 ```text
 OnTrack/
+├── assets/       # App icons and bundled images
 ├── components/   # UI screens and reusable visual components
 ├── contexts/     # React context providers
-├── docs/         # Supporting project documentation
-├── tests/        # Jest unit tests
-├── scripts/      # Utility scripts
+├── docs/         # Product and technical notes
+├── lib/          # Shared app logic and integrations
+├── supabase/     # SQL migrations and edge function sources
+├── tests/        # Jest test files
+├── utils/        # Small reusable helpers
 ├── App.tsx       # App entry component
+├── navigation.ts # Navigation types and route definitions
 ├── store.ts      # Zustand state and persistence
 ├── types.ts      # Shared TypeScript types
 └── README.md
@@ -91,9 +95,9 @@ OnTrack/
 ## Documentation map
 
 - `README.md`: quick start and repo overview
-- `AGENTS.md`: how Hugo should operate in this repo
 - `TODO.md`: backlog notes that are not yet formalized as issues
-- `docs/`: focused supporting docs
+- `docs/`: focused product and engineering docs
+- `supabase/`: backend-related migrations and functions used by the app
 
 ## Notes
 
