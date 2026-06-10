@@ -70,6 +70,10 @@ export default function HomeScreen({
   const unfreezeDay = useStore((s) => s.unfreezeDay);
   const isDayFrozen = useStore((s) => s.isDayFrozen);
   const getFreezeReason = useStore((s) => s.getFreezeReason);
+  const getDayReflection = useStore((s) => s.getDayReflection);
+  const setDayReflection = useStore((s) => s.setDayReflection);
+  const clearDayReflection = useStore((s) => s.clearDayReflection);
+  const dayReflections = useStore((s) => s.dayReflections);
   const currentMode = getCurrentMode();
   const { theme, isDark, toggleTheme } = useTheme();
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -338,6 +342,7 @@ export default function HomeScreen({
             selectedDate={selectedDate}
             isFrozen={isDayFrozen(selectedDate)}
             freezeReason={getFreezeReason(selectedDate)}
+            dayReflection={getDayReflection(selectedDate)?.rating}
             hasCompletions={hasCompletionsOnDate}
             onPress={() => {
               void haptics.tap();
@@ -361,6 +366,12 @@ export default function HomeScreen({
             }}
             onUnfreezeDay={() => {
               unfreezeDay(selectedDate);
+            }}
+            onSetDayReflection={(rating) => {
+              setDayReflection(selectedDate, rating);
+            }}
+            onClearDayReflection={() => {
+              clearDayReflection(selectedDate);
             }}
           />
 
@@ -974,6 +985,7 @@ export default function HomeScreen({
       <CalendarModal
         visible={calendarVisible}
         selectedDate={selectedDate}
+        reflectionDates={dayReflections.map((reflection) => reflection.date)}
         onClose={() => setCalendarVisible(false)}
         onSelectDate={(date) => setSelectedDate(date)}
       />

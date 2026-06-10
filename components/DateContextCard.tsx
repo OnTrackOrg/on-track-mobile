@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { format, isToday, isFuture } from "date-fns";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
+import { DayReflectionRating } from "../types";
 import IconButton from "./IconButton";
 import FreezeDayModal from "./FreezeDayModal";
 
@@ -11,24 +12,39 @@ interface DateContextCardProps {
   selectedDate: Date;
   isFrozen: boolean;
   freezeReason?: string;
+  dayReflection?: DayReflectionRating;
   hasCompletions: boolean;
   onPress: () => void;
   onPreviousDay: () => void;
   onNextDay: () => void;
   onFreezeDay: (reason: string) => void;
   onUnfreezeDay: () => void;
+  onSetDayReflection: (rating: DayReflectionRating) => void;
+  onClearDayReflection: () => void;
 }
+
+const REFLECTION_META: Record<
+  DayReflectionRating,
+  { emoji: string; label: string; description: string }
+> = {
+  good: { emoji: "🙂", label: "Good day", description: "Overall, this felt like a good day" },
+  mixed: { emoji: "😐", label: "Mixed day", description: "This day felt mixed or uneven" },
+  rough: { emoji: "😞", label: "Rough day", description: "This was a rough day overall" },
+};
 
 export default function DateContextCard({
   selectedDate,
   isFrozen,
   freezeReason,
+  dayReflection,
   hasCompletions,
   onPress,
   onPreviousDay,
   onNextDay,
   onFreezeDay,
   onUnfreezeDay,
+  onSetDayReflection,
+  onClearDayReflection,
 }: DateContextCardProps) {
   const { theme, isDark } = useTheme();
   const viewingToday = isToday(selectedDate);
@@ -75,6 +91,46 @@ export default function DateContextCard({
       ],
     );
   };
+
+  const handleReflectionPress = () => {
+    void haptics.tap();
+    const reflectionButtons: Array<{
+      text: string;
+      onPress?: () => void;
+      style?: "cancel" | "default" | "destructive";
+    }> = (
+      Object.entries(REFLECTION_META) as Array<
+        [DayReflectionRating, (typeof REFLECTION_META)[DayReflectionRating]]
+      >
+    ).map(([rating, meta]) => ({
+      text: `${meta.emoji} ${meta.label}`,
+      onPress: () => {
+        void haptics.tap();
+        onSetDayReflection(rating);
+      },
+    }));
+
+    if (dayReflection) {
+      reflectionButtons.push({
+        text: "Clear reflection",
+        style: "destructive",
+        onPress: () => {
+          void haptics.warning();
+          onClearDayReflection();
+        },
+      });
+    }
+
+    reflectionButtons.push({ text: "Cancel", style: "cancel" });
+
+    Alert.alert(
+      "How did this day feel?",
+      "Save a quick day-level reflection without changing your goals or streaks.",
+      reflectionButtons,
+    );
+  };
+
+  const reflectionMeta = dayReflection ? REFLECTION_META[dayReflection] : null;
 
   return (
     <>
@@ -153,6 +209,13 @@ export default function DateContextCard({
                 >
                   {freezeReason}
                 </Text>
+              ) : reflectionMeta ? (
+                <Text
+                  style={{ color: theme.textSecondary, marginTop: 2, fontSize: 13 }}
+                  numberOfLines={2}
+                >
+                  {reflectionMeta.emoji} {reflectionMeta.label}
+                </Text>
               ) : (
                 <Text style={{ color: theme.textSecondary, marginTop: 2 }}>
                   {viewingToday
@@ -208,6 +271,32 @@ export default function DateContextCard({
             <Ionicons name="chevron-forward" size={16} color={theme.text} />
           </Pressable>
         </View>
+
+        {!isFutureDate ? (
+          <Pressable
+            onPress={handleReflectionPress}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              backgroundColor: theme.background,
+              borderWidth: 1,
+              borderColor: theme.border,
+              borderRadius: 10,
+              paddingVertical: 10,
+            }}
+          >
+            <Text style={{ fontSize: 16 }}>
+              {reflectionMeta ? reflectionMeta.emoji : "💭"}
+            </Text>
+            <Text style={{ color: theme.textSecondary, fontWeight: "600" }}>
+              {reflectionMeta
+                ? `Reflection: ${reflectionMeta.label}`
+                : "Add Day Reflection"}
+            </Text>
+          </Pressable>
+        ) : null}
 
         {/* Freeze / Unfreeze row - only for today or past dates without completions */}
         {!isFutureDate &&

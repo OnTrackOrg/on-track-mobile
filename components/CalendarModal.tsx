@@ -21,6 +21,7 @@ import IconButton from "./IconButton";
 interface CalendarModalProps {
   visible: boolean;
   selectedDate: Date;
+  reflectionDates?: string[];
   onClose: () => void;
   onSelectDate: (date: Date) => void;
 }
@@ -30,11 +31,16 @@ const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 export default function CalendarModal({
   visible,
   selectedDate,
+  reflectionDates = [],
   onClose,
   onSelectDate,
 }: CalendarModalProps) {
   const { theme } = useTheme();
   const today = startOfDay(new Date());
+  const reflectionDateSet = React.useMemo(
+    () => new Set(reflectionDates),
+    [reflectionDates],
+  );
   const [displayMonth, setDisplayMonth] = React.useState(
     startOfMonth(selectedDate),
   );
@@ -192,6 +198,9 @@ export default function CalendarModal({
               const isSelected = isSameDay(day, selectedDate);
               const isCurrentMonth = isSameMonth(day, displayMonth);
               const isCurrentDay = isSameDay(day, today);
+              const hasReflection = reflectionDateSet.has(
+                format(day, "yyyy-MM-dd"),
+              );
 
               return (
                 <View
@@ -231,6 +240,20 @@ export default function CalendarModal({
                     >
                       {format(day, "d")}
                     </Text>
+                    {hasReflection ? (
+                      <View
+                        style={{
+                          position: "absolute",
+                          bottom: 4,
+                          width: 5,
+                          height: 5,
+                          borderRadius: 999,
+                          backgroundColor: isSelected
+                            ? "#ffffff"
+                            : theme.primary,
+                        }}
+                      />
+                    ) : null}
                   </Pressable>
                 </View>
               );

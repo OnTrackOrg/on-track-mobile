@@ -22,6 +22,10 @@ export default function TrackingDateControls({
   const unfreezeDay = useStore((s) => s.unfreezeDay);
   const isDayFrozen = useStore((s) => s.isDayFrozen);
   const getFreezeReason = useStore((s) => s.getFreezeReason);
+  const getDayReflection = useStore((s) => s.getDayReflection);
+  const setDayReflection = useStore((s) => s.setDayReflection);
+  const clearDayReflection = useStore((s) => s.clearDayReflection);
+  const dayReflections = useStore((s) => s.dayReflections);
   const [calendarVisible, setCalendarVisible] = React.useState(false);
 
   return (
@@ -30,6 +34,7 @@ export default function TrackingDateControls({
         selectedDate={selectedDate}
         isFrozen={isDayFrozen(selectedDate)}
         freezeReason={getFreezeReason(selectedDate)}
+        dayReflection={getDayReflection(selectedDate)?.rating}
         hasCompletions={hasCompletions}
         onPress={() => {
           void haptics.tap();
@@ -54,11 +59,18 @@ export default function TrackingDateControls({
         onUnfreezeDay={() => {
           unfreezeDay(selectedDate);
         }}
+        onSetDayReflection={(rating) => {
+          setDayReflection(selectedDate, rating);
+        }}
+        onClearDayReflection={() => {
+          clearDayReflection(selectedDate);
+        }}
       />
 
       <CalendarModal
         visible={calendarVisible}
         selectedDate={selectedDate}
+        reflectionDates={dayReflections.map((reflection) => reflection.date)}
         onClose={() => setCalendarVisible(false)}
         onSelectDate={(date) => setSelectedDate(date)}
       />
