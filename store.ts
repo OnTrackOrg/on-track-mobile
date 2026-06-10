@@ -8,6 +8,8 @@ import {
   Task,
   UserAccount,
   FreezeDay,
+  DayReflection,
+  DayReflectionRating,
 } from "./types";
 import {
   format,
@@ -875,6 +877,7 @@ interface State {
   syncRevision: number;
   lastSyncedRevision: number;
   frozenDays: FreezeDay[];
+  dayReflections: DayReflection[];
   setGoals: (goals: Goal[]) => void;
   setCloudSyncEnabled: (enabled: boolean) => void;
   markGoalsSynced: (revision: number) => void;
@@ -909,6 +912,10 @@ interface State {
   unfreezeDay: (date: Date) => void;
   isDayFrozen: (date: Date) => boolean;
   getFreezeReason: (date: Date) => string | undefined;
+  setDayReflection: (date: Date, rating: DayReflectionRating) => void;
+  clearDayReflection: (date: Date) => void;
+  getDayReflection: (date: Date) => DayReflection | undefined;
+  hasDayReflection: (date: Date) => boolean;
   completionsByDate: () => Record<string, number>;
   deleteGoal: (goalId: string) => void;
   resetAppData: () => void;
@@ -973,6 +980,7 @@ export const useStore = create<State>()(
       syncRevision: 0,
       lastSyncedRevision: 0,
       frozenDays: [],
+      dayReflections: [],
 
       /**
        * This setter is the bridge between remote reads and the existing
@@ -1234,6 +1242,41 @@ export const useStore = create<State>()(
         return get().frozenDays.find((fd) => fd.date === dateKey)?.reason;
       },
 
+      setDayReflection: (date, rating) => {
+        const dateKey = dateToKey(date);
+        set((s) => ({
+          dayReflections: [
+            ...s.dayReflections.filter((reflection) => reflection.date !== dateKey),
+            { date: dateKey, rating, updatedAt: Date.now() },
+          ],
+          syncRevision: s.syncRevision + 1,
+        }));
+      },
+
+      clearDayReflection: (date) => {
+        const dateKey = dateToKey(date);
+        set((s) => ({
+          dayReflections: s.dayReflections.filter(
+            (reflection) => reflection.date !== dateKey,
+          ),
+          syncRevision: s.syncRevision + 1,
+        }));
+      },
+
+      getDayReflection: (date) => {
+        const dateKey = dateToKey(date);
+        return get().dayReflections.find(
+          (reflection) => reflection.date === dateKey,
+        );
+      },
+
+      hasDayReflection: (date) => {
+        const dateKey = dateToKey(date);
+        return get().dayReflections.some(
+          (reflection) => reflection.date === dateKey,
+        );
+      },
+
       completionsByDate: () => {
         const map: Record<string, number> = {};
         for (const g of get().goals) {
@@ -1262,6 +1305,8 @@ export const useStore = create<State>()(
           goals: getInitialGoals(),
           selectedDate: normalizeDate(new Date()),
           account: s.account,
+          frozenDays: [],
+          dayReflections: [],
           syncRevision: s.syncRevision + 1,
         }));
       },

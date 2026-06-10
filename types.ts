@@ -6,6 +6,14 @@ export interface FreezeDay {
   createdAt: number; // Date.now() at freeze time
 }
 
+export type DayReflectionRating = "good" | "mixed" | "rough";
+
+export interface DayReflection {
+  date: string; // "yyyy-MM-dd" canonical day key
+  rating: DayReflectionRating;
+  updatedAt: number; // Date.now() at last update
+}
+
 export interface CustomFrequency {
   type: "weekly" | "monthly";
   target: number; // e.g., 3 times per week, 5 times per month

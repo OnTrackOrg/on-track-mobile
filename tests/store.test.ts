@@ -6,7 +6,7 @@ import {
   isOnceTaskCompletedOnDate,
   useStore,
 } from "../store";
-import { FreezeDay, Goal, Task } from "../types";
+import { DayReflection, FreezeDay, Goal, Task } from "../types";
 import { format, startOfWeek } from "date-fns";
 
 describe("getCustomFrequencyProgress", () => {
@@ -524,6 +524,71 @@ describe("freeze day store actions", () => {
     const frozen = useStore.getState().frozenDays;
     expect(frozen).toHaveLength(1);
     expect(frozen[0].reason).toBe("Updated reason");
+  });
+});
+
+describe("day reflection store actions", () => {
+  const originalState = useStore.getState();
+
+  afterEach(() => {
+    useStore.setState(originalState, true);
+  });
+
+  it("setDayReflection persists a day-level reflection for the given date", () => {
+    const date = new Date("2026-05-10T12:00:00.000Z");
+
+    useStore.getState().setDayReflection(date, "good");
+
+    const reflections = useStore.getState().dayReflections;
+    expect(reflections).toHaveLength(1);
+    expect(reflections[0].date).toBe("2026-05-10");
+    expect(reflections[0].rating).toBe("good");
+  });
+
+  it("setDayReflection replaces an existing reflection for the same date", () => {
+    const date = new Date("2026-05-10T12:00:00.000Z");
+
+    useStore.getState().setDayReflection(date, "mixed");
+    useStore.getState().setDayReflection(date, "rough");
+
+    const reflections = useStore.getState().dayReflections;
+    expect(reflections).toHaveLength(1);
+    expect(reflections[0].rating).toBe("rough");
+  });
+
+  it("getDayReflection and hasDayReflection are scoped by normalized date", () => {
+    const date = new Date("2026-05-10T18:30:00.000Z");
+    const sameDayLater = new Date("2026-05-10T23:59:59.000Z");
+    const nextDay = new Date("2026-05-11T12:00:00.000Z");
+
+    useStore.getState().setDayReflection(date, "mixed");
+
+    expect(useStore.getState().hasDayReflection(sameDayLater)).toBe(true);
+    expect(useStore.getState().getDayReflection(sameDayLater)?.rating).toBe(
+      "mixed",
+    );
+    expect(useStore.getState().hasDayReflection(nextDay)).toBe(false);
+    expect(useStore.getState().getDayReflection(nextDay)).toBeUndefined();
+  });
+
+  it("clearDayReflection removes only the selected date's reflection", () => {
+    const firstDate = new Date("2026-05-10T12:00:00.000Z");
+    const secondDate = new Date("2026-05-11T12:00:00.000Z");
+
+    useStore.setState({
+      ...originalState,
+      dayReflections: [
+        { date: "2026-05-10", rating: "good", updatedAt: 1 },
+        { date: "2026-05-11", rating: "rough", updatedAt: 2 },
+      ] as DayReflection[],
+    });
+
+    useStore.getState().clearDayReflection(firstDate);
+
+    expect(useStore.getState().dayReflections).toEqual([
+      { date: "2026-05-11", rating: "rough", updatedAt: 2 },
+    ]);
+    expect(useStore.getState().hasDayReflection(secondDate)).toBe(true);
   });
 });
 

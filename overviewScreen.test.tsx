@@ -61,11 +61,19 @@ jest.mock("./lib/persistence", () => ({
 const mockState = {
   selectedDate: new Date("2026-05-06T12:00:00.000Z"),
   frozenDays: [] as Array<{ date: string; reason: string; createdAt: number }>,
+  dayReflections: [] as Array<{
+    date: string;
+    rating: "good" | "mixed" | "rough";
+    updatedAt: number;
+  }>,
   setSelectedDate: jest.fn(),
   freezeDay: jest.fn(),
   unfreezeDay: jest.fn(),
   isDayFrozen: jest.fn(() => false),
   getFreezeReason: jest.fn(() => undefined),
+  setDayReflection: jest.fn(),
+  clearDayReflection: jest.fn(),
+  getDayReflection: jest.fn(() => undefined),
   goals: [
     {
       id: "goal-1",
