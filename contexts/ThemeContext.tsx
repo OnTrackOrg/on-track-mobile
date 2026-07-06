@@ -41,7 +41,8 @@ const darkTheme: ThemeColors = {
   textSecondary: "#94a3b8",
   border: "#334155",
   primary: "#3b82f6",
-  success: "#2cd756ff",
+  // 6-digit hex only: call sites build #rrggbbaa via `theme.success + "55"`.
+  success: "#2cd756",
   warning: "#f59e0b",
   danger: "#ef4444",
   completedBackground: "#334155",

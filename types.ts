@@ -16,7 +16,17 @@ export interface Task {
   title: string;
   frequency: Frequency;
   customFrequency?: CustomFrequency; // Only used when frequency is "custom"
-  completions: Date[]; // Array of completion dates
+  completions: Date[]; // The CURRENT user's completion dates
+  // Other members' completions as "yyyy-MM-dd" day keys, keyed by userId.
+  // The current user never appears here; their history is `completions`.
+  memberCompletions?: Record<string, string[]>;
+}
+
+export interface GoalMember {
+  userId: string;
+  username: string;
+  displayName: string;
+  isOwner: boolean;
 }
 
 export interface Goal {
@@ -26,6 +36,38 @@ export interface Goal {
   tasks: Task[];
   createdAt: number;
   completedAt?: number;
+  ownerUserId?: string;
+  members?: GoalMember[]; // includes the owner, isOwner flagged
+}
+
+export interface FriendProfile {
+  userId: string;
+  username: string;
+  displayName: string;
+}
+
+export interface FriendRequest {
+  friendshipId: string;
+  requester: FriendProfile;
+  mutualFriends: number;
+  createdAt: number;
+}
+
+export interface TemplateTask {
+  title: string;
+  frequency: Frequency;
+  customFrequency?: CustomFrequency;
+}
+
+export interface GoalTemplate {
+  id: string;
+  title: string;
+  tagline?: string;
+  authorName: string;
+  authorHandle: string;
+  tasks: TemplateTask[];
+  commitCount: number;
+  committed: boolean;
 }
 
 export interface UserAccount {

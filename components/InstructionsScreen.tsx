@@ -23,7 +23,7 @@ export default function InstructionsScreen() {
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
             OnTrack is built around goals and tasks. You create a goal, add
             tasks underneath it, and then track your progress over time with
-            daily views, heatmaps, and radar summaries.
+            daily views, heatmaps, and streaks.
           </Text>
         </View>
 
@@ -40,7 +40,7 @@ export default function InstructionsScreen() {
 
         <InfoSection title="2. Pick the date you want to view">
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-            The date card on the home screen controls the app’s current tracking
+            The date card on the Today tab controls the app’s current tracking
             day. Tap it to open the calendar, switch to a past day, and then
             mark tasks for that day.
           </Text>
@@ -73,30 +73,14 @@ export default function InstructionsScreen() {
             days means you showed up more consistently.
           </Text>
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-            Open a goal and tap See Consistency to view task-level heatmaps.
-            Recurring tasks each get their own heatmap, while one-off tasks are
-            grouped into a single combined heatmap at the bottom of the page.
+            Open a goal to view its heatmaps, for the whole goal or task by
+            task. Recurring tasks each get their own heatmap, while one-off
+            tasks are grouped into a single combined heatmap at the bottom of
+            the page.
           </Text>
         </InfoSection>
 
-        <InfoSection title="5. Read the radar chart">
-          <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-            The radar chart on the home screen gives a high-level comparison
-            across goals. Bigger values mean that goal has been completed more
-            consistently relative to its task expectations.
-          </Text>
-          <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-            Current mode focuses on the selected week or period. All-time trend
-            compares long-term consistency from the first recurring completion
-            through the selected date.
-          </Text>
-          <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-            Completed goals leave the active radar and move to the Completed
-            Goals page, where their consistency history stays available.
-          </Text>
-        </InfoSection>
-
-        <InfoSection title="6. Freeze a day when life gets in the way">
+        <InfoSection title="5. Freeze a day when life gets in the way">
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
             On the date card, tap ❄️ Freeze This Day to pause tracking for that
             day. You must enter a reason, this keeps you accountable while
@@ -109,7 +93,7 @@ export default function InstructionsScreen() {
           </Text>
         </InfoSection>
 
-        <InfoSection title="7. Start with your own goals">
+        <InfoSection title="6. Start with your own goals">
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
             After onboarding and account setup, OnTrack starts empty. Add your
             own goals and tasks to build a consistency history that reflects

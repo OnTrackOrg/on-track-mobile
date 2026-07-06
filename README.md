@@ -4,23 +4,24 @@
 
 # OnTrack
 
-OnTrack is a habit tracking mobile app built with React Native and Expo. It focuses on simple goal management, daily task completion, and visual consistency tracking.
+OnTrack is a social habit tracking mobile app built with React Native and Expo. Goals and tasks are stored locally first and synced to a Supabase account, with friends, shared goals, and a curated goal template catalog on top.
 
 ## What the app does
 
-- Create goals with an optional target
-- Add tasks to each goal
-- Track completions over time
-- View progress with heatmaps and summaries
-- Persist data locally on-device
+- Create goals with tasks and track daily completions
+- View progress with heatmaps, progress rings, and streaks
+- Add friends (request/accept) and search for people
+- Share goals with friends via goal memberships and see each member's adherence
+- Browse curated public goal templates and commit to them as private goals
+- Sync data to a Supabase account (local-first, background flush)
 
 ## Tech stack
 
-- React Native
-- Expo
+- React Native + Expo
 - TypeScript
-- Zustand
-- AsyncStorage
+- Zustand (state + AsyncStorage persistence)
+- Supabase (auth, Postgres with RLS, edge functions)
+- React Navigation (4-tab layout: Today, Goals, Search, Profile)
 
 ## Local development
 
@@ -56,51 +57,37 @@ Useful shortcuts:
 
 ### Testing
 
-OnTrack uses Jest with `jest-expo` and React Native Testing Library for unit-level testing.
-
-Run the test suite with:
-
-```bash
-npm test
-```
-
-This is intended as the foundation for adding regression tests around existing bugs and future behavior changes.
-
-Useful local checks:
-
-```bash
-npm run typecheck
-npm run lint
-```
+OnTrack uses Jest with `jest-expo` and React Native Testing Library. Run the suite with `npm test`.
 
 ## Project structure
 
 ```text
 OnTrack/
-├── assets/       # App icons and bundled images
-├── components/   # UI screens and reusable visual components
-├── contexts/     # React context providers
-├── docs/         # Product and technical notes
-├── lib/          # Shared app logic and integrations
-├── supabase/     # SQL migrations and edge function sources
-├── tests/        # Jest test files
-├── utils/        # Small reusable helpers
-├── App.tsx       # App entry component
-├── navigation.ts # Navigation types and route definitions
-├── store.ts      # Zustand state and persistence
-├── types.ts      # Shared TypeScript types
+├── assets/            # App icons and bundled images
+├── components/        # Screens (Today/Goals/Search/Profile, Goal, Auth, ...) and shared UI (Avatar, Heatmap, ProgressRing)
+├── contexts/          # ThemeContext
+├── docs/              # Product and engineering docs
+├── lib/               # auth, dataSync, social, supabase client, persistence, reminders, dateContext
+├── supabase/          # SQL migrations, edge functions, config
+├── tests/             # Jest tests (plus co-located *.test.ts files)
+├── utils/             # Small helpers (haptics)
+├── App.tsx            # Root component: session gating, sync orchestration, navigation
+├── navigation.ts      # Route/tab param types
+├── store.ts           # Zustand state and persistence
+├── types.ts           # Shared TypeScript types
 └── README.md
 ```
 
 ## Documentation map
 
 - `README.md`: quick start and repo overview
-- `TODO.md`: backlog notes that are not yet formalized as issues
-- `docs/`: focused product and engineering docs
-- `supabase/`: backend-related migrations and functions used by the app
+- `TODO.md`: lightweight backlog notes not yet formalized as issues
+- `docs/social-model.md`: friends, shared goals, templates, and the sync invariants
+- `docs/account-sync-foundation.md`: auth, session persistence, and the local-data import flow
+- `docs/app-store-submission-checklist.md`: App Review prep
+- `docs/supabase-branching.md`: Supabase environment workflow
 
 ## Notes
 
-- The current repo includes both product work and agent-assisted workflow docs.
 - Prefer GitHub Issues as the source of truth for actionable work.
 - Use `TODO.md` for lightweight backlog notes, not detailed execution plans.

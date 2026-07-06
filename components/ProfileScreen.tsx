@@ -1,0 +1,955 @@
+import React, { useState } from "react";
+import {
+  Text,
+  View,
+  Pressable,
+  ScrollView,
+  Alert,
+  Switch,
+  Modal,
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { CompositeScreenProps, useFocusEffect } from "@react-navigation/native";
+import { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
+import { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useStore, getGoalStreak } from "../store";
+import { useTheme } from "../contexts/ThemeContext";
+import Avatar from "./Avatar";
+import IconButton from "./IconButton";
+import { haptics } from "../utils/haptics";
+import { RootStackParamList, TabParamList } from "../navigation";
+import {
+  deleteCurrentAccount,
+  getPersistedSession,
+  signOut,
+} from "../lib/auth";
+import { notifyAccountDeleted } from "../lib/accountDeleted";
+import {
+  acceptFriendRequest,
+  declineFriendRequest,
+  fetchSocialGraph,
+  unfriend,
+} from "../lib/social";
+import { importLocalDataToCloud } from "../lib/importLocal";
+import { supabase } from "../lib/supabase";
+import { ONBOARDING_STORAGE_KEY } from "../onboarding";
+import { FriendProfile, FriendRequest } from "../types";
+import {
+  DEFAULT_REMINDER_SETTINGS,
+  ReminderSettings,
+  getReminderSettings,
+  requestReminderPermissions,
+  saveReminderSettings,
+  syncDailyReminder,
+} from "../lib/reminders";
+
+type ProfileProps = CompositeScreenProps<
+  BottomTabScreenProps<TabParamList, "Profile">,
+  NativeStackScreenProps<RootStackParamList>
+>;
+
+const SECTION_HEADER = {
+  fontSize: 12,
+  fontWeight: "700" as const,
+  letterSpacing: 0.8,
+};
+
+export default function ProfileScreen({ navigation }: ProfileProps) {
+  const goals = useStore((s) => s.goals);
+  const sharedGoals = useStore((s) => s.sharedGoals);
+  const friends = useStore((s) => s.friends);
+  const friendRequests = useStore((s) => s.friendRequests);
+  const account = useStore((s) => s.account);
+  const frozenDays = useStore((s) => s.frozenDays);
+  const cloudSyncEnabled = useStore((s) => s.cloudSyncEnabled);
+  const setGoals = useStore((s) => s.setGoals);
+  const setSharedGoals = useStore((s) => s.setSharedGoals);
+  const setSocialGraph = useStore((s) => s.setSocialGraph);
+  const setAccount = useStore((s) => s.setAccount);
+  const setCloudSyncEnabled = useStore((s) => s.setCloudSyncEnabled);
+  const { theme, isDark, toggleTheme } = useTheme();
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [reminderSettings, setReminderSettings] = useState<ReminderSettings>(
+    DEFAULT_REMINDER_SETTINGS,
+  );
+
+  const accountId = account?.id;
+  const allGoals = React.useMemo(
+    () => [...goals, ...sharedGoals],
+    [goals, sharedGoals],
+  );
+  const activeGoals = React.useMemo(
+    () => allGoals.filter((goal) => goal.completedAt === undefined),
+    [allGoals],
+  );
+  const activeGoalCount = activeGoals.length;
+  const bestStreak = React.useMemo(() => {
+    let best = 0;
+    for (const goal of allGoals) {
+      for (const task of goal.tasks) {
+        best = Math.max(best, getGoalStreak(task, frozenDays));
+      }
+    }
+    return best;
+  }, [allGoals, frozenDays]);
+
+  const sharedGoalCountFor = (friendUserId: string): number =>
+    allGoals.filter((goal) =>
+      goal.members?.some((member) => member.userId === friendUserId),
+    ).length;
+
+  // Silent refresh whenever the tab gains focus; the persisted cache stays
+  // until it works.
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!accountId) {
+        return;
+      }
+      fetchSocialGraph(accountId)
+        .then(
+          ({
+            friends: nextFriends,
+            friendRequests: nextRequests,
+            sentRequestUserIds,
+          }) => setSocialGraph(nextFriends, nextRequests, sentRequestUserIds),
+        )
+        .catch(() => {});
+    }, [accountId, setSocialGraph]),
+  );
+
+  React.useEffect(() => {
+    let isMounted = true;
+    void getReminderSettings().then((settings) => {
+      if (isMounted) {
+        setReminderSettings(settings);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    void syncDailyReminder(activeGoals, reminderSettings).catch((error) => {
+      console.error("Failed to sync daily reminder", error);
+    });
+  }, [activeGoals, reminderSettings]);
+
+  const updateReminderSettings = async (nextSettings: ReminderSettings) => {
+    setReminderSettings(nextSettings);
+    await saveReminderSettings(nextSettings);
+    await syncDailyReminder(activeGoals, nextSettings);
+  };
+
+  const toggleReminders = async (enabled: boolean) => {
+    if (!enabled) {
+      await updateReminderSettings({ ...reminderSettings, enabled: false });
+      return;
+    }
+    const hasPermission = await requestReminderPermissions();
+    if (!hasPermission) {
+      Alert.alert(
+        "Notifications are off",
+        "Enable notifications for OnTrack in system settings to use daily reminders.",
+      );
+      return;
+    }
+    await updateReminderSettings({ ...reminderSettings, enabled: true });
+  };
+
+  const handleAcceptRequest = async (request: FriendRequest) => {
+    void haptics.tap();
+    try {
+      await acceptFriendRequest(request.friendshipId);
+      void haptics.success();
+      const s = useStore.getState();
+      setSocialGraph(
+        [...s.friends, request.requester],
+        s.friendRequests.filter(
+          (r) => r.friendshipId !== request.friendshipId,
+        ),
+      );
+    } catch (error) {
+      // A canceled request throws a plain-language Error; the next
+      // tab-focus refetch clears it from the list.
+      Alert.alert(
+        "Could not accept",
+        error instanceof Error
+          ? error.message
+          : "Check your connection and try again.",
+      );
+    }
+  };
+
+  const handleDeclineRequest = async (request: FriendRequest) => {
+    void haptics.tap();
+    try {
+      await declineFriendRequest(request.friendshipId);
+      const s = useStore.getState();
+      setSocialGraph(
+        s.friends,
+        s.friendRequests.filter(
+          (r) => r.friendshipId !== request.friendshipId,
+        ),
+      );
+    } catch {
+      Alert.alert(
+        "Could not decline",
+        "Check your connection and try again.",
+      );
+    }
+  };
+
+  const performUnfriend = async (friend: FriendProfile) => {
+    void haptics.destructive();
+    try {
+      // ponytail: the store keeps FriendProfile without the friendship row
+      // id, so look it up here; have fetchSocialGraph carry it if more
+      // callers need this.
+      const { data, error } = await supabase
+        .from("friendships")
+        .select("id")
+        .eq("status", "accepted")
+        .or(
+          `requester_user_id.eq.${friend.userId},addressee_user_id.eq.${friend.userId}`,
+        )
+        .limit(1);
+      if (error) throw error;
+      const friendshipId = (data?.[0] as { id: string } | undefined)?.id;
+      if (friendshipId) {
+        await unfriend(friendshipId);
+      }
+      const s = useStore.getState();
+      setSocialGraph(
+        s.friends.filter((f) => f.userId !== friend.userId),
+        s.friendRequests,
+      );
+    } catch {
+      Alert.alert(
+        "Could not unfriend",
+        "Check your connection and try again.",
+      );
+    }
+  };
+
+  const openFriendMenu = (friend: FriendProfile) => {
+    void haptics.tap();
+    Alert.alert(
+      friend.displayName,
+      friend.username ? `@${friend.username}` : undefined,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Unfriend",
+          style: "destructive",
+          onPress: () => {
+            void haptics.warning();
+            Alert.alert(
+              "Unfriend?",
+              `Remove ${friend.displayName} from your friends. Shared goals stay until either of you leaves them.`,
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Unfriend",
+                  style: "destructive",
+                  onPress: () => void performUnfriend(friend),
+                },
+              ],
+            );
+          },
+        },
+      ],
+    );
+  };
+
+  const handleImportLocalData = async () => {
+    setIsImporting(true);
+    try {
+      const session = await getPersistedSession();
+      if (!session?.user) {
+        throw new Error("No session");
+      }
+      await importLocalDataToCloud(session.user);
+      void haptics.success();
+    } catch {
+      Alert.alert(
+        "Import failed",
+        "We could not import this device's local data yet.",
+      );
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleSignOut = () => {
+    void haptics.warning();
+    Alert.alert(
+      "Sign out?",
+      "Your goals stay in the cloud and a copy stays on this device.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Sign out",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await signOut();
+              setSettingsVisible(false);
+            } catch {
+              Alert.alert("Error", "Failed to sign out. Please try again.");
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleDeleteAccount = () => {
+    void haptics.warning();
+    Alert.alert(
+      "Delete account?",
+      "This will sign you out, remove local app data, and delete the remote OnTrack data tied to this account.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete account",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await haptics.destructive();
+              await deleteCurrentAccount();
+              await useStore.persist.clearStorage();
+              await AsyncStorage.removeItem(ONBOARDING_STORAGE_KEY);
+              setGoals([]);
+              setSharedGoals([]);
+              setSocialGraph([], [], []);
+              setAccount(null);
+              setCloudSyncEnabled(false);
+              setSettingsVisible(false);
+              notifyAccountDeleted();
+            } catch (error) {
+              console.error("Error deleting account:", error);
+              Alert.alert(
+                "Error",
+                "Failed to delete this account. Please try again.",
+              );
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const settingsCardStyle = {
+    backgroundColor: theme.background,
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+  } as const;
+
+  if (!account) {
+    // ponytail: App currently gates the whole navigator behind a session, so
+    // this renders only in the future local-only mode (social-model.md) or if
+    // profile sync failed; Sign in drops the session so the existing
+    // AuthScreen gate takes over.
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
+        <View style={{ flex: 1, padding: 16, justifyContent: "center" }}>
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: theme.border,
+              borderRadius: 16,
+              padding: 20,
+              backgroundColor: theme.surface,
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <Ionicons
+              name="person-circle-outline"
+              size={48}
+              color={theme.textSecondary}
+            />
+            <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text }}>
+              You are not signed in
+            </Text>
+            <Text
+              style={{ color: theme.textSecondary, textAlign: "center" }}
+            >
+              Sign in to add friends, share goals, and keep your progress
+              backed up.
+            </Text>
+            <Pressable
+              onPress={() => {
+                void haptics.navigate();
+                void signOut().catch(() => {});
+              }}
+              style={{
+                marginTop: 8,
+                paddingHorizontal: 24,
+                paddingVertical: 10,
+                borderRadius: 9999,
+                backgroundColor: theme.primary,
+              }}
+            >
+              <Text style={{ color: "#ffffff", fontWeight: "700" }}>
+                Sign in
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={{ padding: 16, gap: 12 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ fontSize: 32, fontWeight: "800", color: theme.text }}>
+              Profile
+            </Text>
+            <IconButton
+              icon="settings-outline"
+              size={20}
+              circular
+              onPress={() => {
+                void haptics.tap();
+                setSettingsVisible(true);
+              }}
+            />
+          </View>
+
+          <View style={{ alignItems: "center", gap: 4, marginTop: 4 }}>
+            <Avatar
+              userId={account.id}
+              displayName={account.displayName}
+              size="lg"
+            />
+            <Text
+              style={{
+                fontSize: 22,
+                fontWeight: "800",
+                color: theme.text,
+                marginTop: 8,
+              }}
+            >
+              {account.displayName}
+            </Text>
+            <Text style={{ color: theme.textSecondary }}>
+              @{account.username}
+            </Text>
+          </View>
+
+          {/* Stats */}
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 4 }}>
+            {[
+              { value: activeGoalCount, label: "Active goals" },
+              { value: friends.length, label: "Friends" },
+              // ponytail: streak units are mixed (days for daily tasks,
+              // weeks otherwise), so no unit suffix despite the mock's "wks".
+              { value: bestStreak, label: "Best streak" },
+            ].map((stat) => (
+              <View
+                key={stat.label}
+                style={{
+                  flex: 1,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  borderRadius: 12,
+                  padding: 12,
+                  backgroundColor: theme.surface,
+                  alignItems: "center",
+                }}
+              >
+                <Text
+                  style={{ fontSize: 20, fontWeight: "800", color: theme.text }}
+                >
+                  {stat.value}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: theme.textSecondary,
+                    marginTop: 2,
+                  }}
+                >
+                  {stat.label}
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          {friendRequests.length > 0 && (
+            <>
+              <Text
+                style={{
+                  ...SECTION_HEADER,
+                  color: theme.textSecondary,
+                  marginTop: 8,
+                }}
+              >
+                FRIEND REQUESTS ({friendRequests.length})
+              </Text>
+              {friendRequests.map((request) => (
+                <View
+                  key={request.friendshipId}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                    borderRadius: 12,
+                    padding: 12,
+                    backgroundColor: theme.surface,
+                  }}
+                >
+                  <Avatar
+                    userId={request.requester.userId}
+                    displayName={request.requester.displayName}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: "700", color: theme.text }}>
+                      {request.requester.displayName}
+                    </Text>
+                    <Text
+                      style={{ color: theme.textSecondary, fontSize: 13 }}
+                    >
+                      @{request.requester.username} · {request.mutualFriends}{" "}
+                      mutual friend{request.mutualFriends === 1 ? "" : "s"}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => void handleAcceptRequest(request)}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 18,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: theme.primary,
+                    }}
+                  >
+                    <Ionicons name="checkmark" size={20} color="#ffffff" />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void handleDeclineRequest(request)}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 18,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: theme.background,
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                    }}
+                  >
+                    <Ionicons
+                      name="close"
+                      size={20}
+                      color={theme.textSecondary}
+                    />
+                  </Pressable>
+                </View>
+              ))}
+            </>
+          )}
+
+          <Text
+            style={{
+              ...SECTION_HEADER,
+              color: theme.textSecondary,
+              marginTop: 8,
+            }}
+          >
+            FRIENDS
+          </Text>
+          {friends.length > 0 ? (
+            friends.map((friend) => {
+              const sharedCount = sharedGoalCountFor(friend.userId);
+              return (
+                <Pressable
+                  key={friend.userId}
+                  onLongPress={() => openFriendMenu(friend)}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                    borderRadius: 12,
+                    padding: 12,
+                    backgroundColor: theme.surface,
+                  }}
+                >
+                  <Avatar
+                    userId={friend.userId}
+                    displayName={friend.displayName}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: "700", color: theme.text }}>
+                      {friend.displayName}
+                    </Text>
+                    <Text
+                      style={{ color: theme.textSecondary, fontSize: 13 }}
+                    >
+                      {sharedCount} shared goal{sharedCount === 1 ? "" : "s"}
+                    </Text>
+                  </View>
+                  <IconButton
+                    icon="ellipsis-horizontal"
+                    size={18}
+                    onPress={() => openFriendMenu(friend)}
+                  />
+                </Pressable>
+              );
+            })
+          ) : (
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: theme.border,
+                borderRadius: 12,
+                padding: 14,
+                backgroundColor: theme.surface,
+              }}
+            >
+              <Text style={{ color: theme.text, fontWeight: "700" }}>
+                No friends yet
+              </Text>
+              <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
+                Find people to share goals and keep each other on track.
+              </Text>
+            </View>
+          )}
+
+          <Pressable
+            onPress={() => {
+              void haptics.navigate();
+              navigation.navigate("Search");
+            }}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              padding: 12,
+            }}
+          >
+            <Ionicons name="search" size={16} color={theme.primary} />
+            <Text style={{ color: theme.primary, fontWeight: "700" }}>
+              Find people
+            </Text>
+          </Pressable>
+
+          <View style={{ height: 20 }} />
+        </View>
+      </ScrollView>
+
+      {/* Settings Modal (ported from the old HomeScreen) */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={settingsVisible}
+        onRequestClose={() => {
+          void haptics.tap();
+          setSettingsVisible(false);
+        }}
+      >
+        <View
+          style={{
+            flex: 1,
+            justifyContent: "flex-end",
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: theme.surface,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              padding: 20,
+              paddingBottom: 40,
+              borderTopWidth: 1,
+              borderTopColor: theme.border,
+              maxHeight: "85%",
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 20,
+              }}
+            >
+              <Text
+                style={{ fontSize: 18, fontWeight: "700", color: theme.text }}
+              >
+                Settings
+              </Text>
+              <Pressable
+                onPress={() => {
+                  void haptics.tap();
+                  setSettingsVisible(false);
+                }}
+                style={{
+                  padding: 8,
+                  borderRadius: 8,
+                  backgroundColor: theme.background,
+                }}
+              >
+                <Ionicons name="close" size={20} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Dark Mode Toggle */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 20,
+                }}
+              >
+                <Text
+                  style={{ color: theme.text, fontWeight: "600", fontSize: 16 }}
+                >
+                  Dark Mode
+                </Text>
+                <Switch
+                  value={isDark}
+                  onValueChange={() => {
+                    void haptics.toggle();
+                    toggleTheme();
+                  }}
+                  trackColor={{ false: theme.border, true: theme.primary }}
+                  thumbColor={isDark ? theme.surface : theme.background}
+                />
+              </View>
+
+              {/* Daily Reminder */}
+              <View style={{ ...settingsCardStyle, gap: 10 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        color: theme.text,
+                        fontWeight: "600",
+                        fontSize: 16,
+                      }}
+                    >
+                      Daily Reminder
+                    </Text>
+                    <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
+                      Notify me when daily tasks are still unfinished.
+                    </Text>
+                  </View>
+                  <Switch
+                    value={reminderSettings.enabled}
+                    onValueChange={(enabled) => {
+                      void haptics.toggle();
+                      void toggleReminders(enabled);
+                    }}
+                    trackColor={{ false: theme.border, true: theme.primary }}
+                    thumbColor={
+                      reminderSettings.enabled
+                        ? theme.surface
+                        : theme.background
+                    }
+                  />
+                </View>
+
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {(
+                    [
+                      { label: "6 PM", hour: 18 },
+                      { label: "8 PM", hour: 20 },
+                      { label: "10 PM", hour: 22 },
+                    ] as const
+                  ).map((option) => {
+                    const active = reminderSettings.hour === option.hour;
+                    return (
+                      <Pressable
+                        key={option.hour}
+                        onPress={() => {
+                          void haptics.tap();
+                          void updateReminderSettings({
+                            ...reminderSettings,
+                            hour: option.hour,
+                            minute: 0,
+                          });
+                        }}
+                        style={{
+                          flex: 1,
+                          alignItems: "center",
+                          paddingVertical: 8,
+                          borderRadius: 9999,
+                          borderWidth: 1,
+                          borderColor: active ? theme.primary : theme.border,
+                          backgroundColor: active
+                            ? theme.primary + "20"
+                            : theme.surface,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: active
+                              ? theme.primary
+                              : theme.textSecondary,
+                            fontWeight: "700",
+                            fontSize: 12,
+                          }}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Account */}
+              <View style={settingsCardStyle}>
+                <Text
+                  style={{ color: theme.text, fontWeight: "600", fontSize: 16 }}
+                >
+                  Account
+                </Text>
+                <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
+                  {account.displayName} @{account.username}
+                </Text>
+                {account.email ? (
+                  <Text style={{ color: theme.textSecondary, marginTop: 2 }}>
+                    {account.email}
+                  </Text>
+                ) : null}
+                <Pressable
+                  onPress={handleSignOut}
+                  style={{
+                    marginTop: 10,
+                    paddingVertical: 8,
+                    borderRadius: 9999,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                    alignItems: "center",
+                    backgroundColor: theme.surface,
+                  }}
+                >
+                  <Text style={{ color: theme.text, fontWeight: "600" }}>
+                    Sign out
+                  </Text>
+                </Pressable>
+              </View>
+
+              {/* Import local data (only while cloud sync is off with local goals) */}
+              {!cloudSyncEnabled && goals.length > 0 ? (
+                <Pressable
+                  disabled={isImporting}
+                  onPress={() => {
+                    void haptics.tap();
+                    void handleImportLocalData();
+                  }}
+                  style={{ ...settingsCardStyle, opacity: isImporting ? 0.5 : 1 }}
+                >
+                  <Text
+                    style={{
+                      color: theme.text,
+                      fontWeight: "600",
+                      fontSize: 16,
+                    }}
+                  >
+                    {isImporting ? "Importing…" : "Import local data"}
+                  </Text>
+                  <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
+                    Upload this device&apos;s goals to your account and turn on
+                    cloud sync.
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              <Pressable
+                onPress={() => {
+                  void haptics.navigate();
+                  setSettingsVisible(false);
+                  navigation.navigate("Instructions");
+                }}
+                style={settingsCardStyle}
+              >
+                <Text
+                  style={{ color: theme.text, fontWeight: "600", fontSize: 16 }}
+                >
+                  How It Works
+                </Text>
+                <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
+                  Learn goals, tasks, daily views, heatmaps, and streaks.
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  void haptics.navigate();
+                  setSettingsVisible(false);
+                  navigation.navigate("Privacy");
+                }}
+                style={{ ...settingsCardStyle, marginBottom: 20 }}
+              >
+                <Text
+                  style={{ color: theme.text, fontWeight: "600", fontSize: 16 }}
+                >
+                  Privacy & Data
+                </Text>
+                <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
+                  Goals and completion history stay on this device.
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={handleDeleteAccount}
+                style={{
+                  backgroundColor: theme.danger,
+                  padding: 12,
+                  borderRadius: 10,
+                  alignItems: "center",
+                  marginBottom: 12,
+                }}
+              >
+                <Text
+                  style={{ color: "white", fontWeight: "600", fontSize: 16 }}
+                >
+                  Delete Account
+                </Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}

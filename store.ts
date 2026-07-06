@@ -8,6 +8,8 @@ import {
   Task,
   UserAccount,
   FreezeDay,
+  FriendProfile,
+  FriendRequest,
 } from "./types";
 import {
   format,
@@ -21,6 +23,7 @@ import {
   addDays,
 } from "date-fns";
 import { normalizeAccountDraft } from "./account";
+import { isUuid, makeUuid } from "./lib/ids";
 import { STORAGE_KEYS } from "./lib/persistence";
 
 // Date utility functions
@@ -38,10 +41,6 @@ type PersistedGoal = Omit<Goal, "tasks" | "completedAt"> & {
   tasks?: PersistedTask[];
   subGoals?: PersistedTask[];
   completedAt?: number | string | null;
-};
-
-type PersistedStoreSnapshot = {
-  goals?: PersistedGoal[];
 };
 
 const normalizeTask = (task: PersistedTask): Task => ({
@@ -207,6 +206,134 @@ export const getGoalProgress = (
     percent,
     isComplete: percent >= 1,
   };
+};
+
+/**
+ * Per-frequency pending/done split for one goal on one calendar day. Lifted
+ * from GoalScreen so Today and GoalDetail share the exact same semantics.
+ * `frozen` marks the day as a rest day: nothing is due, done stays as-is.
+ */
+export const getTaskBucketsForDate = (
+  goal: Goal,
+  date: Date,
+  frozen = false,
+): { pending: Task[]; completed: Task[] } => {
+  const weekStart = startOfWeek(date, { weekStartsOn: 0 });
+  const weekEnd = endOfWeek(date, { weekStartsOn: 0 });
+  const doneOnDate = (task: Task) =>
+    task.completions.some((completion) => isSameDay(completion, date));
+  const doneThisWeek = (task: Task) =>
+    task.completions.some((completion) =>
+      isWithinInterval(completion, { start: weekStart, end: weekEnd }),
+    );
+
+  const completed = goal.tasks.filter((task) => {
+    if (task.frequency === "custom") {
+      return (
+        doneOnDate(task) || getCustomFrequencyProgress(task, date).achieved
+      );
+    }
+    if (task.frequency === "daily") return doneOnDate(task);
+    if (task.frequency === "weekly") return doneThisWeek(task);
+    return isOnceTaskCompletedOnDate(task, date);
+  });
+
+  const pending = frozen
+    ? []
+    : goal.tasks.filter((task) => {
+        if (task.frequency === "custom") return shouldShowCustomTask(task, date);
+        if (task.frequency === "daily") return !doneOnDate(task);
+        if (task.frequency === "weekly") return !doneThisWeek(task);
+        return task.completions.length === 0; // once
+      });
+
+  return { pending, completed };
+};
+
+export type TodayItem = { goal: Goal; task: Task; isShared: boolean };
+
+export const getTodayItems = (
+  goals: Goal[],
+  sharedGoals: Goal[],
+  date: Date,
+  frozen = false,
+): {
+  todo: TodayItem[];
+  done: TodayItem[];
+  totals: { done: number; total: number; goalCount: number };
+} => {
+  const todo: TodayItem[] = [];
+  const done: TodayItem[] = [];
+  const goalIds = new Set<string>();
+
+  const collect = (goal: Goal, isShared: boolean) => {
+    if (goal.completedAt !== undefined) return;
+    const { pending, completed } = getTaskBucketsForDate(goal, date, frozen);
+    if (pending.length + completed.length > 0) goalIds.add(goal.id);
+    for (const task of pending) todo.push({ goal, task, isShared });
+    for (const task of completed) done.push({ goal, task, isShared });
+  };
+
+  goals.forEach((goal) => collect(goal, false));
+  sharedGoals.forEach((goal) => collect(goal, true));
+
+  return {
+    todo,
+    done,
+    totals: {
+      done: done.length,
+      total: todo.length + done.length,
+      goalCount: goalIds.size,
+    },
+  };
+};
+
+/**
+ * View a goal through a member's eyes: their day keys become the tasks'
+ * `completions`, so every existing selector works unchanged. Identity for
+ * the current user (whose completions already live on `completions` and who
+ * never has a memberCompletions entry).
+ */
+export const goalAsSeenBy = (goal: Goal, userId: string): Goal => {
+  const isOtherMember = goal.tasks.some(
+    (task) => task.memberCompletions && userId in task.memberCompletions,
+  );
+  if (!isOtherMember) return goal;
+
+  return {
+    ...goal,
+    tasks: goal.tasks.map((task) => ({
+      ...task,
+      completions: (task.memberCompletions?.[userId] ?? []).map((key) => {
+        const [year, month, day] = key.split("-").map(Number);
+        return new Date(year, month - 1, day); // local calendar day, not UTC
+      }),
+    })),
+  };
+};
+
+/**
+ * 8-week adherence per docs/social-model.md: mean of the member's daily
+ * getGoalProgress percent over the last `windowDays` days, clamped to the
+ * goal's age (minimum 1 day).
+ */
+export const getMemberAdherence = (
+  goal: Goal,
+  userId: string,
+  referenceDate: Date = new Date(),
+  windowDays = 56,
+): number => {
+  const view = goalAsSeenBy(goal, userId);
+  const end = normalizeDate(referenceDate);
+  const ageDays =
+    differenceInCalendarDays(end, normalizeDate(new Date(goal.createdAt))) + 1;
+  const days = Math.max(1, Math.min(windowDays, ageDays));
+
+  let sum = 0;
+  for (let i = 0; i < days; i++) {
+    sum += getGoalProgress(view, addDays(end, -i)).percent;
+  }
+  return sum / days;
 };
 
 export const getCustomFrequencyAlert = (
@@ -408,119 +535,38 @@ export const getGoalStreak = (
   return streak;
 };
 
-// Helper to get all achieved goal periods for heatmap indicators
-export const getAchievedGoalPeriods = (
-  task: Task,
-): Array<{ start: Date; end: Date; type: "weekly" | "monthly" }> => {
-  if (task.frequency !== "custom" || !task.customFrequency) return [];
-
-  const achievements: Array<{
-    start: Date;
-    end: Date;
-    type: "weekly" | "monthly";
-  }> = [];
-  const { type, target } = task.customFrequency;
-
-  // Get date range to check (last 6 months for performance)
-  const endDate = new Date();
-  const startDate = new Date();
-  startDate.setMonth(startDate.getMonth() - 6);
-
-  // Check each period in the range
-  let currentDate = new Date(startDate);
-
-  while (currentDate <= endDate) {
-    const progress = getCustomFrequencyProgress(task, currentDate);
-
-    if (progress.achieved && progress.periodStart && progress.periodEnd) {
-      // Check if we already added this period
-      const alreadyAdded = achievements.some(
-        (a) => a.start.getTime() === progress.periodStart!.getTime(),
-      );
-
-      if (!alreadyAdded) {
-        achievements.push({
-          start: progress.periodStart,
-          end: progress.periodEnd,
-          type,
-        });
-      }
-    }
-
-    // Move to next period
-    if (type === "weekly") {
-      currentDate.setDate(currentDate.getDate() + 7);
-    } else {
-      currentDate.setMonth(currentDate.getMonth() + 1);
-    }
-  }
-
-  return achievements;
-};
-
-// Debug function to inspect all stored data - console only for now
-export const debugAsyncStorage = async () => {
-  try {
-    const timestamp = new Date().toISOString();
-
-    console.log("=== AsyncStorage Debug ===");
-    console.log(`Timestamp: ${timestamp}`);
-
-    // Show current store mode
-    console.log(`🏪 Current Mode: ${CURRENT_MODE}`);
-    console.log(`🗄️  Active Storage: ${ACTIVE_STORAGE_KEY}`);
-    console.log(
-      `📝 Available Stores: DEV=${STORAGE_KEYS.storeDev}, PROD=${STORAGE_KEYS.storeProd}`,
-    );
-
-    // Get all keys
-    const allKeys = await AsyncStorage.getAllKeys();
-    console.log("All AsyncStorage keys:", allKeys);
-
-    // Get all OnTrack related keys
-    const onTrackKeys = allKeys.filter((key) => key.startsWith("ontrack"));
-    console.log("OnTrack keys found:", onTrackKeys);
-
-    // Get data for each OnTrack key
-    for (const key of onTrackKeys) {
-      try {
-        const data = await AsyncStorage.getItem(key);
-        console.log(`\n--- ${key} ---`);
-        if (data) {
-          const parsed = JSON.parse(data) as PersistedStoreSnapshot;
-          console.log(`Goals count: ${parsed.goals?.length || 0}`);
-          console.log(`Data size: ${data.length} characters`);
-          console.log(
-            `Created: ${new Date(parsed.goals?.[0]?.createdAt || Date.now()).toISOString()}`,
-          );
-
-          // Show sample of each goal
-          parsed.goals?.forEach((goal, index) => {
-            console.log(
-              `  Goal ${index + 1}: ${goal.title} (${goal.tasks?.length || goal.subGoals?.length || 0} tasks)`,
-            );
-          });
-        } else {
-          console.log("No data found");
-        }
-      } catch (error) {
-        console.log(`Error reading ${key}:`, error);
-      }
-    }
-
-    console.log("=== End Debug ===");
-    console.log(
-      "💡 To save to file, we'd need to fix FileSystem import issues",
-    );
-  } catch (error) {
-    console.log("Debug failed:", error);
-  }
-};
-
-// Simple ID generator for MVP
+// Every id is a real UUID so goals/tasks are born server-compatible and
+// sync/invite never have to remap ids (which is how invites used to race).
 function makeId() {
-  return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+  return makeUuid();
 }
+
+/**
+ * One-time upgrade at rehydrate: goals persisted by pre-UUID builds get
+ * their legacy ids rewritten in place. The revision bump makes the next
+ * flush upload the rewritten graph.
+ */
+export const upgradeLegacyIds = (
+  goals: Goal[],
+): { goals: Goal[]; upgraded: boolean } => {
+  const hasLegacy = goals.some(
+    (goal) => !isUuid(goal.id) || goal.tasks.some((task) => !isUuid(task.id)),
+  );
+  if (!hasLegacy) {
+    return { goals, upgraded: false };
+  }
+
+  return {
+    upgraded: true,
+    goals: goals.map((goal) => ({
+      ...goal,
+      id: isUuid(goal.id) ? goal.id : makeUuid(),
+      tasks: goal.tasks.map((task) =>
+        isUuid(task.id) ? task : { ...task, id: makeUuid() },
+      ),
+    })),
+  };
+};
 
 // Sample data for development/testing
 export function getSampleGoals(): Goal[] {
@@ -869,6 +915,15 @@ export const getCurrentMode = () => CURRENT_MODE;
 
 interface State {
   goals: Goal[];
+  sharedGoals: Goal[];
+  friends: FriendProfile[];
+  friendRequests: FriendRequest[];
+  // Outgoing pending friend requests (addressee user ids), so Search keeps
+  // showing "Requested" across app restarts.
+  sentFriendRequestUserIds: string[];
+  // The account id the persisted goals/social slices belong to; null until
+  // the first sign-in claims pre-account local data.
+  dataOwnerUserId: string | null;
   selectedDate: Date;
   account: UserAccount | null;
   cloudSyncEnabled: boolean;
@@ -876,10 +931,21 @@ interface State {
   lastSyncedRevision: number;
   frozenDays: FreezeDay[];
   setGoals: (goals: Goal[]) => void;
+  setSharedGoals: (sharedGoals: Goal[]) => void;
+  setSocialGraph: (
+    friends: FriendProfile[],
+    friendRequests: FriendRequest[],
+    sentFriendRequestUserIds?: string[],
+  ) => void;
+  claimLocalData: (userId: string) => void;
+  toggleSharedTaskCompletion: (
+    goalId: string,
+    taskId: string,
+    date?: Date,
+  ) => void;
   setCloudSyncEnabled: (enabled: boolean) => void;
   markGoalsSynced: (revision: number) => void;
   addGoal: (title: string, target?: string) => void;
-  reorderGoals: (goalIdsInOrder: string[]) => void;
   setSelectedDate: (date: Date) => void;
   updateGoal: (
     goalId: string,
@@ -902,7 +968,6 @@ interface State {
       customFrequency?: CustomFrequency | undefined;
     },
   ) => void;
-  reorderTasks: (goalId: string, taskIdsInOrder: string[]) => void;
   deleteTask: (goalId: string, taskId: string) => void;
   toggleTaskCompletion: (goalId: string, taskId: string, date?: Date) => void;
   freezeDay: (date: Date, reason: string) => boolean;
@@ -924,19 +989,6 @@ interface State {
 const getInitialGoals = (): Goal[] => {
   // If using dev mode, return sample data, otherwise empty
   return CURRENT_MODE === "DEV" ? getSampleGoals() : [];
-};
-
-const reorderItemsByIds = <T extends { id: string }>(
-  items: T[],
-  idsInOrder: string[],
-): T[] => {
-  const itemMap = new Map(items.map((item) => [item.id, item]));
-  const reorderedItems = idsInOrder
-    .map((id) => itemMap.get(id))
-    .filter((item): item is T => Boolean(item));
-  const remainingItems = items.filter((item) => !idsInOrder.includes(item.id));
-
-  return [...reorderedItems, ...remainingItems];
 };
 
 const normalizeCompletionsForFrequencyChange = (
@@ -963,10 +1015,50 @@ const buildDirtyGoalState = (goals: Goal[], currentRevision: number) => ({
   syncRevision: currentRevision + 1,
 });
 
+// Shared by toggleTaskCompletion (owned) and toggleSharedTaskCompletion:
+// only ever mutates the current user's `completions`.
+const toggleCompletionInGoals = (
+  goals: Goal[],
+  goalId: string,
+  taskId: string,
+  normalizedDate: Date,
+): Goal[] =>
+  goals.map((g) => {
+    if (g.id !== goalId) return g;
+    return {
+      ...g,
+      tasks: g.tasks.map((t) => {
+        if (t.id !== taskId) return t;
+
+        if (t.frequency === "once") {
+          return {
+            ...t,
+            completions: t.completions.length > 0 ? [] : [normalizedDate],
+          };
+        }
+
+        const hasCompletion = t.completions.some((completionDate) =>
+          isSameDay(completionDate, normalizedDate),
+        );
+        return {
+          ...t,
+          completions: hasCompletion
+            ? t.completions.filter((x) => !isSameDay(x, normalizedDate))
+            : [...t.completions, normalizedDate],
+        };
+      }),
+    };
+  });
+
 export const useStore = create<State>()(
   persist(
     (set, get) => ({
       goals: getInitialGoals(), // Dynamic initialization based on store mode
+      sharedGoals: [],
+      friends: [],
+      friendRequests: [],
+      sentFriendRequestUserIds: [],
+      dataOwnerUserId: null,
       selectedDate: normalizeDate(new Date()),
       account: null,
       cloudSyncEnabled: false,
@@ -981,6 +1073,57 @@ export const useStore = create<State>()(
        * offline copy on the device.
        */
       setGoals: (goals) => set({ goals }),
+
+      // Server-authoritative slice: replaced wholesale by fetches, mutated
+      // locally only through toggleSharedTaskCompletion.
+      setSharedGoals: (sharedGoals) => set({ sharedGoals }),
+
+      // Omitting sentFriendRequestUserIds keeps the current list (local
+      // accept/decline updates don't know about outgoing requests).
+      setSocialGraph: (friends, friendRequests, sentFriendRequestUserIds) =>
+        set((s) => ({
+          friends,
+          friendRequests,
+          sentFriendRequestUserIds:
+            sentFriendRequestUserIds ?? s.sentFriendRequestUserIds,
+        })),
+
+      /**
+       * The persisted goals/social slices belong to one account. Signing in
+       * as a different account wipes them so the new user never sees (or
+       * imports) the previous user's data. A null owner means pre-account
+       * local data, which the signing-in user claims via the import flow.
+       */
+      claimLocalData: (userId) =>
+        set((s) =>
+          s.dataOwnerUserId === null || s.dataOwnerUserId === userId
+            ? { dataOwnerUserId: userId }
+            : {
+                dataOwnerUserId: userId,
+                goals: [],
+                sharedGoals: [],
+                friends: [],
+                friendRequests: [],
+                sentFriendRequestUserIds: [],
+                syncRevision: 0,
+                lastSyncedRevision: 0,
+              },
+        ),
+
+      /**
+       * My completions on shared-goal tasks ride the same revision flush as
+       * owned goals (social-model.md invariant 1), hence the revision bump.
+       */
+      toggleSharedTaskCompletion: (goalId, taskId, date = new Date()) =>
+        set((s) => ({
+          sharedGoals: toggleCompletionInGoals(
+            s.sharedGoals,
+            goalId,
+            taskId,
+            normalizeDate(date),
+          ),
+          syncRevision: s.syncRevision + 1,
+        })),
 
       /**
        * Cloud sync stays disabled for users who already had purely local
@@ -1016,13 +1159,6 @@ export const useStore = create<State>()(
             s.syncRevision,
           ),
         })),
-      reorderGoals: (goalIdsInOrder) =>
-        set((s) => {
-          return buildDirtyGoalState(
-            reorderItemsByIds(s.goals, goalIdsInOrder),
-            s.syncRevision,
-          );
-        }),
       setSelectedDate: (date) =>
         set({
           selectedDate: normalizeDate(date),
@@ -1133,20 +1269,6 @@ export const useStore = create<State>()(
             s.syncRevision,
           ),
         })),
-      reorderTasks: (goalId, taskIdsInOrder) =>
-        set((s) => ({
-          ...buildDirtyGoalState(
-            s.goals.map((g) => {
-              if (g.id !== goalId) return g;
-
-              return {
-                ...g,
-                tasks: reorderItemsByIds(g.tasks, taskIdsInOrder),
-              };
-            }),
-            s.syncRevision,
-          ),
-        })),
       deleteTask: (goalId, taskId) =>
         set((s) => ({
           ...buildDirtyGoalState(
@@ -1162,41 +1284,17 @@ export const useStore = create<State>()(
           ),
         })),
       toggleTaskCompletion: (goalId, taskId, date = new Date()) =>
-        set((s) => {
-          const normalizedDate = normalizeDate(date);
-          return buildDirtyGoalState(
-            s.goals.map((g) => {
-              if (g.id !== goalId) return g;
-              return {
-                ...g,
-                tasks: g.tasks.map((t) => {
-                  if (t.id !== taskId) return t;
-
-                  if (t.frequency === "once") {
-                    return {
-                      ...t,
-                      completions:
-                        t.completions.length > 0 ? [] : [normalizedDate],
-                    };
-                  }
-
-                  const hasCompletion = t.completions.some((completionDate) =>
-                    isSameDay(completionDate, normalizedDate),
-                  );
-                  return {
-                    ...t,
-                    completions: hasCompletion
-                      ? t.completions.filter(
-                          (x) => !isSameDay(x, normalizedDate),
-                        )
-                      : [...t.completions, normalizedDate],
-                  };
-                }),
-              };
-            }),
+        set((s) =>
+          buildDirtyGoalState(
+            toggleCompletionInGoals(
+              s.goals,
+              goalId,
+              taskId,
+              normalizeDate(date),
+            ),
             s.syncRevision,
-          );
-        }),
+          ),
+        ),
       /**
        * Freeze a day with a required reason. Returns true on success,
        * false if the reason is empty/whitespace.
@@ -1298,6 +1396,18 @@ export const useStore = create<State>()(
         return (state) => {
           if (state?.goals) {
             state.goals = state.goals.map((goal) =>
+              normalizeGoal(goal as PersistedGoal),
+            );
+
+            const { goals, upgraded } = upgradeLegacyIds(state.goals);
+            if (upgraded) {
+              state.goals = goals;
+              state.syncRevision = (state.syncRevision ?? 0) + 1;
+            }
+          }
+
+          if (state?.sharedGoals) {
+            state.sharedGoals = state.sharedGoals.map((goal) =>
               normalizeGoal(goal as PersistedGoal),
             );
           }

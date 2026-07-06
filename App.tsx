@@ -1,18 +1,25 @@
 import React from "react";
-import { Linking } from "react-native";
-import { NavigationContainer } from "@react-navigation/native";
+import { AppState, Linking } from "react-native";
+import {
+  DarkTheme,
+  DefaultTheme,
+  NavigationContainer,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Session } from "@supabase/supabase-js";
+import { Session, User } from "@supabase/supabase-js";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
-import HomeScreen from "./components/HomeScreen";
+import TodayScreen from "./components/TodayScreen";
+import GoalsScreen from "./components/GoalsScreen";
+import SearchScreen from "./components/SearchScreen";
+import ProfileScreen from "./components/ProfileScreen";
 import GoalScreen from "./components/GoalScreen";
 import NewGoalScreen from "./components/NewGoalScreen";
-import CompletedGoalsScreen from "./components/CompletedGoalsScreen";
-import OverviewScreen from "./components/OverviewScreen";
 import PrivacyScreen from "./components/PrivacyScreen";
 import InstructionsScreen from "./components/InstructionsScreen";
 import IntroductionWizard from "./components/IntroductionWizard";
@@ -20,7 +27,7 @@ import AuthScreen from "./components/AuthScreen";
 import UpdatePasswordScreen from "./components/UpdatePasswordScreen";
 import ImportLocalDataScreen from "./components/ImportLocalDataScreen";
 import AccountDeletedScreen from "./components/AccountDeletedScreen";
-import { RootStackParamList } from "./navigation";
+import { RootStackParamList, TabParamList } from "./navigation";
 import { ONBOARDING_STORAGE_KEY, shouldShowOnboarding } from "./onboarding";
 import { useStore } from "./store";
 import {
@@ -35,17 +42,68 @@ import {
   signUpWithEmail,
   updateCurrentUserPassword,
 } from "./lib/auth";
-import { fetchRemoteGoalsForUser } from "./lib/dataSync";
-import { replaceRemoteGoalsForUser } from "./lib/dataSync";
+import {
+  fetchAccessibleGoals,
+  flushSharedCompletionsForUser,
+  replaceRemoteGoalsForUser,
+} from "./lib/dataSync";
+import { importLocalDataToCloud, pruneDroppedTaskIds } from "./lib/importLocal";
+import { fetchSocialGraph } from "./lib/social";
+import { setAccountDeletedHandler } from "./lib/accountDeleted";
 import { supabase } from "./lib/supabase";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const Tab = createBottomTabNavigator<TabParamList>();
+
+const TAB_ICONS: Record<
+  keyof TabParamList,
+  [keyof typeof Ionicons.glyphMap, keyof typeof Ionicons.glyphMap]
+> = {
+  Today: ["sparkles", "sparkles-outline"],
+  Goals: ["flag", "flag-outline"],
+  Search: ["search", "search-outline"],
+  Profile: ["person", "person-outline"],
+};
+
+function MainTabs() {
+  const { theme } = useTheme();
+
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarActiveTintColor: theme.primary,
+        tabBarInactiveTintColor: theme.textSecondary,
+        tabBarStyle: {
+          backgroundColor: theme.surface,
+          borderTopWidth: 1,
+          borderTopColor: theme.border,
+        },
+        tabBarIcon: ({ focused, color, size }) => (
+          <Ionicons
+            name={TAB_ICONS[route.name][focused ? 0 : 1]}
+            size={size}
+            color={color}
+          />
+        ),
+      })}
+    >
+      <Tab.Screen name="Today" component={TodayScreen} />
+      <Tab.Screen name="Goals" component={GoalsScreen} />
+      <Tab.Screen name="Search" component={SearchScreen} />
+      <Tab.Screen name="Profile" component={ProfileScreen} />
+    </Tab.Navigator>
+  );
+}
 
 function ThemedNavigation() {
   const { theme, isDark } = useTheme();
   const goals = useStore((s) => s.goals);
   const setAccount = useStore((s) => s.setAccount);
   const setGoals = useStore((s) => s.setGoals);
+  const setSharedGoals = useStore((s) => s.setSharedGoals);
+  const setSocialGraph = useStore((s) => s.setSocialGraph);
+  const claimLocalData = useStore((s) => s.claimLocalData);
   const cloudSyncEnabled = useStore((s) => s.cloudSyncEnabled);
   const setCloudSyncEnabled = useStore((s) => s.setCloudSyncEnabled);
   const syncRevision = useStore((s) => s.syncRevision);
@@ -77,11 +135,152 @@ function ThemedNavigation() {
     React.useState(false);
   const [showAccountDeletedScreen, setShowAccountDeletedScreen] =
     React.useState(false);
-  const syncInFlightRevisionRef = React.useRef<number | null>(null);
+  const flushChainRef = React.useRef<Promise<boolean>>(Promise.resolve(true));
   const totalLocalTaskCount = React.useMemo(
     () => goals.reduce((count, goal) => count + goal.tasks.length, 0),
     [goals],
   );
+
+  /**
+   * Flush the local revision to Supabase if there is anything unsynced.
+   * Returns false on failure; local state is kept and retried on the next
+   * mutation or app foreground (social-model.md invariant 3).
+   */
+  const flushLocalGoals = React.useCallback(
+    async (user: User): Promise<boolean> => {
+      const s = useStore.getState();
+      if (s.syncRevision <= s.lastSyncedRevision) {
+        return true;
+      }
+      const revisionToSync = s.syncRevision;
+
+      try {
+        const { droppedTaskIds } = await replaceRemoteGoalsForUser(
+          user,
+          s.goals,
+          s.sharedGoals,
+        );
+        pruneDroppedTaskIds(droppedTaskIds);
+        markGoalsSynced(revisionToSync);
+        return true;
+      } catch (error) {
+        console.error("Failed to flush local goals to Supabase", error);
+        return false;
+      }
+    },
+    [markGoalsSynced],
+  );
+
+  /**
+   * Every flush is serialized through one promise chain so two
+   * replaceRemoteGoalsForUser calls can never interleave (the delete+insert
+   * of the same completion rows would collide). flushLocalGoals re-reads
+   * the store and no-ops when clean, so queued calls always upload the
+   * latest state or do nothing.
+   */
+  const flushSerialized = React.useCallback(
+    (user: User): Promise<boolean> => {
+      const next = flushChainRef.current.then(() => flushLocalGoals(user));
+      flushChainRef.current = next.catch(() => false);
+      return next;
+    },
+    [flushLocalGoals],
+  );
+
+  /**
+   * Flush-then-fetch (social-model.md invariants 3-5). Local state is only
+   * replaced when nothing is left unsynced, and cloud sync / goal
+   * replacement / the import prompt are gated on OWNED remote goals only.
+   */
+  const syncWithRemote = React.useCallback(
+    async (user: User) => {
+      const preSync = useStore.getState();
+      if (preSync.cloudSyncEnabled) {
+        await flushSerialized(user);
+      } else if (preSync.syncRevision > preSync.lastSyncedRevision) {
+        /**
+         * Owned goals stay local until the user explicitly imports, but my
+         * completion toggles on shared goals still have to reach the server
+         * (invariant 1) before the fetch below may replace sharedGoals.
+         */
+        const revisionToSync = preSync.syncRevision;
+        try {
+          await flushSharedCompletionsForUser(user, preSync.sharedGoals);
+          markGoalsSynced(revisionToSync);
+        } catch (error) {
+          console.error("Failed to flush shared completions", error);
+        }
+      }
+
+      const { owned, shared } = await fetchAccessibleGoals(user);
+      const s = useStore.getState();
+      // Replace nothing while something is still unsynced (invariants 3-4);
+      // a failed flush keeps local state and retries on the next foreground.
+      const dirty = s.syncRevision > s.lastSyncedRevision;
+
+      if (s.cloudSyncEnabled) {
+        if (!dirty) {
+          setGoals(owned);
+          setSharedGoals(shared);
+        }
+      } else if (owned.length > 0) {
+        if (!dirty) {
+          // Owned cloud data exists, so the cloud copy wins (pre-social behavior).
+          setGoals(owned);
+          setSharedGoals(shared);
+          setCloudSyncEnabled(true);
+        }
+      } else {
+        if (!dirty) {
+          setSharedGoals(shared);
+        }
+        setCloudSyncEnabled(s.goals.length === 0);
+      }
+    },
+    [
+      flushSerialized,
+      markGoalsSynced,
+      setCloudSyncEnabled,
+      setGoals,
+      setSharedGoals,
+    ],
+  );
+
+  // Best-effort: offline is fine, the persisted cache stays until it works.
+  const refreshSocialGraph = React.useCallback(
+    (userId: string) => {
+      fetchSocialGraph(userId)
+        .then(({ friends, friendRequests, sentRequestUserIds }) =>
+          setSocialGraph(friends, friendRequests, sentRequestUserIds),
+        )
+        .catch(() => {});
+    },
+    [setSocialGraph],
+  );
+
+  React.useEffect(() => {
+    setAccountDeletedHandler(() => setShowAccountDeletedScreen(true));
+    return () => setAccountDeletedHandler(null);
+  }, []);
+
+  React.useEffect(() => {
+    if (!session?.user) {
+      return;
+    }
+    const user = session.user;
+
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") {
+        return;
+      }
+      void syncWithRemote(user).catch((error) => {
+        console.error("Foreground refresh failed", error);
+      });
+      refreshSocialGraph(user.id);
+    });
+
+    return () => subscription.remove();
+  }, [refreshSocialGraph, session, syncWithRemote]);
 
   React.useEffect(() => {
     let isCancelled = false;
@@ -139,29 +338,18 @@ function ThemedNavigation() {
         setSession(persistedSession);
 
         if (persistedSession?.user) {
+          claimLocalData(persistedSession.user.id);
+
           const syncedAccount = await ensureProfileForUser(
             persistedSession.user,
           );
-          const remoteGoals = await fetchRemoteGoalsForUser(
-            persistedSession.user,
-          );
-          const existingLocalGoals = useStore.getState().goals;
 
           if (isActive) {
             setAccount(syncedAccount);
-
-            /**
-             * For now we only replace local goals when the server actually has
-             * a cloud copy. That protects users who already have purely local
-             * device data until the import flow lands in a later slice.
-             */
-            if (remoteGoals.length > 0) {
-              setGoals(remoteGoals);
-              setCloudSyncEnabled(true);
-            } else {
-              setCloudSyncEnabled(existingLocalGoals.length === 0);
-            }
           }
+
+          await syncWithRemote(persistedSession.user);
+          refreshSocialGraph(persistedSession.user.id);
         }
       } catch (error) {
         if (isActive) {
@@ -185,27 +373,28 @@ function ThemedNavigation() {
       setSession(nextSession);
 
       if (!nextSession?.user) {
+        // Sign-out keeps the local copy (ProfileScreen promises it); a later
+        // sign-in by a DIFFERENT account wipes it via claimLocalData below.
         setAccount(null);
         setCloudSyncEnabled(false);
         setHasDismissedImportPrompt(false);
         return;
       }
 
-      void Promise.all([
-        ensureProfileForUser(nextSession.user),
-        fetchRemoteGoalsForUser(nextSession.user),
-      ])
-        .then(([syncedAccount, remoteGoals]) => {
-          const existingLocalGoals = useStore.getState().goals;
+      /**
+       * Synchronously, before the import prompt (or anything else) can read
+       * the store: signing in as a different account than the one that
+       * wrote the persisted goals/social slices wipes them, so user B never
+       * sees or uploads user A's data.
+       */
+      claimLocalData(nextSession.user.id);
 
+      void ensureProfileForUser(nextSession.user)
+        .then(async (syncedAccount) => {
           setAccount(syncedAccount);
 
-          if (remoteGoals.length > 0) {
-            setGoals(remoteGoals);
-            setCloudSyncEnabled(true);
-          } else {
-            setCloudSyncEnabled(existingLocalGoals.length === 0);
-          }
+          await syncWithRemote(nextSession.user);
+          refreshSocialGraph(nextSession.user.id);
 
           setAuthErrorMessage(null);
           setPendingVerificationEmail(null);
@@ -226,7 +415,13 @@ function ThemedNavigation() {
       isActive = false;
       subscription.unsubscribe();
     };
-  }, [setAccount, setCloudSyncEnabled, setGoals]);
+  }, [
+    claimLocalData,
+    refreshSocialGraph,
+    setAccount,
+    setCloudSyncEnabled,
+    syncWithRemote,
+  ]);
 
   const handleAuthCallbackUrl = React.useCallback(async (url: string) => {
     let parsedUrl: URL;
@@ -300,43 +495,20 @@ function ThemedNavigation() {
       return;
     }
 
-    if (syncInFlightRevisionRef.current === syncRevision) {
-      return;
-    }
-
-    syncInFlightRevisionRef.current = syncRevision;
-    const goalsToSync = useStore.getState().goals;
-    const revisionToSync = syncRevision;
-
     /**
-     * This effect is the first cloud write bridge. Every local mutation bumps a
-     * revision number in the store, and this effect best-effort flushes the
-     * latest revision to Supabase whenever cloud sync is enabled.
-     *
-     * We intentionally do not block the UI on this. AsyncStorage already holds
-     * the freshest local copy, so failed network writes can be retried later
-     * without making the app feel offline-hostile.
+     * Every local mutation bumps a revision number in the store, and this
+     * effect best-effort flushes the latest revision to Supabase whenever
+     * cloud sync is enabled. We intentionally do not block the UI on this:
+     * AsyncStorage already holds the freshest local copy, so failed network
+     * writes are retried later without making the app feel offline-hostile.
+     * The shared promise chain serializes this against foreground/hydrate
+     * flushes, and a queued run that finds nothing unsynced is a no-op.
      */
-    void replaceRemoteGoalsForUser(session.user, goalsToSync)
-      .then(({ goals: syncedGoals, hadLegacyIds }) => {
-        if (hadLegacyIds) {
-          setGoals(syncedGoals);
-        }
-
-        markGoalsSynced(revisionToSync);
-      })
-      .catch((error) => {
-        console.error("Failed to flush local goals to Supabase", error);
-      })
-      .finally(() => {
-        if (syncInFlightRevisionRef.current === revisionToSync) {
-          syncInFlightRevisionRef.current = null;
-        }
-      });
+    void flushSerialized(session.user);
   }, [
     cloudSyncEnabled,
+    flushSerialized,
     lastSyncedRevision,
-    markGoalsSynced,
     session,
     syncRevision,
   ]);
@@ -355,25 +527,7 @@ function ThemedNavigation() {
     setImportErrorMessage(null);
 
     try {
-      /**
-       * The import flow is intentionally explicit. If the device already had a
-       * local-only copy of the user's data, we wait for a yes/no choice here
-       * instead of silently uploading that history during sign-in.
-       */
-      const { goals: importedGoals, hadLegacyIds } =
-        await replaceRemoteGoalsForUser(session.user, goals);
-
-      if (hadLegacyIds) {
-        /**
-         * Once legacy local ids have been upgraded for the cloud import, we
-         * replace the in-memory/local store with the UUID-backed version so all
-         * future syncs continue using the server-compatible ids.
-         */
-        setGoals(importedGoals);
-      }
-
-      setCloudSyncEnabled(true);
-      markGoalsSynced(syncRevision);
+      await importLocalDataToCloud(session.user);
       setHasDismissedImportPrompt(false);
     } catch (error) {
       const message =
@@ -384,14 +538,7 @@ function ThemedNavigation() {
     } finally {
       setIsImportingLocalData(false);
     }
-  }, [
-    goals,
-    markGoalsSynced,
-    session,
-    setCloudSyncEnabled,
-    setGoals,
-    syncRevision,
-  ]);
+  }, [session]);
 
   const shouldShowImportPrompt = Boolean(
     session &&
@@ -597,8 +744,21 @@ function ThemedNavigation() {
     );
   }
 
+  const baseNavTheme = isDark ? DarkTheme : DefaultTheme;
+  const navTheme = {
+    ...baseNavTheme,
+    colors: {
+      ...baseNavTheme.colors,
+      background: theme.background,
+      card: theme.surface,
+      text: theme.text,
+      border: theme.border,
+      primary: theme.primary,
+    },
+  };
+
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={navTheme}>
       <Stack.Navigator
         screenOptions={{
           headerStyle: {
@@ -610,16 +770,11 @@ function ThemedNavigation() {
           },
         }}
       >
-        <Stack.Screen name="Home" options={{ title: "OnTrack" }}>
-          {(props) => (
-            <HomeScreen
-              {...props}
-              onAccountDeleted={() => {
-                setShowAccountDeletedScreen(true);
-              }}
-            />
-          )}
-        </Stack.Screen>
+        <Stack.Screen
+          name="Tabs"
+          component={MainTabs}
+          options={{ headerShown: false }}
+        />
         <Stack.Screen
           name="Goal"
           component={GoalScreen}
@@ -629,16 +784,6 @@ function ThemedNavigation() {
           name="NewGoal"
           component={NewGoalScreen}
           options={{ title: "New Goal" }}
-        />
-        <Stack.Screen
-          name="CompletedGoals"
-          component={CompletedGoalsScreen}
-          options={{ title: "Completed Goals" }}
-        />
-        <Stack.Screen
-          name="Consistency"
-          component={OverviewScreen}
-          options={{ title: "Consistency" }}
         />
         <Stack.Screen
           name="Instructions"

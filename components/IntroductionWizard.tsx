@@ -14,7 +14,6 @@ import { useTheme } from "../contexts/ThemeContext";
 type SlideImage = {
   source: ImageSourcePropType;
   aspectRatio: number;
-  compact?: boolean;
 };
 
 type Slide = {
@@ -49,25 +48,16 @@ const slides: Slide[] = [
     icon: "repeat-outline",
   },
   {
-    key: "radar-overview",
-    title: "See progress at a glance",
-    text: "The home chart gives you a quick read on how your goals are trending.",
+    key: "tabs-overview",
+    title: "Four tabs, one habit loop",
+    text: "Today lists what's due now, Goals holds every goal, Search finds friends and goal templates, and Profile is your account.",
     icon: "analytics-outline",
-    image: {
-      source: require("../assets/radar-chart-example.png"),
-      aspectRatio: 955 / 911,
-    },
   },
   {
     key: "consistency-entry",
     title: "Find consistency views",
-    text: "Open a goal, then tap Consistency to view heatmaps and streaks for that goal.",
+    text: "Open any goal to see its heatmaps and streaks, for the whole goal or task by task.",
     icon: "map-outline",
-    image: {
-      source: require("../assets/consistency-page-button.png"),
-      aspectRatio: 332 / 89,
-      compact: true,
-    },
   },
   {
     key: "heatmap-history",
@@ -107,10 +97,8 @@ export default function IntroductionWizard({
   const isLastSlide = slideIndex === slides.length - 1;
 
   const renderImage = (image: SlideImage) => {
-    const maxImageWidth = image.compact
-      ? Math.min(width - 64, 300)
-      : Math.min(width - 48, 360);
-    const maxImageHeight = image.compact ? 110 : Math.min(height * 0.38, 320);
+    const maxImageWidth = Math.min(width - 48, 360);
+    const maxImageHeight = Math.min(height * 0.38, 320);
     const imageWidth = Math.min(
       maxImageWidth,
       maxImageHeight * image.aspectRatio,
@@ -122,7 +110,7 @@ export default function IntroductionWizard({
         style={{
           width: imageWidth,
           height: imageHeight,
-          borderRadius: image.compact ? 16 : 22,
+          borderRadius: 22,
           overflow: "hidden",
           backgroundColor: theme.surface,
           borderWidth: 1,
@@ -135,7 +123,7 @@ export default function IntroductionWizard({
           style={{
             width: "100%",
             height: "100%",
-            borderRadius: image.compact ? 16 : 22,
+            borderRadius: 22,
           }}
         />
       </View>

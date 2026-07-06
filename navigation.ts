@@ -1,9 +1,16 @@
+import { NavigatorScreenParams } from "@react-navigation/native";
+
+export type TabParamList = {
+  Today: undefined;
+  Goals: undefined;
+  Search: undefined;
+  Profile: undefined;
+};
+
 export type RootStackParamList = {
-  Home: undefined;
+  Tabs: NavigatorScreenParams<TabParamList>;
   Goal: { goalId: string };
   NewGoal: undefined;
-  CompletedGoals: undefined;
-  Consistency: { goalId: string };
   Privacy: undefined;
   Instructions: undefined;
 };

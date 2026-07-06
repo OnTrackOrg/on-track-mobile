@@ -2,8 +2,13 @@ import {
   getCustomFrequencyProgress,
   getGoalProgress,
   getGoalStreak,
+  getMemberAdherence,
   getSampleGoals,
+  getTaskBucketsForDate,
+  getTodayItems,
+  goalAsSeenBy,
   isOnceTaskCompletedOnDate,
+  upgradeLegacyIds,
   useStore,
 } from "../store";
 import { FreezeDay, Goal, Task } from "../types";
@@ -747,5 +752,490 @@ describe("getGoalStreak with frozen days", () => {
 
     // Without freezes: last week only has 2/3 → NOT achieved, so streak = 1
     expect(getGoalStreak(task, [])).toBe(1);
+  });
+});
+
+// ─── Social selectors ────────────────────────────────────────────────────────
+
+const socialGoal = (): Goal => ({
+  id: "shared-goal-1",
+  title: "Run club",
+  createdAt: new Date(2026, 4, 3, 12).getTime(), // May 3
+  ownerUserId: "owner-1",
+  members: [
+    { userId: "owner-1", username: "own", displayName: "Owner", isOwner: true },
+    { userId: "me-1", username: "me", displayName: "Me", isOwner: false },
+  ],
+  tasks: [
+    {
+      id: "shared-task-1",
+      title: "Run",
+      frequency: "daily",
+      completions: [new Date(2026, 4, 12)], // mine
+      memberCompletions: { "owner-1": ["2026-05-11", "2026-05-12"] },
+    },
+  ],
+});
+
+describe("getTaskBucketsForDate", () => {
+  const goal: Goal = {
+    id: "buckets-goal",
+    title: "Mixed",
+    createdAt: Date.now(),
+    tasks: [
+      {
+        id: "daily-done",
+        title: "Water",
+        frequency: "daily",
+        completions: [new Date(2026, 4, 12, 12)],
+      },
+      {
+        id: "daily-pending",
+        title: "Stretch",
+        frequency: "daily",
+        completions: [],
+      },
+      {
+        id: "weekly-done",
+        title: "Clean",
+        frequency: "weekly",
+        completions: [new Date(2026, 4, 10, 12)], // same Sun-Sat week as May 12
+      },
+      {
+        id: "once-old",
+        title: "Buy shoes",
+        frequency: "once",
+        completions: [new Date(2026, 4, 1, 12)],
+      },
+    ],
+  };
+
+  it("splits per-frequency pending vs completed like GoalScreen did", () => {
+    const { pending, completed } = getTaskBucketsForDate(
+      goal,
+      new Date(2026, 4, 12, 18),
+    );
+
+    expect(pending.map((t) => t.id)).toEqual(["daily-pending"]);
+    // A once task completed on an earlier day is in neither bucket.
+    expect(completed.map((t) => t.id)).toEqual(["daily-done", "weekly-done"]);
+  });
+
+  it("marks nothing as due on a frozen day", () => {
+    const { pending, completed } = getTaskBucketsForDate(
+      goal,
+      new Date(2026, 4, 12, 18),
+      true,
+    );
+
+    expect(pending).toEqual([]);
+    expect(completed.map((t) => t.id)).toEqual(["daily-done", "weekly-done"]);
+  });
+});
+
+describe("getTodayItems", () => {
+  it("uses getTaskBucketsForDate semantics for every frequency", () => {
+    const date = new Date(2026, 4, 12, 18);
+    const goal: Goal = {
+      id: "mixed-goal",
+      title: "Mixed",
+      createdAt: Date.now(),
+      tasks: [
+        {
+          id: "daily-pending",
+          title: "Stretch",
+          frequency: "daily",
+          completions: [],
+        },
+        {
+          id: "weekly-done",
+          title: "Clean",
+          frequency: "weekly",
+          completions: [new Date(2026, 4, 10, 12)], // earlier same Sun-Sat week
+        },
+        {
+          id: "custom-achieved",
+          title: "Gym",
+          frequency: "custom",
+          customFrequency: { type: "weekly", target: 2 },
+          completions: [new Date(2026, 4, 10, 12), new Date(2026, 4, 11, 12)],
+        },
+        {
+          id: "once-pending",
+          title: "Buy shoes",
+          frequency: "once",
+          completions: [],
+        },
+      ],
+    };
+
+    const { pending, completed } = getTaskBucketsForDate(goal, date);
+    const { todo, done } = getTodayItems([goal], [], date);
+
+    expect(todo.map((item) => item.task)).toEqual(pending);
+    expect(done.map((item) => item.task)).toEqual(completed);
+    expect(pending.map((t) => t.id)).toEqual(["daily-pending", "once-pending"]);
+    expect(completed.map((t) => t.id)).toEqual([
+      "weekly-done",
+      "custom-achieved",
+    ]);
+  });
+
+  it("only counts goals with something due or done that day in goalCount", () => {
+    const idle: Goal = {
+      id: "idle-goal",
+      title: "Old errands",
+      createdAt: Date.now(),
+      tasks: [
+        {
+          // A once task done on an earlier day lands in neither bucket.
+          id: "once-done-earlier",
+          title: "Buy shoes",
+          frequency: "once",
+          completions: [new Date(2026, 4, 1, 12)],
+        },
+      ],
+    };
+    const active: Goal = {
+      id: "active-goal",
+      title: "Solo",
+      createdAt: Date.now(),
+      tasks: [
+        {
+          id: "active-task",
+          title: "Read",
+          frequency: "daily",
+          completions: [],
+        },
+      ],
+    };
+
+    const { todo, done, totals } = getTodayItems(
+      [idle, active],
+      [],
+      new Date(2026, 4, 12, 18),
+    );
+
+    expect(todo.map((item) => item.task.id)).toEqual(["active-task"]);
+    expect(done).toEqual([]);
+    expect(totals).toEqual({ done: 0, total: 1, goalCount: 1 });
+  });
+
+  it("merges owned and shared goals with totals", () => {
+    const owned: Goal = {
+      id: "owned-goal",
+      title: "Solo",
+      createdAt: Date.now(),
+      tasks: [
+        { id: "solo-task", title: "Read", frequency: "daily", completions: [] },
+      ],
+    };
+    const achieved: Goal = {
+      id: "achieved-goal",
+      title: "Done goal",
+      createdAt: Date.now(),
+      completedAt: Date.now(),
+      tasks: [
+        { id: "x", title: "Ignore", frequency: "daily", completions: [] },
+      ],
+    };
+
+    const { todo, done, totals } = getTodayItems(
+      [owned, achieved],
+      [socialGoal()],
+      new Date(2026, 4, 12, 18),
+    );
+
+    expect(todo.map((item) => item.task.id)).toEqual(["solo-task"]);
+    expect(todo[0].isShared).toBe(false);
+    expect(done.map((item) => item.task.id)).toEqual(["shared-task-1"]);
+    expect(done[0].isShared).toBe(true);
+    expect(totals).toEqual({ done: 1, total: 2, goalCount: 2 });
+  });
+
+  it("frozen days keep done items and report consistent totals", () => {
+    const date = new Date(2026, 4, 12, 18);
+    const doneGoal: Goal = {
+      id: "done-goal",
+      title: "Done today",
+      createdAt: Date.now(),
+      tasks: [
+        {
+          id: "done-task",
+          title: "Water",
+          frequency: "daily",
+          completions: [new Date(2026, 4, 12, 12)],
+        },
+      ],
+    };
+    const pendingGoal: Goal = {
+      id: "pending-goal",
+      title: "Not started",
+      createdAt: Date.now(),
+      tasks: [
+        { id: "pending-task", title: "Read", frequency: "daily", completions: [] },
+      ],
+    };
+
+    const { todo, done, totals } = getTodayItems(
+      [doneGoal, pendingGoal],
+      [],
+      date,
+      true,
+    );
+
+    // Nothing is due, done stays, and goalCount only counts goals that
+    // actually contributed items (not the pending-only goal).
+    expect(todo).toEqual([]);
+    expect(done.map((item) => item.task.id)).toEqual(["done-task"]);
+    expect(totals).toEqual({ done: 1, total: 1, goalCount: 1 });
+  });
+});
+
+describe("goalAsSeenBy", () => {
+  it("swaps in a member's day keys as local calendar dates", () => {
+    const viewed = goalAsSeenBy(socialGoal(), "owner-1");
+
+    const completions = viewed.tasks[0].completions;
+    expect(completions).toHaveLength(2);
+    expect(completions[0].getFullYear()).toBe(2026);
+    expect(completions[0].getMonth()).toBe(4);
+    expect(completions[0].getDate()).toBe(11);
+  });
+
+  it("is the identity for the current user", () => {
+    const goal = socialGoal();
+    const viewed = goalAsSeenBy(goal, "me-1");
+
+    expect(viewed).toBe(goal);
+  });
+
+  it("parses day keys as local midnight, not UTC-shifted", () => {
+    const goal: Goal = {
+      ...socialGoal(),
+      tasks: [
+        {
+          id: "t1",
+          title: "Run",
+          frequency: "daily",
+          completions: [],
+          memberCompletions: { "owner-1": ["2026-07-03"] },
+        },
+      ],
+    };
+
+    const [completion] = goalAsSeenBy(goal, "owner-1").tasks[0].completions;
+    // new Date(2026, 6, 3) is local midnight July 3; a UTC parse of the day
+    // key would shift the instant in any non-UTC timezone.
+    expect(completion.getTime()).toBe(new Date(2026, 6, 3).getTime());
+  });
+
+  it("yields empty completions for tasks missing the member's entry", () => {
+    const goal: Goal = {
+      ...socialGoal(),
+      tasks: [
+        {
+          id: "t1",
+          title: "Run",
+          frequency: "daily",
+          completions: [new Date(2026, 4, 12)], // mine
+          memberCompletions: { "owner-1": ["2026-05-12"] },
+        },
+        {
+          id: "t2",
+          title: "Log",
+          frequency: "daily",
+          completions: [new Date(2026, 4, 12)], // mine
+          memberCompletions: {}, // owner-1 has no entry on this task
+        },
+      ],
+    };
+
+    const viewed = goalAsSeenBy(goal, "owner-1");
+    expect(viewed.tasks[0].completions).toHaveLength(1);
+    expect(viewed.tasks[1].completions).toEqual([]);
+  });
+});
+
+describe("getMemberAdherence", () => {
+  it("averages daily progress over the window clamped to goal age", () => {
+    // Goal is 10 days old on May 12; owner completed 2 of those days.
+    const adherence = getMemberAdherence(
+      socialGoal(),
+      "owner-1",
+      new Date(2026, 4, 12, 18),
+    );
+
+    expect(adherence).toBeCloseTo(2 / 10);
+  });
+
+  it("is 1 when the member completed every daily task every day since creation", () => {
+    const goal: Goal = {
+      ...socialGoal(),
+      createdAt: new Date(2026, 4, 9, 8).getTime(), // 4 calendar days incl. ref
+      tasks: [
+        {
+          id: "t1",
+          title: "Run",
+          frequency: "daily",
+          completions: [],
+          memberCompletions: {
+            "owner-1": ["2026-05-09", "2026-05-10", "2026-05-11", "2026-05-12"],
+          },
+        },
+      ],
+    };
+
+    expect(getMemberAdherence(goal, "owner-1", new Date(2026, 4, 12, 18))).toBe(
+      1,
+    );
+  });
+
+  it("clamps to windowDays for old goals and averages partial completion", () => {
+    const goal: Goal = {
+      ...socialGoal(),
+      createdAt: new Date(2026, 0, 1).getTime(), // far older than the window
+      tasks: [
+        {
+          id: "t1",
+          title: "Run",
+          frequency: "daily",
+          completions: [],
+          memberCompletions: { "owner-1": ["2026-05-11", "2026-05-12"] },
+        },
+      ],
+    };
+
+    // 4-day window ending May 12, 2 of 4 days done.
+    expect(
+      getMemberAdherence(goal, "owner-1", new Date(2026, 4, 12, 18), 4),
+    ).toBeCloseTo(0.5);
+  });
+
+  it("is 0 for a member with no completions", () => {
+    const goal: Goal = {
+      ...socialGoal(),
+      tasks: [
+        {
+          id: "t1",
+          title: "Run",
+          frequency: "daily",
+          completions: [new Date(2026, 4, 12)], // mine, must not leak into theirs
+          memberCompletions: { "owner-1": [] },
+        },
+      ],
+    };
+
+    expect(getMemberAdherence(goal, "owner-1", new Date(2026, 4, 12, 18))).toBe(
+      0,
+    );
+  });
+});
+
+describe("toggleSharedTaskCompletion", () => {
+  const originalState = useStore.getState();
+
+  afterEach(() => {
+    useStore.setState(originalState, true);
+  });
+
+  it("toggles my completion on a shared task and bumps syncRevision", () => {
+    useStore.setState({
+      ...originalState,
+      sharedGoals: [socialGoal()],
+      syncRevision: 7,
+    });
+
+    useStore
+      .getState()
+      .toggleSharedTaskCompletion(
+        "shared-goal-1",
+        "shared-task-1",
+        new Date(2026, 4, 13, 9),
+      );
+
+    const state = useStore.getState();
+    expect(state.syncRevision).toBe(8);
+    expect(state.sharedGoals[0].tasks[0].completions).toHaveLength(2);
+    // Other members' history is untouched.
+    expect(state.sharedGoals[0].tasks[0].memberCompletions).toEqual({
+      "owner-1": ["2026-05-11", "2026-05-12"],
+    });
+  });
+
+  it("only touches sharedGoals, even when an owned goal has the same ids", () => {
+    const owned = socialGoal(); // deliberately identical goal/task ids
+    useStore.setState({
+      ...originalState,
+      goals: [owned],
+      sharedGoals: [socialGoal()],
+      syncRevision: 0,
+    });
+
+    // May 12 is already completed, so this toggles it OFF.
+    useStore
+      .getState()
+      .toggleSharedTaskCompletion(
+        "shared-goal-1",
+        "shared-task-1",
+        new Date(2026, 4, 12, 9),
+      );
+
+    const state = useStore.getState();
+    expect(state.syncRevision).toBe(1);
+    expect(state.sharedGoals[0].tasks[0].completions).toEqual([]);
+    // Owned goal with the same ids is untouched (same reference, same data).
+    expect(state.goals[0]).toBe(owned);
+    expect(state.goals[0].tasks[0].completions).toHaveLength(1);
+  });
+});
+
+// ─── UUID ids ────────────────────────────────────────────────────────────────
+
+describe("goal/task ids", () => {
+  const UUID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const originalState = useStore.getState();
+
+  afterEach(() => {
+    useStore.setState(originalState, true);
+  });
+
+  it("new goals and tasks are born with UUID ids (no remap at sync time)", () => {
+    useStore.setState({ ...originalState, goals: [], syncRevision: 0 });
+
+    useStore.getState().addGoal("Fitness");
+    const goal = useStore.getState().goals[0];
+    useStore.getState().addTask(goal.id, "Run", "daily");
+
+    expect(goal.id).toMatch(UUID_PATTERN);
+    expect(useStore.getState().goals[0].tasks[0].id).toMatch(UUID_PATTERN);
+  });
+
+  it("upgradeLegacyIds rewrites legacy ids once and leaves UUID graphs alone", () => {
+    const legacy: Goal = {
+      id: "legacy-goal-id",
+      title: "Old",
+      createdAt: 1,
+      tasks: [
+        { id: "legacy-task-id", title: "Run", frequency: "daily", completions: [] },
+      ],
+    };
+    const modern: Goal = {
+      id: "75cfeb0f-8097-4bf2-9fa7-09c66d4d4aa7",
+      title: "New",
+      createdAt: 1,
+      tasks: [],
+    };
+
+    const upgradedResult = upgradeLegacyIds([legacy, modern]);
+    expect(upgradedResult.upgraded).toBe(true);
+    expect(upgradedResult.goals[0].id).toMatch(UUID_PATTERN);
+    expect(upgradedResult.goals[0].tasks[0].id).toMatch(UUID_PATTERN);
+    expect(upgradedResult.goals[1].id).toBe(modern.id);
+
+    const cleanResult = upgradeLegacyIds(upgradedResult.goals);
+    expect(cleanResult.upgraded).toBe(false);
+    expect(cleanResult.goals).toBe(upgradedResult.goals);
   });
 });

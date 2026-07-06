@@ -1,33 +1,45 @@
 import React from "react";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { Text, View, Pressable, TextInput, Modal, Alert } from "react-native";
+import {
+  Text,
+  View,
+  Pressable,
+  TextInput,
+  Modal,
+  Alert,
+  ScrollView,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import {
-  NestableDraggableFlatList,
-  NestableScrollContainer,
-  RenderItemParams,
-  ScaleDecorator,
-} from "react-native-draggable-flatlist";
 import {
   useStore,
   getCustomFrequencyProgress,
   getCustomFrequencyAlert,
-  shouldShowCustomTask,
-  isOnceTaskCompletedOnDate,
+  getGoalStreak,
+  getMemberAdherence,
+  getTaskBucketsForDate,
 } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
+import { format, startOfWeek, endOfWeek, isWithinInterval, isToday } from "date-fns";
 import {
-  format,
-  startOfWeek,
-  endOfWeek,
-  isWithinInterval,
-  isToday,
-} from "date-fns";
-import { Frequency, CustomFrequency } from "../types";
+  CustomFrequency,
+  FriendProfile,
+  Frequency,
+  GoalMember,
+  Task,
+} from "../types";
 import { haptics } from "../utils/haptics";
 import { RootStackParamList } from "../navigation";
 import TrackingDateControls from "./TrackingDateControls";
+import Avatar from "./Avatar";
+import Heatmap from "./Heatmap";
+import {
+  addMemberToGoal,
+  inviteFriendToGoal,
+  leaveGoal,
+  removeMember,
+} from "../lib/social";
+import { getPersistedSession } from "../lib/auth";
 
 type GoalProps = NativeStackScreenProps<RootStackParamList, "Goal">;
 
@@ -35,17 +47,30 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const MAX_WEEKLY_CUSTOM_TARGET = 7;
   const MAX_MONTHLY_CUSTOM_TARGET = 31;
   const { goalId } = route.params;
-  const goal = useStore((s) => s.goals.find((g) => g.id === goalId));
+  const ownedGoal = useStore((s) => s.goals.find((g) => g.id === goalId));
+  const sharedGoal = useStore((s) =>
+    s.sharedGoals.find((g) => g.id === goalId),
+  );
+  const goal = ownedGoal ?? sharedGoal;
+  const account = useStore((s) => s.account);
+  const friends = useStore((s) => s.friends);
+  const frozenDays = useStore((s) => s.frozenDays);
   const selectedDate = useStore((s) => s.selectedDate);
   const addTask = useStore((s) => s.addTask);
   const updateTask = useStore((s) => s.updateTask);
   const updateGoal = useStore((s) => s.updateGoal);
   const completeGoal = useStore((s) => s.completeGoal);
   const reactivateGoal = useStore((s) => s.reactivateGoal);
-  const reorderTasks = useStore((s) => s.reorderTasks);
   const deleteTask = useStore((s) => s.deleteTask);
-  const toggleTask = useStore((s) => s.toggleTaskCompletion);
+  const deleteGoal = useStore((s) => s.deleteGoal);
+  const setGoals = useStore((s) => s.setGoals);
+  const setSharedGoals = useStore((s) => s.setSharedGoals);
+  const toggleOwnedTask = useStore((s) => s.toggleTaskCompletion);
+  const toggleSharedTask = useStore((s) => s.toggleSharedTaskCompletion);
   const { theme } = useTheme();
+
+  const isOwner =
+    Boolean(ownedGoal) || (Boolean(goal) && account?.id === goal?.ownerUserId);
 
   const [taskTitle, setTaskTitle] = React.useState("");
   const [frequency, setFrequency] = React.useState<Frequency>("daily");
@@ -59,7 +84,11 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const [goalTargetDraft, setGoalTargetDraft] = React.useState(
     goal?.target ?? "",
   );
-  const [isReorderingTasks, setIsReorderingTasks] = React.useState(false);
+  const [heatmapMode, setHeatmapMode] = React.useState<"goal" | "task">("goal");
+  const [isInviteOpen, setIsInviteOpen] = React.useState(false);
+  const [invitingFriendId, setInvitingFriendId] = React.useState<string | null>(
+    null,
+  );
 
   React.useEffect(() => {
     if (goal && !isEditingGoalDetails) {
@@ -74,6 +103,14 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const completedAtLabel = goal.completedAt
     ? `Achieved ${format(new Date(goal.completedAt), "MMM d, yyyy")}`
     : "Achieved";
+
+  const toggleTask = (taskId: string, date: Date) => {
+    if (isOwner && ownedGoal) {
+      toggleOwnedTask(goalId, taskId, date);
+    } else {
+      toggleSharedTask(goalId, taskId, date);
+    }
+  };
 
   const saveGoalDetails = () => {
     const trimmedTitle = goalTitleDraft.trim();
@@ -96,7 +133,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     void haptics.warning();
     Alert.alert(
       "Complete goal?",
-      `This moves "${goal.title}" to Completed Goals. Its tasks and consistency history stay saved.`,
+      `This moves "${goal.title}" to your achieved goals. Its tasks and consistency history stay saved.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -104,7 +141,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           onPress: () => {
             completeGoal(goalId);
             void haptics.success();
-            navigation.navigate("CompletedGoals");
+            navigation.goBack();
           },
         },
       ],
@@ -115,7 +152,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     void haptics.warning();
     Alert.alert(
       "Move back to active goals?",
-      `"${goal.title}" will appear on the home screen and radar chart again.`,
+      `"${goal.title}" will show up with your active goals again.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -129,6 +166,162 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     );
   };
 
+  const confirmDeleteGoal = () => {
+    void haptics.warning();
+    Alert.alert(
+      "Delete goal?",
+      `This permanently removes "${goal.title}", its tasks, and everyone's history for it.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            void haptics.destructive();
+            deleteGoal(goalId);
+            navigation.goBack();
+          },
+        },
+      ],
+    );
+  };
+
+  const confirmLeaveGoal = () => {
+    if (!account) return;
+    void haptics.warning();
+    Alert.alert(
+      "Leave goal?",
+      `"${goal.title}" will disappear from your goals. The owner keeps the goal.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Leave",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              try {
+                await leaveGoal(goalId, account.id);
+                setSharedGoals(
+                  useStore
+                    .getState()
+                    .sharedGoals.filter((g) => g.id !== goalId),
+                );
+                void haptics.success();
+                navigation.goBack();
+              } catch (error) {
+                void haptics.error();
+                Alert.alert(
+                  "Couldn't leave goal",
+                  error instanceof Error
+                    ? error.message
+                    : "Try again once you're online.",
+                );
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
+  const confirmRemoveMember = (member: GoalMember) => {
+    void haptics.warning();
+    Alert.alert(
+      "Remove member?",
+      `${member.displayName} will lose access to "${goal.title}".`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              try {
+                await removeMember(goalId, member.userId);
+                setGoals(
+                  useStore.getState().goals.map((g) =>
+                    g.id === goalId
+                      ? {
+                          ...g,
+                          members: g.members?.filter(
+                            (m) => m.userId !== member.userId,
+                          ),
+                          tasks: g.tasks.map((task) => {
+                            if (!task.memberCompletions) return task;
+                            const {
+                              [member.userId]: _removed,
+                              ...remaining
+                            } = task.memberCompletions;
+                            return { ...task, memberCompletions: remaining };
+                          }),
+                        }
+                      : g,
+                  ),
+                );
+                void haptics.destructive();
+              } catch (error) {
+                void haptics.error();
+                Alert.alert(
+                  "Couldn't remove member",
+                  error instanceof Error
+                    ? error.message
+                    : "Try again once you're online.",
+                );
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
+  const inviteFriend = async (friend: FriendProfile) => {
+    if (invitingFriendId) return;
+    setInvitingFriendId(friend.userId);
+    void haptics.tap();
+
+    try {
+      const session = await getPersistedSession();
+      const user = session?.user;
+      if (!user) {
+        throw new Error("You need to be signed in to invite friends.");
+      }
+
+      // Re-read from the store: tasks may have been edited since render.
+      const current =
+        useStore.getState().goals.find((g) => g.id === goalId) ?? goal;
+      await inviteFriendToGoal(current, friend.userId, user);
+
+      const owner = {
+        userId: user.id,
+        username: account?.username ?? "",
+        displayName: account?.displayName ?? "You",
+        isOwner: true,
+      };
+
+      // Merge the member into the CURRENT store goal (ids are stable UUIDs)
+      // so completions toggled mid-invite survive.
+      setGoals(
+        useStore
+          .getState()
+          .goals.map((g) =>
+            g.id === current.id ? addMemberToGoal(g, friend, owner) : g,
+          ),
+      );
+      void haptics.success();
+    } catch (error) {
+      void haptics.error();
+      Alert.alert(
+        "Couldn't invite",
+        error instanceof Error
+          ? error.message
+          : "Try again once you're online.",
+      );
+    } finally {
+      setInvitingFriendId(null);
+    }
+  };
+
   const isCompletedToday = (dates: Date[], referenceDate: Date) =>
     dates.some(
       (date) =>
@@ -138,11 +331,13 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const getMaxCustomTarget = (type: CustomFrequency["type"]) =>
     type === "weekly" ? MAX_WEEKLY_CUSTOM_TARGET : MAX_MONTHLY_CUSTOM_TARGET;
 
+  // 32px visual + hitSlop 6 = 44px effective targets; the gap keeps the
+  // edit/delete slop rects from overlapping so taps can't hit the wrong one.
   const taskActionButtonStyle = {
     alignSelf: "center" as const,
     borderRadius: 9999,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
   };
 
   const normalizeCustomTarget = (
@@ -222,23 +417,19 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     resetTaskEditor();
   };
 
-  const confirmDeleteTask = (taskId: string, taskTitle: string) => {
+  const confirmDeleteTask = (taskId: string, title: string) => {
     void haptics.warning();
-    Alert.alert(
-      "Delete task?",
-      `This will remove "${taskTitle}" from this goal.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => {
-            void haptics.destructive();
-            deleteTask(goalId, taskId);
-          },
+    Alert.alert("Delete task?", `This will remove "${title}" from this goal.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void haptics.destructive();
+          deleteTask(goalId, taskId);
         },
-      ],
-    );
+      },
+    ]);
   };
 
   const viewingToday = isToday(selectedDate);
@@ -265,58 +456,8 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     return viewingToday ? "this month" : format(selectedDate, "MMMM yyyy");
   };
 
-  const pendingTasks = goal.tasks.filter((item) => {
-    if (item.frequency === "custom") {
-      return shouldShowCustomTask(item, selectedDate);
-    }
-
-    if (item.frequency === "daily") {
-      return !isCompletedToday(item.completions, selectedDate);
-    }
-
-    if (item.frequency === "weekly") {
-      return !item.completions.some((date) =>
-        isWithinInterval(date, {
-          start: selectedWeekStart,
-          end: selectedWeekEnd,
-        }),
-      );
-    }
-
-    if (item.frequency === "once") {
-      return item.completions.length === 0;
-    }
-
-    return true;
-  });
-
-  const completedTasks = goal.tasks.filter((item) => {
-    if (item.frequency === "custom") {
-      const progress = getCustomFrequencyProgress(item, selectedDate);
-      return (
-        isCompletedToday(item.completions, selectedDate) || progress.achieved
-      );
-    }
-
-    if (item.frequency === "daily") {
-      return isCompletedToday(item.completions, selectedDate);
-    }
-
-    if (item.frequency === "weekly") {
-      return item.completions.some((date) =>
-        isWithinInterval(date, {
-          start: selectedWeekStart,
-          end: selectedWeekEnd,
-        }),
-      );
-    }
-
-    if (item.frequency === "once") {
-      return isOnceTaskCompletedOnDate(item, selectedDate);
-    }
-
-    return false;
-  });
+  const { pending: pendingTasks, completed: completedTasks } =
+    getTaskBucketsForDate(goal, selectedDate);
 
   const hasCompletionsOnSelectedDate = goal.tasks.some(
     (task) =>
@@ -327,41 +468,175 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
       ),
   );
 
-  const renderTaskActionButtons = (item: (typeof goal.tasks)[number]) => (
-    <View style={{ alignSelf: "center", gap: 6 }}>
-      <Pressable
-        onPress={() => startEditingTask(item.id)}
-        hitSlop={8}
+  const members = goal.members ?? [];
+  const orderedMembers = [
+    ...members.filter((m) => m.userId === account?.id),
+    ...members.filter((m) => m.userId !== account?.id),
+  ];
+  const memberIds = new Set(members.map((m) => m.userId));
+  const invitableFriends = friends.filter((f) => !memberIds.has(f.userId));
+
+  const frozenDateKeys = new Set(frozenDays.map((fd) => fd.date));
+  // ponytail: heatmaps show MY completions only, even on shared goals —
+  // same semantics as the old per-goal Consistency screen.
+  const recurringTasks = goal.tasks.filter((t) => t.frequency !== "once");
+  const taskHeatmapValues = (task: Task): Record<string, number> => {
+    const values: Record<string, number> = {};
+    for (const date of task.completions) {
+      const key = format(date, "yyyy-MM-dd");
+      values[key] = (values[key] || 0) + 1;
+    }
+    return values;
+  };
+  const goalHeatmapValues = (): Record<string, number> => {
+    if (recurringTasks.length === 0) return {};
+    const tasksByDate: Record<string, Set<string>> = {};
+    for (const task of recurringTasks) {
+      for (const date of task.completions) {
+        const key = format(date, "yyyy-MM-dd");
+        (tasksByDate[key] ??= new Set()).add(task.id);
+      }
+    }
+    return Object.fromEntries(
+      Object.entries(tasksByDate).map(([key, done]) => [
+        key,
+        done.size / recurringTasks.length,
+      ]),
+    );
+  };
+
+  const pillStyle = (active: boolean) => ({
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 9999,
+    borderWidth: 1,
+    borderColor: active ? theme.primary : theme.border,
+    backgroundColor: active ? theme.primary + "20" : theme.surface,
+  });
+
+  const renderStreakChip = (task: Task) => {
+    if (task.frequency === "once") return null;
+    const streak = getGoalStreak(task, frozenDays);
+    if (streak <= 0) return null;
+    return (
+      <View
         style={{
-          ...taskActionButtonStyle,
-          opacity: 0.55,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 3,
+          paddingHorizontal: 8,
+          paddingVertical: 2,
+          borderRadius: 9999,
+          backgroundColor: theme.warning + "20",
+          alignSelf: "flex-start",
         }}
       >
-        <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
-      </Pressable>
-      <Pressable
-        onPress={() => confirmDeleteTask(item.id, item.title)}
-        hitSlop={8}
-        style={{
-          ...taskActionButtonStyle,
-          opacity: 0.35,
-        }}
-      >
-        <Ionicons name="trash-outline" size={16} color={theme.textSecondary} />
-      </Pressable>
-    </View>
-  );
+        <Ionicons name="flame" size={11} color={theme.warning} />
+        <Text style={{ color: theme.warning, fontSize: 11, fontWeight: "700" }}>
+          {streak}
+        </Text>
+      </View>
+    );
+  };
+
+  const renderTaskActionButtons = (item: Task) =>
+    isOwner ? (
+      <View style={{ alignSelf: "center", gap: 12 }}>
+        <Pressable
+          onPress={() => startEditingTask(item.id)}
+          hitSlop={6}
+          style={{ ...taskActionButtonStyle, opacity: 0.55 }}
+        >
+          <Ionicons
+            name="create-outline"
+            size={16}
+            color={theme.textSecondary}
+          />
+        </Pressable>
+        <Pressable
+          onPress={() => confirmDeleteTask(item.id, item.title)}
+          hitSlop={6}
+          style={{ ...taskActionButtonStyle, opacity: 0.35 }}
+        >
+          <Ionicons
+            name="trash-outline"
+            size={16}
+            color={theme.textSecondary}
+          />
+        </Pressable>
+      </View>
+    ) : null;
 
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: theme.background }}
       edges={["bottom", "left", "right"]}
     >
-      <NestableScrollContainer
+      <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
       >
+        {/* Action pill row: Invite + Complete (owner) or Leave (member) */}
+        <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+          {isOwner && account ? (
+            <Pressable
+              onPress={() => {
+                void haptics.tap();
+                setIsInviteOpen(true);
+              }}
+              style={pillStyle(false)}
+            >
+              <Ionicons
+                name="person-add-outline"
+                size={16}
+                color={theme.primary}
+              />
+              <Text style={{ color: theme.text, fontWeight: "700" }}>
+                Invite
+              </Text>
+            </Pressable>
+          ) : null}
+          {isOwner ? (
+            <Pressable
+              onPress={
+                isGoalCompleted ? confirmReactivateGoal : confirmCompleteGoal
+              }
+              style={{
+                ...pillStyle(false),
+                borderColor: isGoalCompleted
+                  ? theme.border
+                  : theme.success + "55",
+              }}
+            >
+              <Ionicons
+                name={isGoalCompleted ? "refresh-outline" : "heart-outline"}
+                size={16}
+                color={isGoalCompleted ? theme.textSecondary : theme.success}
+              />
+              <Text style={{ color: theme.text, fontWeight: "700" }}>
+                {isGoalCompleted ? "Move Back" : "Complete"}
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={confirmLeaveGoal}
+              style={{
+                ...pillStyle(false),
+                borderColor: theme.danger + "55",
+              }}
+            >
+              <Ionicons name="exit-outline" size={16} color={theme.danger} />
+              <Text style={{ color: theme.text, fontWeight: "700" }}>
+                Leave
+              </Text>
+            </Pressable>
+          )}
+        </View>
+
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           {isEditingGoalDetails ? (
             <>
@@ -426,31 +701,33 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
               >
                 {goal.title}
               </Text>
-              <Pressable
-                onPress={() => {
-                  void haptics.tap();
-                  setGoalTitleDraft(goal.title);
-                  setGoalTargetDraft(goal.target ?? "");
-                  setIsEditingGoalDetails(true);
-                }}
-                hitSlop={8}
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: 17,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: theme.surface,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                }}
-              >
-                <Ionicons
-                  name="create-outline"
-                  size={16}
-                  color={theme.textSecondary}
-                />
-              </Pressable>
+              {isOwner ? (
+                <Pressable
+                  onPress={() => {
+                    void haptics.tap();
+                    setGoalTitleDraft(goal.title);
+                    setGoalTargetDraft(goal.target ?? "");
+                    setIsEditingGoalDetails(true);
+                  }}
+                  hitSlop={8}
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 17,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: theme.surface,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                  }}
+                >
+                  <Ionicons
+                    name="create-outline"
+                    size={16}
+                    color={theme.textSecondary}
+                  />
+                </Pressable>
+              ) : null}
             </>
           )}
         </View>
@@ -503,197 +780,97 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             </Text>
           </View>
         ) : null}
-        <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-          <Pressable
-            onPress={() => {
-              void haptics.navigate();
-              navigation.navigate("Consistency", { goalId });
-            }}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              backgroundColor: theme.surface,
-              borderWidth: 1,
-              borderColor: theme.primary + "55",
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-              borderRadius: 9999,
-            }}
-          >
-            <View
-              style={{
-                width: 24,
-                height: 24,
-                borderRadius: 12,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: theme.primary + "20",
-              }}
-            >
-              <Ionicons
-                name="analytics-outline"
-                size={14}
-                color={theme.primary}
-              />
-            </View>
-            <Text style={{ color: theme.text, fontWeight: "700" }}>
-              See Consistency
-            </Text>
-            <Ionicons
-              name="arrow-forward"
-              size={14}
-              color={theme.textSecondary}
-            />
-          </Pressable>
-          <Pressable
-            onPress={
-              isGoalCompleted ? confirmReactivateGoal : confirmCompleteGoal
-            }
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              backgroundColor: theme.surface,
-              borderWidth: 1,
-              borderColor: isGoalCompleted
-                ? theme.border
-                : theme.success + "55",
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-              borderRadius: 9999,
-            }}
-          >
-            <View
-              style={{
-                width: 24,
-                height: 24,
-                borderRadius: 12,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: isGoalCompleted
-                  ? theme.background
-                  : theme.success + "20",
-              }}
-            >
-              <Ionicons
-                name={isGoalCompleted ? "refresh-outline" : "trophy-outline"}
-                size={14}
-                color={isGoalCompleted ? theme.textSecondary : theme.success}
-              />
-            </View>
-            <Text style={{ color: theme.text, fontWeight: "700" }}>
-              {isGoalCompleted ? "Move Back" : "Complete Goal"}
-            </Text>
-          </Pressable>
-        </View>
 
-        {/* Pending Tasks Section */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginTop: 4,
-          }}
-        >
-          <Text style={{ fontWeight: "700", color: theme.text }}>Tasks</Text>
-          {goal.tasks.length > 1 ? (
-            <Pressable
-              onPress={() => {
-                setIsReorderingTasks((prev) => !prev);
-                void haptics.tap();
-              }}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 9999,
-                borderWidth: 1,
-                borderColor: isReorderingTasks ? theme.primary : theme.border,
-                backgroundColor: theme.surface,
-              }}
-            >
-              <Ionicons
-                name="reorder-three-outline"
-                size={14}
-                color={isReorderingTasks ? theme.primary : theme.textSecondary}
-              />
-              <Text
-                style={{
-                  color: isReorderingTasks
-                    ? theme.primary
-                    : theme.textSecondary,
-                  fontWeight: "600",
-                  fontSize: 12,
-                }}
-              >
-                {isReorderingTasks ? "Done" : "Reorder"}
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
-        {isReorderingTasks ? (
-          <View style={{ marginTop: 8, gap: 8 }}>
-            <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-              Long press and drag tasks to change their order.
+        {/* Doing this together */}
+        {members.length > 1 ? (
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: theme.border,
+              borderRadius: 12,
+              padding: 12,
+              gap: 12,
+              backgroundColor: theme.surface,
+            }}
+          >
+            <Text style={{ fontWeight: "700", color: theme.text }}>
+              Doing this together
             </Text>
-            <NestableDraggableFlatList
-              data={goal.tasks}
-              keyExtractor={(item) => item.id}
-              onDragEnd={({ data }) => {
-                reorderTasks(
-                  goalId,
-                  data.map((task) => task.id),
-                );
-                void haptics.success();
-              }}
-              ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-              renderItem={({
-                item,
-                drag,
-                isActive,
-              }: RenderItemParams<(typeof goal.tasks)[number]>) => (
-                <ScaleDecorator>
-                  <Pressable
-                    onLongPress={drag}
-                    delayLongPress={150}
+            {orderedMembers.map((member) => {
+              const isMe = member.userId === account?.id;
+              const percent = Math.round(
+                getMemberAdherence(goal, member.userId) * 100,
+              );
+              const canRemove = isOwner && !isMe;
+              return (
+                <Pressable
+                  key={member.userId}
+                  // ponytail: member removal is long-press only; a row menu
+                  // can come later if this proves undiscoverable.
+                  onLongPress={
+                    canRemove ? () => confirmRemoveMember(member) : undefined
+                  }
+                  delayLongPress={400}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <Avatar
+                    userId={member.userId}
+                    displayName={member.displayName}
+                    size="md"
+                  />
+                  <View style={{ flex: 1, gap: 5 }}>
+                    <Text style={{ fontWeight: "600", color: theme.text }}>
+                      {isMe ? "You" : member.displayName}
+                      {member.isOwner ? (
+                        <Text
+                          style={{ color: theme.textSecondary, fontSize: 12 }}
+                        >
+                          {"  "}owner
+                        </Text>
+                      ) : null}
+                    </Text>
+                    <View
+                      style={{
+                        height: 6,
+                        borderRadius: 3,
+                        backgroundColor: theme.border,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: `${percent}%`,
+                          height: 6,
+                          borderRadius: 3,
+                          backgroundColor: theme.primary,
+                        }}
+                      />
+                    </View>
+                  </View>
+                  <Text
                     style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: 12,
-                      borderWidth: 1,
-                      borderColor: isActive ? theme.primary : theme.border,
-                      borderRadius: 10,
-                      backgroundColor: theme.surface,
+                      color: theme.textSecondary,
+                      fontWeight: "700",
+                      fontVariant: ["tabular-nums"],
                     }}
                   >
-                    <Ionicons
-                      name="reorder-three-outline"
-                      size={18}
-                      color={theme.textSecondary}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontWeight: "700", color: theme.text }}>
-                        {item.title}
-                      </Text>
-                      <Text
-                        style={{ color: theme.textSecondary, fontSize: 12 }}
-                      >
-                        {item.frequency === "custom" && item.customFrequency
-                          ? `${item.customFrequency.target} times per ${item.customFrequency.type}`
-                          : `Frequency: ${item.frequency}`}
-                      </Text>
-                    </View>
-                  </Pressable>
-                </ScaleDecorator>
-              )}
-            />
+                    {percent}%
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
-        ) : pendingTasks.length === 0 ? (
+        ) : null}
+
+        {/* Tasks */}
+        <Text style={{ fontWeight: "700", color: theme.text, marginTop: 4 }}>
+          Tasks
+        </Text>
+        {pendingTasks.length === 0 ? (
           <View
             style={{
               padding: 20,
@@ -729,7 +906,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
               <Pressable
                 onPress={() => {
                   void haptics.success();
-                  toggleTask(goalId, item.id, selectedDate);
+                  toggleTask(item.id, selectedDate);
                 }}
                 style={{
                   padding: 12,
@@ -747,9 +924,24 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                   }}
                 >
                   <View style={{ flex: 1, paddingRight: 12 }}>
-                    <Text style={{ fontWeight: "700", color: theme.text }}>
-                      {item.title}
-                    </Text>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontWeight: "700",
+                          color: theme.text,
+                          flexShrink: 1,
+                        }}
+                      >
+                        {item.title}
+                      </Text>
+                      {renderStreakChip(item)}
+                    </View>
                     {item.frequency === "custom" && item.customFrequency
                       ? (() => {
                           const progress = getCustomFrequencyProgress(
@@ -883,15 +1075,13 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                   {renderTaskActionButtons(item)}
                 </View>
               </Pressable>
-              {index < pendingTasks.length - 1 && (
-                <View style={{ height: 8 }} />
-              )}
+              {index < pendingTasks.length - 1 && <View style={{ height: 8 }} />}
             </View>
           ))
         )}
 
         {/* Completed Tasks Section */}
-        {!isReorderingTasks && completedTasks.length > 0 ? (
+        {completedTasks.length > 0 ? (
           <>
             <Text
               style={{
@@ -907,7 +1097,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 <Pressable
                   onPress={() => {
                     void haptics.tap();
-                    toggleTask(goalId, item.id, selectedDate);
+                    toggleTask(item.id, selectedDate);
                   }}
                   style={{
                     padding: 12,
@@ -926,15 +1116,25 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                     }}
                   >
                     <View style={{ flex: 1, paddingRight: 12 }}>
-                      <Text
+                      <View
                         style={{
-                          fontWeight: "700",
-                          color: theme.textSecondary,
-                          textDecorationLine: "line-through",
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 8,
                         }}
                       >
-                        {item.title}
-                      </Text>
+                        <Text
+                          style={{
+                            fontWeight: "700",
+                            color: theme.textSecondary,
+                            textDecorationLine: "line-through",
+                            flexShrink: 1,
+                          }}
+                        >
+                          {item.title}
+                        </Text>
+                        {renderStreakChip(item)}
+                      </View>
                       {item.frequency === "custom" && item.customFrequency
                         ? (() => {
                             const progress = getCustomFrequencyProgress(
@@ -1053,39 +1253,262 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           </>
         ) : null}
 
-        <Pressable
-          onPress={() => {
-            void haptics.tap();
-            if (isEditing) {
-              resetTaskEditor();
-            } else {
-              setEditingTaskId(null);
-              setTaskTitle("");
-              setFrequency("daily");
-              setCustomFrequency({ type: "weekly", target: 3 });
-              setIsEditing(true);
-            }
-          }}
-          style={{
-            backgroundColor: theme.surface,
-            borderWidth: 1,
-            borderColor: theme.border,
-            padding: 12,
-            borderRadius: 10,
-            marginTop: 8,
-          }}
-        >
-          <Text
+        {isOwner ? (
+          <Pressable
+            onPress={() => {
+              void haptics.tap();
+              if (isEditing) {
+                resetTaskEditor();
+              } else {
+                setEditingTaskId(null);
+                setTaskTitle("");
+                setFrequency("daily");
+                setCustomFrequency({ type: "weekly", target: 3 });
+                setIsEditing(true);
+              }
+            }}
             style={{
-              color: theme.textSecondary,
-              textAlign: "center",
-              fontWeight: "600",
+              backgroundColor: theme.surface,
+              borderWidth: 1,
+              borderColor: theme.border,
+              padding: 12,
+              borderRadius: 10,
+              marginTop: 8,
             }}
           >
-            + New Task
-          </Text>
-        </Pressable>
+            <Text
+              style={{
+                color: theme.textSecondary,
+                textAlign: "center",
+                fontWeight: "600",
+              }}
+            >
+              + New Task
+            </Text>
+          </Pressable>
+        ) : null}
 
+        {/* Last 8 weeks */}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginTop: 16,
+          }}
+        >
+          <Text style={{ fontWeight: "700", color: theme.text }}>
+            Last 8 weeks
+          </Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            {(
+              [
+                ["goal", "Goal"],
+                ["task", "By task"],
+              ] as const
+            ).map(([mode, label]) => (
+              <Pressable
+                key={mode}
+                onPress={() => {
+                  void haptics.toggle();
+                  setHeatmapMode(mode);
+                }}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 9999,
+                  borderWidth: 1,
+                  borderColor:
+                    heatmapMode === mode ? theme.primary : theme.border,
+                  backgroundColor:
+                    heatmapMode === mode
+                      ? theme.primary + "20"
+                      : theme.surface,
+                }}
+              >
+                <Text
+                  style={{
+                    fontWeight: "600",
+                    fontSize: 12,
+                    color:
+                      heatmapMode === mode
+                        ? theme.primary
+                        : theme.textSecondary,
+                  }}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+        {recurringTasks.length === 0 ? (
+          <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+            Add a repeating task to see its history here.
+          </Text>
+        ) : heatmapMode === "goal" ? (
+          <Heatmap
+            startOffsetDays={56}
+            values={goalHeatmapValues()}
+            valueMode="ratio"
+            referenceDate={selectedDate}
+            frozenDateKeys={frozenDateKeys}
+          />
+        ) : (
+          recurringTasks.map((task) => (
+            <View key={task.id} style={{ gap: 6 }}>
+              <Text
+                style={{
+                  color: theme.textSecondary,
+                  fontWeight: "600",
+                  fontSize: 13,
+                }}
+              >
+                {task.title}
+              </Text>
+              <Heatmap
+                startOffsetDays={56}
+                values={taskHeatmapValues(task)}
+                referenceDate={selectedDate}
+                frozenDateKeys={frozenDateKeys}
+              />
+            </View>
+          ))
+        )}
+
+        {isOwner ? (
+          <Pressable
+            onPress={confirmDeleteGoal}
+            style={{
+              marginTop: 16,
+              padding: 12,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: theme.danger + "55",
+              backgroundColor: theme.surface,
+            }}
+          >
+            <Text
+              style={{
+                color: theme.danger,
+                textAlign: "center",
+                fontWeight: "600",
+              }}
+            >
+              Delete goal
+            </Text>
+          </Pressable>
+        ) : null}
+
+        {/* Invite friends modal */}
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={isInviteOpen}
+          onRequestClose={() => {
+            void haptics.tap();
+            setIsInviteOpen(false);
+          }}
+        >
+          <View
+            style={{
+              flex: 1,
+              justifyContent: "center",
+              padding: 24,
+              backgroundColor: "rgba(15, 23, 42, 0.35)",
+            }}
+          >
+            <Pressable
+              onPress={() => {
+                void haptics.tap();
+                setIsInviteOpen(false);
+              }}
+              style={{
+                position: "absolute",
+                top: 0,
+                right: 0,
+                bottom: 0,
+                left: 0,
+              }}
+            />
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: theme.border,
+                borderRadius: 16,
+                padding: 16,
+                gap: 12,
+                backgroundColor: theme.surface,
+              }}
+            >
+              <Text
+                style={{ fontWeight: "700", fontSize: 18, color: theme.text }}
+              >
+                Invite a friend
+              </Text>
+              {invitableFriends.length === 0 ? (
+                <Text style={{ color: theme.textSecondary }}>
+                  {friends.length === 0
+                    ? "Add friends from the Search tab first."
+                    : "All of your friends are already in this goal."}
+                </Text>
+              ) : (
+                invitableFriends.map((friend) => (
+                  <View
+                    key={friend.userId}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                  >
+                    <Avatar
+                      userId={friend.userId}
+                      displayName={friend.displayName}
+                      size="md"
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: "600", color: theme.text }}>
+                        {friend.displayName}
+                      </Text>
+                      {friend.username ? (
+                        <Text
+                          style={{ color: theme.textSecondary, fontSize: 12 }}
+                        >
+                          @{friend.username}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Pressable
+                      onPress={() => void inviteFriend(friend)}
+                      disabled={invitingFriendId !== null}
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 8,
+                        borderRadius: 9999,
+                        backgroundColor: theme.primary,
+                        opacity:
+                          invitingFriendId === null
+                            ? 1
+                            : invitingFriendId === friend.userId
+                              ? 0.7
+                              : 0.4,
+                      }}
+                    >
+                      <Text style={{ color: "white", fontWeight: "700" }}>
+                        {invitingFriendId === friend.userId
+                          ? "Inviting…"
+                          : "Invite"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ))
+              )}
+            </View>
+          </View>
+        </Modal>
+
+        {/* Task editor modal */}
         <Modal
           animationType="fade"
           transparent={true}
@@ -1357,7 +1780,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             </View>
           </View>
         </Modal>
-      </NestableScrollContainer>
+      </ScrollView>
     </SafeAreaView>
   );
 }

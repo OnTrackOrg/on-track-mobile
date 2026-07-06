@@ -1,0 +1,4 @@
+-- Applied directly to the hosted project before this file existed (friendships,
+-- goal_memberships, social RLS scaffolding). Its effects are captured by
+-- 20260501000000_baseline_remote_schema.sql, so this placeholder only keeps the
+-- local and remote migration histories aligned.
