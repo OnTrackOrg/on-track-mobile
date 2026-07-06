@@ -5,20 +5,21 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { format } from "date-fns";
-import { useStore, getGoalProgress } from "../store";
+import { useStore, getGoalProgress, getGoalStreak } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
 import { Goal, FriendProfile } from "../types";
 import { RootStackParamList } from "../navigation";
 import Avatar, { AvatarStack } from "./Avatar";
 import ProgressRing from "./ProgressRing";
+import { card } from "./ui";
 import { addMemberToGoal, inviteFriendToGoal } from "../lib/social";
 import { supabase } from "../lib/supabase";
 
 // ponytail: drag-reorder for goals was dropped with the old HomeScreen;
 // ordering survives via the stored goal order (position on flush) only.
 export default function GoalsScreen() {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const goals = useStore((s) => s.goals);
@@ -26,6 +27,7 @@ export default function GoalsScreen() {
   const friends = useStore((s) => s.friends);
   const account = useStore((s) => s.account);
   const setGoals = useStore((s) => s.setGoals);
+  const frozenDays = useStore((s) => s.frozenDays);
 
   const [inviteGoalId, setInviteGoalId] = React.useState<string | null>(null);
   const [invitingFriendId, setInvitingFriendId] = React.useState<string | null>(
@@ -90,6 +92,10 @@ export default function GoalsScreen() {
   const renderGoalCard = (goal: Goal, isShared: boolean) => {
     const progress = getGoalProgress(goal, today);
     const members = goal.members ?? [];
+    const maxStreak = goal.tasks.reduce(
+      (best, task) => Math.max(best, getGoalStreak(task, frozenDays)),
+      0,
+    );
     const subtitle = [
       `${goal.tasks.length} task${goal.tasks.length === 1 ? "" : "s"}`,
       goal.target,
@@ -104,17 +110,10 @@ export default function GoalsScreen() {
           void haptics.navigate();
           navigation.navigate("Goal", { goalId: goal.id });
         }}
-        style={{
-          borderWidth: 1,
-          borderColor: theme.border,
-          borderRadius: 12,
-          padding: 12,
-          backgroundColor: theme.surface,
-          gap: 10,
-        }}
+        style={{ ...card(theme, isDark), gap: 10 }}
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-          <ProgressRing size={44} strokeWidth={5} percent={progress.percent}>
+          <ProgressRing size={46} strokeWidth={5} percent={progress.percent}>
             <Text
               style={{ color: theme.text, fontWeight: "700", fontSize: 11 }}
             >
@@ -133,6 +132,26 @@ export default function GoalsScreen() {
               {subtitle}
             </Text>
           </View>
+          {maxStreak > 0 ? (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 2,
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                borderRadius: 9999,
+                backgroundColor: theme.streak + "1f",
+              }}
+            >
+              <Ionicons name="flash" size={12} color={theme.streak} />
+              <Text
+                style={{ color: theme.streak, fontWeight: "800", fontSize: 12 }}
+              >
+                {maxStreak}
+              </Text>
+            </View>
+          ) : null}
         </View>
         {members.length > 1 || (!isShared && account) ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -207,7 +226,7 @@ export default function GoalsScreen() {
             justifyContent: "space-between",
           }}
         >
-          <Text style={{ fontSize: 32, fontWeight: "800", color: theme.text }}>
+          <Text style={{ fontSize: 34, fontWeight: "800", color: theme.text }}>
             Goals
           </Text>
           <Pressable
@@ -233,11 +252,8 @@ export default function GoalsScreen() {
         {activeOwned.length === 0 && activeShared.length === 0 ? (
           <View
             style={{
-              borderWidth: 1,
-              borderColor: theme.border,
-              borderRadius: 12,
+              ...card(theme, isDark),
               padding: 20,
-              backgroundColor: theme.surface,
               alignItems: "center",
             }}
           >
@@ -282,14 +298,11 @@ export default function GoalsScreen() {
                   navigation.navigate("Goal", { goalId: goal.id });
                 }}
                 style={{
+                  ...card(theme, isDark),
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 10,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  borderRadius: 12,
                   padding: 12,
-                  backgroundColor: theme.surface,
                   opacity: 0.85,
                 }}
               >
@@ -348,16 +361,7 @@ export default function GoalsScreen() {
               left: 0,
             }}
           />
-          <View
-            style={{
-              borderWidth: 1,
-              borderColor: theme.border,
-              borderRadius: 16,
-              padding: 16,
-              gap: 10,
-              backgroundColor: theme.surface,
-            }}
-          >
+          <View style={{ ...card(theme, isDark), padding: 16, gap: 10 }}>
             <Text
               style={{ fontWeight: "700", fontSize: 18, color: theme.text }}
             >
@@ -365,8 +369,8 @@ export default function GoalsScreen() {
             </Text>
             {inviteGoal ? (
               <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-                Friends you invite can complete tasks on &ldquo;{inviteGoal.title}&rdquo;
-                with you.
+                Friends you invite can complete tasks on &ldquo;
+                {inviteGoal.title}&rdquo; with you.
               </Text>
             ) : null}
             {inviteCandidates.length === 0 ? (

@@ -23,6 +23,7 @@ import {
   sendFriendRequest,
   PersonSearchResult,
 } from "../lib/social";
+import { card } from "./ui";
 import Avatar from "./Avatar";
 import { haptics } from "../utils/haptics";
 import { TabParamList } from "../navigation";
@@ -40,13 +41,11 @@ const frequencyLabel = (task: TemplateTask): string => {
 export default function SearchScreen({
   navigation,
 }: BottomTabScreenProps<TabParamList, "Search">) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const account = useStore((s) => s.account);
   const friends = useStore((s) => s.friends);
   const friendRequests = useStore((s) => s.friendRequests);
-  const sentFriendRequestUserIds = useStore(
-    (s) => s.sentFriendRequestUserIds,
-  );
+  const sentFriendRequestUserIds = useStore((s) => s.sentFriendRequestUserIds);
   const addGoal = useStore((s) => s.addGoal);
   const addTask = useStore((s) => s.addTask);
   const accountId = account?.id;
@@ -55,9 +54,7 @@ export default function SearchScreen({
   const [query, setQuery] = React.useState("");
 
   // Public goal templates: fetched on focus, cached in component state.
-  const [templates, setTemplates] = React.useState<GoalTemplate[] | null>(
-    null,
-  );
+  const [templates, setTemplates] = React.useState<GoalTemplate[] | null>(null);
   const [templatesError, setTemplatesError] = React.useState(false);
   const [refreshing, setRefreshing] = React.useState(false);
   const [committingId, setCommittingId] = React.useState<string | null>(null);
@@ -166,10 +163,7 @@ export default function SearchScreen({
       void haptics.success();
     } catch {
       void haptics.error();
-      Alert.alert(
-        "Couldn't commit",
-        "Check your connection and try again.",
-      );
+      Alert.alert("Couldn't commit", "Check your connection and try again.");
     } finally {
       setCommittingId(null);
     }
@@ -197,19 +191,13 @@ export default function SearchScreen({
     }
   };
 
-  const cardStyle = {
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 12,
-    padding: 12,
-    backgroundColor: theme.surface,
-  } as const;
+  const cardStyle = { ...card(theme, isDark), padding: 12 };
 
   if (!account) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
         <View style={{ flex: 1, padding: 16 }}>
-          <Text style={{ fontSize: 32, fontWeight: "800", color: theme.text }}>
+          <Text style={{ fontSize: 34, fontWeight: "800", color: theme.text }}>
             Search
           </Text>
           <View style={{ ...cardStyle, marginTop: 16, alignItems: "center" }}>
@@ -277,7 +265,7 @@ export default function SearchScreen({
           ) : undefined
         }
       >
-        <Text style={{ fontSize: 32, fontWeight: "800", color: theme.text }}>
+        <Text style={{ fontSize: 34, fontWeight: "800", color: theme.text }}>
           Search
         </Text>
 
@@ -287,11 +275,9 @@ export default function SearchScreen({
             flexDirection: "row",
             alignItems: "center",
             gap: 8,
-            borderWidth: 1,
-            borderColor: theme.border,
-            borderRadius: 12,
+            ...card(theme, isDark),
+            padding: 0,
             paddingHorizontal: 12,
-            backgroundColor: theme.surface,
           }}
         >
           <Ionicons name="search" size={16} color={theme.textSecondary} />
@@ -432,8 +418,7 @@ export default function SearchScreen({
                             : theme.primary,
                           borderWidth: template.committed ? 1 : 0,
                           borderColor: theme.completedBorder,
-                          opacity:
-                            committingId === template.id ? 0.6 : 1,
+                          opacity: committingId === template.id ? 0.6 : 1,
                         }}
                       >
                         <Text
@@ -475,9 +460,7 @@ export default function SearchScreen({
                             paddingVertical: 4,
                           }}
                         >
-                          <Text
-                            style={{ fontSize: 12, color: theme.text }}
-                          >
+                          <Text style={{ fontSize: 12, color: theme.text }}>
                             {task.title}{" "}
                             <Text style={{ color: theme.textSecondary }}>
                               · {frequencyLabel(task)}

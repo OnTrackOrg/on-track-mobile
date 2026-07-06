@@ -207,7 +207,6 @@ describe("dataSync mappers", () => {
 
     expect(tasks.map((task) => task.id)).toEqual(["task-1", "task-2"]);
   });
-
 });
 
 describe("replaceRemoteGoalsForUser accessibility filter", () => {

@@ -20,7 +20,13 @@ import {
   getTaskBucketsForDate,
 } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
-import { format, startOfWeek, endOfWeek, isWithinInterval, isToday } from "date-fns";
+import {
+  format,
+  startOfWeek,
+  endOfWeek,
+  isWithinInterval,
+  isToday,
+} from "date-fns";
 import {
   CustomFrequency,
   FriendProfile,
@@ -33,6 +39,7 @@ import { RootStackParamList } from "../navigation";
 import TrackingDateControls from "./TrackingDateControls";
 import Avatar from "./Avatar";
 import Heatmap from "./Heatmap";
+import { card } from "./ui";
 import {
   addMemberToGoal,
   inviteFriendToGoal,
@@ -67,7 +74,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const setSharedGoals = useStore((s) => s.setSharedGoals);
   const toggleOwnedTask = useStore((s) => s.toggleTaskCompletion);
   const toggleSharedTask = useStore((s) => s.toggleSharedTaskCompletion);
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
 
   const isOwner =
     Boolean(ownedGoal) || (Boolean(goal) && account?.id === goal?.ownerUserId);
@@ -248,10 +255,8 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                           ),
                           tasks: g.tasks.map((task) => {
                             if (!task.memberCompletions) return task;
-                            const {
-                              [member.userId]: _removed,
-                              ...remaining
-                            } = task.memberCompletions;
+                            const { [member.userId]: _removed, ...remaining } =
+                              task.memberCompletions;
                             return { ...task, memberCompletions: remaining };
                           }),
                         }
@@ -506,15 +511,20 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   };
 
   const pillStyle = (active: boolean) => ({
+    ...card(theme, isDark),
     flexDirection: "row" as const,
     alignItems: "center" as const,
     gap: 6,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 9999,
-    borderWidth: 1,
-    borderColor: active ? theme.primary : theme.border,
-    backgroundColor: active ? theme.primary + "20" : theme.surface,
+    ...(active
+      ? {
+          borderWidth: 1,
+          borderColor: theme.primary,
+          backgroundColor: theme.primary + "20",
+        }
+      : {}),
   });
 
   const renderStreakChip = (task: Task) => {
@@ -530,12 +540,12 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           paddingHorizontal: 8,
           paddingVertical: 2,
           borderRadius: 9999,
-          backgroundColor: theme.warning + "20",
+          backgroundColor: theme.streak + "1f",
           alignSelf: "flex-start",
         }}
       >
-        <Ionicons name="flame" size={11} color={theme.warning} />
-        <Text style={{ color: theme.warning, fontSize: 11, fontWeight: "700" }}>
+        <Ionicons name="flash" size={11} color={theme.streak} />
+        <Text style={{ color: theme.streak, fontSize: 11, fontWeight: "700" }}>
           {streak}
         </Text>
       </View>
@@ -645,7 +655,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 onChangeText={setGoalTitleDraft}
                 style={{
                   flex: 1,
-                  fontSize: 22,
+                  fontSize: 26,
                   fontWeight: "800",
                   color: theme.text,
                   borderWidth: 1,
@@ -694,7 +704,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
               <Text
                 style={{
                   flex: 1,
-                  fontSize: 22,
+                  fontSize: 26,
                   fontWeight: "800",
                   color: theme.text,
                 }}
@@ -783,16 +793,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
 
         {/* Doing this together */}
         {members.length > 1 ? (
-          <View
-            style={{
-              borderWidth: 1,
-              borderColor: theme.border,
-              borderRadius: 12,
-              padding: 12,
-              gap: 12,
-              backgroundColor: theme.surface,
-            }}
-          >
+          <View style={{ ...card(theme, isDark), gap: 12 }}>
             <Text style={{ fontWeight: "700", color: theme.text }}>
               Doing this together
             </Text>
@@ -908,13 +909,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                   void haptics.success();
                   toggleTask(item.id, selectedDate);
                 }}
-                style={{
-                  padding: 12,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  borderRadius: 10,
-                  backgroundColor: theme.surface,
-                }}
+                style={{ ...card(theme, isDark), padding: 12 }}
               >
                 <View
                   style={{
@@ -1075,7 +1070,9 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                   {renderTaskActionButtons(item)}
                 </View>
               </Pressable>
-              {index < pendingTasks.length - 1 && <View style={{ height: 8 }} />}
+              {index < pendingTasks.length - 1 && (
+                <View style={{ height: 8 }} />
+              )}
             </View>
           ))
         )}
@@ -1267,14 +1264,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 setIsEditing(true);
               }
             }}
-            style={{
-              backgroundColor: theme.surface,
-              borderWidth: 1,
-              borderColor: theme.border,
-              padding: 12,
-              borderRadius: 10,
-              marginTop: 8,
-            }}
+            style={{ ...card(theme, isDark), padding: 12, marginTop: 8 }}
           >
             <Text
               style={{
@@ -1314,16 +1304,9 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                   setHeatmapMode(mode);
                 }}
                 style={{
+                  ...pillStyle(heatmapMode === mode),
                   paddingHorizontal: 12,
                   paddingVertical: 6,
-                  borderRadius: 9999,
-                  borderWidth: 1,
-                  borderColor:
-                    heatmapMode === mode ? theme.primary : theme.border,
-                  backgroundColor:
-                    heatmapMode === mode
-                      ? theme.primary + "20"
-                      : theme.surface,
                 }}
               >
                 <Text
@@ -1347,33 +1330,37 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             Add a repeating task to see its history here.
           </Text>
         ) : heatmapMode === "goal" ? (
-          <Heatmap
-            startOffsetDays={56}
-            values={goalHeatmapValues()}
-            valueMode="ratio"
-            referenceDate={selectedDate}
-            frozenDateKeys={frozenDateKeys}
-          />
+          <View style={card(theme, isDark)}>
+            <Heatmap
+              startOffsetDays={56}
+              values={goalHeatmapValues()}
+              valueMode="ratio"
+              referenceDate={selectedDate}
+              frozenDateKeys={frozenDateKeys}
+            />
+          </View>
         ) : (
-          recurringTasks.map((task) => (
-            <View key={task.id} style={{ gap: 6 }}>
-              <Text
-                style={{
-                  color: theme.textSecondary,
-                  fontWeight: "600",
-                  fontSize: 13,
-                }}
-              >
-                {task.title}
-              </Text>
-              <Heatmap
-                startOffsetDays={56}
-                values={taskHeatmapValues(task)}
-                referenceDate={selectedDate}
-                frozenDateKeys={frozenDateKeys}
-              />
-            </View>
-          ))
+          <View style={{ ...card(theme, isDark), gap: 12 }}>
+            {recurringTasks.map((task) => (
+              <View key={task.id} style={{ gap: 6 }}>
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontWeight: "600",
+                    fontSize: 13,
+                  }}
+                >
+                  {task.title}
+                </Text>
+                <Heatmap
+                  startOffsetDays={56}
+                  values={taskHeatmapValues(task)}
+                  referenceDate={selectedDate}
+                  frozenDateKeys={frozenDateKeys}
+                />
+              </View>
+            ))}
+          </View>
         )}
 
         {isOwner ? (
@@ -1431,16 +1418,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 left: 0,
               }}
             />
-            <View
-              style={{
-                borderWidth: 1,
-                borderColor: theme.border,
-                borderRadius: 16,
-                padding: 16,
-                gap: 12,
-                backgroundColor: theme.surface,
-              }}
-            >
+            <View style={{ ...card(theme, isDark), padding: 16, gap: 12 }}>
               <Text
                 style={{ fontWeight: "700", fontSize: 18, color: theme.text }}
               >

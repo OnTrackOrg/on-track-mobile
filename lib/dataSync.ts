@@ -296,7 +296,9 @@ export const fetchAccessibleGoals = async (
 ): Promise<AccessibleGoals> => {
   const { data: goalRows, error: goalsError } = await supabase
     .from("goals")
-    .select("id, owner_user_id, title, target, position, created_at, completed_at")
+    .select(
+      "id, owner_user_id, title, target, position, created_at, completed_at",
+    )
     .order("created_at", { ascending: true });
 
   if (goalsError) {
@@ -517,9 +519,9 @@ export const replaceRemoteGoalsForUser = async (
     ).map((row) => row.id),
   );
 
-  const droppedTaskIds = [...new Set([...localTaskIds, ...sharedTaskIds])].filter(
-    (taskId) => !accessibleTaskIds.has(taskId),
-  );
+  const droppedTaskIds = [
+    ...new Set([...localTaskIds, ...sharedTaskIds]),
+  ].filter((taskId) => !accessibleTaskIds.has(taskId));
 
   const deleteScopeTaskIds = candidateTaskIds.filter((taskId) =>
     accessibleTaskIds.has(taskId),

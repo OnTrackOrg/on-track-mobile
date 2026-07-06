@@ -241,7 +241,8 @@ export const getTaskBucketsForDate = (
   const pending = frozen
     ? []
     : goal.tasks.filter((task) => {
-        if (task.frequency === "custom") return shouldShowCustomTask(task, date);
+        if (task.frequency === "custom")
+          return shouldShowCustomTask(task, date);
         if (task.frequency === "daily") return !doneOnDate(task);
         if (task.frequency === "weekly") return !doneThisWeek(task);
         return task.completions.length === 0; // once

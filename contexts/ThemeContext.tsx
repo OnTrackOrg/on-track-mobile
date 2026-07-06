@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../lib/persistence";
 
-interface ThemeColors {
+export interface ThemeColors {
   background: string;
   surface: string;
   text: string;
@@ -12,6 +12,7 @@ interface ThemeColors {
   success: string;
   warning: string;
   danger: string;
+  streak: string;
   completedBackground: string;
   completedBorder: string;
   completionCard: string;
@@ -19,7 +20,8 @@ interface ThemeColors {
 }
 
 const lightTheme: ThemeColors = {
-  background: "#ffffff",
+  // Soft gray canvas so white cards float on it, per the turn-3 mockups.
+  background: "#f2f4f8",
   surface: "#ffffff",
   text: "#111827",
   textSecondary: "#6b7280",
@@ -28,6 +30,7 @@ const lightTheme: ThemeColors = {
   success: "#10b981",
   warning: "#f59e0b",
   danger: "#ef4444",
+  streak: "#f97316",
   completedBackground: "#f9fafb",
   completedBorder: "#d1d5db",
   completionCard: "#f0fdf4",
@@ -45,6 +48,7 @@ const darkTheme: ThemeColors = {
   success: "#2cd756",
   warning: "#f59e0b",
   danger: "#ef4444",
+  streak: "#fb923c",
   completedBackground: "#334155",
   completedBorder: "#475569",
   completionCard: "#0f172a",

@@ -55,7 +55,7 @@ The store keeps two slices:
 
 1. **The flush only writes what I own, plus my own completion rows.**
    `replaceRemoteGoalsForUser` upserts/deletes goals and tasks **owned by
-   me** only. My completions are flushed (delete+reinsert of *my* rows) for
+   me** only. My completions are flushed (delete+reinsert of _my_ rows) for
    my tasks and shared-goal tasks. `visibility` is never written by sync.
 2. **Pre-insert accessibility filter.** Before the completions
    delete+reinsert, one `tasks.select('id').in(taskIds)` drops rows for tasks

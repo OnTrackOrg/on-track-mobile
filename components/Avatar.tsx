@@ -109,7 +109,11 @@ export function AvatarStack({
           }}
         >
           <Text
-            style={{ color: theme.text, fontWeight: "700", fontSize: px * 0.34 }}
+            style={{
+              color: theme.text,
+              fontWeight: "700",
+              fontSize: px * 0.34,
+            }}
           >
             +{overflow}
           </Text>

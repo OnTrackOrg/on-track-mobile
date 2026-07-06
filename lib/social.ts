@@ -118,9 +118,7 @@ export const fetchSocialGraph = async (
   );
 
   return {
-    friends: friendIds.map(
-      (id) => profilesById.get(id) ?? fallbackProfile(id),
-    ),
+    friends: friendIds.map((id) => profilesById.get(id) ?? fallbackProfile(id)),
     friendRequests,
     sentRequestUserIds,
   };

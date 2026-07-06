@@ -12,6 +12,7 @@ import { TabParamList } from "../navigation";
 import TrackingDateControls from "./TrackingDateControls";
 import ProgressRing from "./ProgressRing";
 import { AvatarStack } from "./Avatar";
+import { card } from "./ui";
 import { Task } from "../types";
 
 type TodayProps = BottomTabScreenProps<TabParamList, "Today">;
@@ -33,7 +34,7 @@ export default function TodayScreen({ navigation }: TodayProps) {
   const toggleSharedTaskCompletion = useStore(
     (s) => s.toggleSharedTaskCompletion,
   );
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
 
   // Reset to today on tab focus and app foreground (moved from old HomeScreen).
   useFocusEffect(
@@ -86,21 +87,18 @@ export default function TodayScreen({ navigation }: TodayProps) {
       key={`${item.goal.id}:${item.task.id}`}
       onPress={() => toggleItem(item, !isDone)}
       style={{
+        ...card(theme, isDark),
         flexDirection: "row",
         alignItems: "center",
         gap: 12,
         padding: 12,
-        borderWidth: 1,
-        borderColor: theme.border,
-        borderRadius: 10,
-        backgroundColor: theme.surface,
-        opacity: isDone ? 0.55 : 1,
+        opacity: isDone ? 0.6 : 1,
       }}
     >
       <Ionicons
         name={isDone ? "checkmark-circle" : "ellipse-outline"}
-        size={24}
-        color={isDone ? theme.success : theme.textSecondary}
+        size={26}
+        color={isDone ? theme.primary : theme.border}
       />
       <View style={{ flex: 1 }}>
         <Text
@@ -139,32 +137,36 @@ export default function TodayScreen({ navigation }: TodayProps) {
         contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={{ fontSize: 32, fontWeight: "800", color: theme.text }}>
-          Today
-        </Text>
-
-        <TrackingDateControls hasCompletions={hasCompletionsOnDate} />
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <Text style={{ fontSize: 34, fontWeight: "800", color: theme.text }}>
+            Today
+          </Text>
+          <TrackingDateControls hasCompletions={hasCompletionsOnDate} />
+        </View>
 
         {totals.total > 0 ? (
           <View
             style={{
+              ...card(theme, isDark),
               flexDirection: "row",
               alignItems: "center",
               gap: 16,
-              borderWidth: 1,
-              borderColor: theme.border,
-              borderRadius: 14,
-              padding: 14,
-              backgroundColor: theme.surface,
+              padding: 16,
             }}
           >
             <ProgressRing
-              size={64}
-              strokeWidth={7}
+              size={72}
+              strokeWidth={8}
               percent={totals.done / totals.total}
             >
               <Text
-                style={{ fontWeight: "800", fontSize: 14, color: theme.text }}
+                style={{ fontWeight: "800", fontSize: 15, color: theme.text }}
               >
                 {totals.done}/{totals.total}
               </Text>
@@ -173,34 +175,29 @@ export default function TodayScreen({ navigation }: TodayProps) {
               <Text
                 style={{ fontSize: 18, fontWeight: "700", color: theme.text }}
               >
-                {totals.done === totals.total
-                  ? "All done!"
-                  : "Keep it moving"}
+                {totals.done === totals.total ? "All done!" : "Keep it moving"}
               </Text>
               <Text style={{ color: theme.textSecondary, marginTop: 2 }}>
-                {totals.done} of {totals.total} tasks across{" "}
-                {totals.goalCount} goal{totals.goalCount === 1 ? "" : "s"}
+                {totals.done} of {totals.total} tasks across {totals.goalCount}{" "}
+                goal{totals.goalCount === 1 ? "" : "s"}
               </Text>
             </View>
           </View>
         ) : !frozen ? (
           <View
             style={{
-              borderWidth: 1,
-              borderColor: theme.border,
-              borderRadius: 14,
+              ...card(theme, isDark),
               padding: 20,
-              backgroundColor: theme.surface,
               alignItems: "center",
               gap: 8,
             }}
           >
-            <Text style={{ fontWeight: "700", fontSize: 16, color: theme.text }}>
+            <Text
+              style={{ fontWeight: "700", fontSize: 16, color: theme.text }}
+            >
               Nothing scheduled
             </Text>
-            <Text
-              style={{ color: theme.textSecondary, textAlign: "center" }}
-            >
+            <Text style={{ color: theme.textSecondary, textAlign: "center" }}>
               No tasks are due on this day. Set up a goal to get started.
             </Text>
             <Pressable

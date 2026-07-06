@@ -973,7 +973,12 @@ describe("getTodayItems", () => {
       title: "Not started",
       createdAt: Date.now(),
       tasks: [
-        { id: "pending-task", title: "Read", frequency: "daily", completions: [] },
+        {
+          id: "pending-task",
+          title: "Read",
+          frequency: "daily",
+          completions: [],
+        },
       ],
     };
 
@@ -1218,7 +1223,12 @@ describe("goal/task ids", () => {
       title: "Old",
       createdAt: 1,
       tasks: [
-        { id: "legacy-task-id", title: "Run", frequency: "daily", completions: [] },
+        {
+          id: "legacy-task-id",
+          title: "Run",
+          frequency: "daily",
+          completions: [],
+        },
       ],
     };
     const modern: Goal = {

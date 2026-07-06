@@ -18,6 +18,7 @@ import { useStore, getGoalStreak } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import Avatar from "./Avatar";
 import IconButton from "./IconButton";
+import { card } from "./ui";
 import { haptics } from "../utils/haptics";
 import { RootStackParamList, TabParamList } from "../navigation";
 import {
@@ -168,9 +169,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
       const s = useStore.getState();
       setSocialGraph(
         [...s.friends, request.requester],
-        s.friendRequests.filter(
-          (r) => r.friendshipId !== request.friendshipId,
-        ),
+        s.friendRequests.filter((r) => r.friendshipId !== request.friendshipId),
       );
     } catch (error) {
       // A canceled request throws a plain-language Error; the next
@@ -191,15 +190,10 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
       const s = useStore.getState();
       setSocialGraph(
         s.friends,
-        s.friendRequests.filter(
-          (r) => r.friendshipId !== request.friendshipId,
-        ),
+        s.friendRequests.filter((r) => r.friendshipId !== request.friendshipId),
       );
     } catch {
-      Alert.alert(
-        "Could not decline",
-        "Check your connection and try again.",
-      );
+      Alert.alert("Could not decline", "Check your connection and try again.");
     }
   };
 
@@ -228,10 +222,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
         s.friendRequests,
       );
     } catch {
-      Alert.alert(
-        "Could not unfriend",
-        "Check your connection and try again.",
-      );
+      Alert.alert("Could not unfriend", "Check your connection and try again.");
     }
   };
 
@@ -362,11 +353,8 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
         <View style={{ flex: 1, padding: 16, justifyContent: "center" }}>
           <View
             style={{
-              borderWidth: 1,
-              borderColor: theme.border,
-              borderRadius: 16,
+              ...card(theme, isDark),
               padding: 20,
-              backgroundColor: theme.surface,
               alignItems: "center",
               gap: 8,
             }}
@@ -376,14 +364,14 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
               size={48}
               color={theme.textSecondary}
             />
-            <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text }}>
+            <Text
+              style={{ fontSize: 18, fontWeight: "700", color: theme.text }}
+            >
               You are not signed in
             </Text>
-            <Text
-              style={{ color: theme.textSecondary, textAlign: "center" }}
-            >
-              Sign in to add friends, share goals, and keep your progress
-              backed up.
+            <Text style={{ color: theme.textSecondary, textAlign: "center" }}>
+              Sign in to add friends, share goals, and keep your progress backed
+              up.
             </Text>
             <Pressable
               onPress={() => {
@@ -410,10 +398,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
-      <ScrollView
-        style={{ flex: 1 }}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
         <View style={{ padding: 16, gap: 12 }}>
           <View
             style={{
@@ -422,7 +407,9 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
               alignItems: "center",
             }}
           >
-            <Text style={{ fontSize: 32, fontWeight: "800", color: theme.text }}>
+            <Text
+              style={{ fontSize: 34, fontWeight: "800", color: theme.text }}
+            >
               Profile
             </Text>
             <IconButton
@@ -469,12 +456,9 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
               <View
                 key={stat.label}
                 style={{
+                  ...card(theme, isDark),
                   flex: 1,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  borderRadius: 12,
                   padding: 12,
-                  backgroundColor: theme.surface,
                   alignItems: "center",
                 }}
               >
@@ -529,9 +513,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                     <Text style={{ fontWeight: "700", color: theme.text }}>
                       {request.requester.displayName}
                     </Text>
-                    <Text
-                      style={{ color: theme.textSecondary, fontSize: 13 }}
-                    >
+                    <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
                       @{request.requester.username} · {request.mutualFriends}{" "}
                       mutual friend{request.mutualFriends === 1 ? "" : "s"}
                     </Text>
@@ -608,9 +590,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                     <Text style={{ fontWeight: "700", color: theme.text }}>
                       {friend.displayName}
                     </Text>
-                    <Text
-                      style={{ color: theme.textSecondary, fontSize: 13 }}
-                    >
+                    <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
                       {sharedCount} shared goal{sharedCount === 1 ? "" : "s"}
                     </Text>
                   </View>
@@ -820,9 +800,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                       >
                         <Text
                           style={{
-                            color: active
-                              ? theme.primary
-                              : theme.textSecondary,
+                            color: active ? theme.primary : theme.textSecondary,
                             fontWeight: "700",
                             fontSize: 12,
                           }}
@@ -876,7 +854,10 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                     void haptics.tap();
                     void handleImportLocalData();
                   }}
-                  style={{ ...settingsCardStyle, opacity: isImporting ? 0.5 : 1 }}
+                  style={{
+                    ...settingsCardStyle,
+                    opacity: isImporting ? 0.5 : 1,
+                  }}
                 >
                   <Text
                     style={{
