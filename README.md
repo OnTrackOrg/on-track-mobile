@@ -84,10 +84,12 @@ OnTrack/
 - `TODO.md`: lightweight backlog notes not yet formalized as issues
 - `docs/social-model.md`: friends, shared goals, templates, and the sync invariants
 - `docs/account-sync-foundation.md`: auth, session persistence, and the local-data import flow
-- `docs/app-store-submission-checklist.md`: App Review prep
+- adocs/app-store-submission-checklist.md`: App Review prep
 - `docs/supabase-branching.md`: Supabase environment workflow
 
 ## Notes
 
 - Prefer GitHub Issues as the source of truth for actionable work.
 - Use `TODO.md` for lightweight backlog notes, not detailed execution plans.
+
+> Test contribution from Expertise.
