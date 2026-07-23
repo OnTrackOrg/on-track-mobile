@@ -53,23 +53,6 @@ export interface FriendRequest {
   createdAt: number;
 }
 
-export interface TemplateTask {
-  title: string;
-  frequency: Frequency;
-  customFrequency?: CustomFrequency;
-}
-
-export interface GoalTemplate {
-  id: string;
-  title: string;
-  tagline?: string;
-  authorName: string;
-  authorHandle: string;
-  tasks: TemplateTask[];
-  commitCount: number;
-  committed: boolean;
-}
-
 export interface UserAccount {
   id: string;
   displayName: string;
