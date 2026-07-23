@@ -7,19 +7,23 @@ import {
   Alert,
   Switch,
   Modal,
+  Image,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { CompositeScreenProps, useFocusEffect } from "@react-navigation/native";
 import { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useStore, getGoalStreak } from "../store";
-import { useTheme } from "../contexts/ThemeContext";
+import { useTheme, THEME_OPTIONS } from "../contexts/ThemeContext";
 import Avatar from "./Avatar";
 import IconButton from "./IconButton";
 import { card } from "./ui";
 import { haptics } from "../utils/haptics";
+import { mix, withAlpha } from "../utils/color";
+import { STORAGE_KEYS } from "../lib/persistence";
 import { RootStackParamList, TabParamList } from "../navigation";
 import {
   deleteCurrentAccount,
@@ -37,14 +41,6 @@ import { importLocalDataToCloud } from "../lib/importLocal";
 import { supabase } from "../lib/supabase";
 import { ONBOARDING_STORAGE_KEY } from "../onboarding";
 import { FriendProfile, FriendRequest } from "../types";
-import {
-  DEFAULT_REMINDER_SETTINGS,
-  ReminderSettings,
-  getReminderSettings,
-  requestReminderPermissions,
-  saveReminderSettings,
-  syncDailyReminder,
-} from "../lib/reminders";
 
 type ProfileProps = CompositeScreenProps<
   BottomTabScreenProps<TabParamList, "Profile">,
@@ -70,12 +66,10 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
   const setSocialGraph = useStore((s) => s.setSocialGraph);
   const setAccount = useStore((s) => s.setAccount);
   const setCloudSyncEnabled = useStore((s) => s.setCloudSyncEnabled);
-  const { theme, isDark, toggleTheme } = useTheme();
+  const { theme, isDark, toggleTheme, themeId, setThemeId } = useTheme();
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const [reminderSettings, setReminderSettings] = useState<ReminderSettings>(
-    DEFAULT_REMINDER_SETTINGS,
-  );
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
 
   const accountId = account?.id;
   const allGoals = React.useMemo(
@@ -86,6 +80,38 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
     () => allGoals.filter((goal) => goal.completedAt === undefined),
     [allGoals],
   );
+  const achievedGoals = React.useMemo(
+    () => allGoals.filter((goal) => goal.completedAt !== undefined),
+    [allGoals],
+  );
+
+  // Profile photo (redesign): stored locally as a data URI, like the mock.
+  React.useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.avatar)
+      .then((value) => setAvatarUri(value))
+      .catch(() => {});
+  }, []);
+
+  const pickAvatar = async () => {
+    void haptics.tap();
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: "images",
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.4,
+      base64: true,
+    });
+    const asset = result.canceled ? null : result.assets?.[0];
+    if (!asset?.base64) return;
+    const uri = `data:${asset.mimeType ?? "image/jpeg"};base64,${asset.base64}`;
+    setAvatarUri(uri);
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.avatar, uri);
+    } catch {
+      // Keep the in-memory photo even if persisting fails.
+    }
+    void haptics.success();
+  };
   const activeGoalCount = activeGoals.length;
   const bestStreak = React.useMemo(() => {
     let best = 0;
@@ -120,46 +146,6 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
         .catch(() => {});
     }, [accountId, setSocialGraph]),
   );
-
-  React.useEffect(() => {
-    let isMounted = true;
-    void getReminderSettings().then((settings) => {
-      if (isMounted) {
-        setReminderSettings(settings);
-      }
-    });
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  React.useEffect(() => {
-    void syncDailyReminder(activeGoals, reminderSettings).catch((error) => {
-      console.error("Failed to sync daily reminder", error);
-    });
-  }, [activeGoals, reminderSettings]);
-
-  const updateReminderSettings = async (nextSettings: ReminderSettings) => {
-    setReminderSettings(nextSettings);
-    await saveReminderSettings(nextSettings);
-    await syncDailyReminder(activeGoals, nextSettings);
-  };
-
-  const toggleReminders = async (enabled: boolean) => {
-    if (!enabled) {
-      await updateReminderSettings({ ...reminderSettings, enabled: false });
-      return;
-    }
-    const hasPermission = await requestReminderPermissions();
-    if (!hasPermission) {
-      Alert.alert(
-        "Notifications are off",
-        "Enable notifications for OnTrack in system settings to use daily reminders.",
-      );
-      return;
-    }
-    await updateReminderSettings({ ...reminderSettings, enabled: true });
-  };
 
   const handleAcceptRequest = async (request: FriendRequest) => {
     void haptics.tap();
@@ -424,11 +410,37 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
           </View>
 
           <View style={{ alignItems: "center", gap: 4, marginTop: 4 }}>
-            <Avatar
-              userId={account.id}
-              displayName={account.displayName}
-              size="lg"
-            />
+            <Pressable onPress={() => void pickAvatar()}>
+              {avatarUri ? (
+                <Image
+                  source={{ uri: avatarUri }}
+                  style={{ width: 72, height: 72, borderRadius: 36 }}
+                />
+              ) : (
+                <Avatar
+                  userId={account.id}
+                  displayName={account.displayName}
+                  size="lg"
+                />
+              )}
+              <View
+                style={{
+                  position: "absolute",
+                  right: -2,
+                  bottom: -2,
+                  width: 26,
+                  height: 26,
+                  borderRadius: 13,
+                  backgroundColor: theme.primary,
+                  borderWidth: 2.5,
+                  borderColor: theme.background,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Ionicons name="camera" size={13} color="#ffffff" />
+              </View>
+            </Pressable>
             <Text
               style={{
                 fontSize: 22,
@@ -440,7 +452,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
               {account.displayName}
             </Text>
             <Text style={{ color: theme.textSecondary }}>
-              @{account.username}
+              @{account.username} · tap photo to change
             </Text>
           </View>
 
@@ -479,6 +491,63 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
               </View>
             ))}
           </View>
+
+          {achievedGoals.length > 0 ? (
+            <>
+              <Text
+                style={{
+                  ...SECTION_HEADER,
+                  color: theme.textSecondary,
+                  marginTop: 8,
+                }}
+              >
+                ACHIEVED
+              </Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 14 }}>
+                {achievedGoals.map((goal) => (
+                  <Pressable
+                    key={goal.id}
+                    onPress={() => {
+                      void haptics.navigate();
+                      navigation.navigate("Goal", { goalId: goal.id });
+                    }}
+                    style={{ alignItems: "center", gap: 5, width: 64 }}
+                  >
+                    <View
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 24,
+                        backgroundColor: mix(
+                          theme.warning,
+                          0.14,
+                          theme.surface,
+                        ),
+                        borderWidth: 1.5,
+                        borderColor: withAlpha(theme.warning, 0.45),
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Ionicons name="trophy" size={20} color={theme.warning} />
+                    </View>
+                    <Text
+                      numberOfLines={2}
+                      style={{
+                        fontSize: 10,
+                        fontWeight: "600",
+                        color: theme.text,
+                        textAlign: "center",
+                        lineHeight: 12,
+                      }}
+                    >
+                      {goal.title}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          ) : null}
 
           {friendRequests.length > 0 && (
             <>
@@ -702,114 +771,109 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Dark Mode Toggle */}
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 20,
-                }}
-              >
+              {/* Appearance: colour theme + dark mode (redesign) */}
+              <View style={settingsCardStyle}>
                 <Text
                   style={{ color: theme.text, fontWeight: "600", fontSize: 16 }}
                 >
-                  Dark Mode
+                  Appearance
                 </Text>
-                <Switch
-                  value={isDark}
-                  onValueChange={() => {
-                    void haptics.toggle();
-                    toggleTheme();
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontSize: 13,
+                    marginTop: 2,
                   }}
-                  trackColor={{ false: theme.border, true: theme.primary }}
-                  thumbColor={isDark ? theme.surface : theme.background}
-                />
-              </View>
-
-              {/* Daily Reminder */}
-              <View style={{ ...settingsCardStyle, gap: 10 }}>
+                >
+                  Colour theme
+                </Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    marginTop: 8,
+                  }}
+                >
+                  {THEME_OPTIONS.map((option) => {
+                    const selected = option.id === themeId;
+                    return (
+                      <Pressable
+                        key={option.id}
+                        onPress={() => {
+                          void haptics.toggle();
+                          setThemeId(option.id);
+                        }}
+                        style={{
+                          width: "25%",
+                          alignItems: "center",
+                          gap: 3,
+                          marginTop: 8,
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 42,
+                            height: 42,
+                            borderRadius: 21,
+                            borderWidth: 2,
+                            borderColor: selected
+                              ? option.accent
+                              : "transparent",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <View
+                            style={{
+                              width: 32,
+                              height: 32,
+                              borderRadius: 16,
+                              backgroundColor: option.accent,
+                            }}
+                          />
+                        </View>
+                        <Text
+                          style={{
+                            fontSize: 10,
+                            fontWeight: "600",
+                            color: selected ? theme.text : theme.textSecondary,
+                          }}
+                        >
+                          {option.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
                 <View
                   style={{
                     flexDirection: "row",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    gap: 12,
+                    marginTop: 14,
+                    paddingTop: 12,
+                    borderTopWidth: 1,
+                    borderTopColor: theme.border,
                   }}
                 >
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={{
-                        color: theme.text,
-                        fontWeight: "600",
-                        fontSize: 16,
-                      }}
-                    >
-                      Daily Reminder
-                    </Text>
-                    <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
-                      Notify me when daily tasks are still unfinished.
-                    </Text>
-                  </View>
+                  <Text
+                    style={{
+                      color: theme.text,
+                      fontWeight: "600",
+                      fontSize: 15,
+                    }}
+                  >
+                    Dark Mode
+                  </Text>
                   <Switch
-                    value={reminderSettings.enabled}
-                    onValueChange={(enabled) => {
+                    value={isDark}
+                    onValueChange={() => {
                       void haptics.toggle();
-                      void toggleReminders(enabled);
+                      toggleTheme();
                     }}
                     trackColor={{ false: theme.border, true: theme.primary }}
-                    thumbColor={
-                      reminderSettings.enabled
-                        ? theme.surface
-                        : theme.background
-                    }
+                    thumbColor={isDark ? theme.surface : theme.background}
                   />
-                </View>
-
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  {(
-                    [
-                      { label: "6 PM", hour: 18 },
-                      { label: "8 PM", hour: 20 },
-                      { label: "10 PM", hour: 22 },
-                    ] as const
-                  ).map((option) => {
-                    const active = reminderSettings.hour === option.hour;
-                    return (
-                      <Pressable
-                        key={option.hour}
-                        onPress={() => {
-                          void haptics.tap();
-                          void updateReminderSettings({
-                            ...reminderSettings,
-                            hour: option.hour,
-                            minute: 0,
-                          });
-                        }}
-                        style={{
-                          flex: 1,
-                          alignItems: "center",
-                          paddingVertical: 8,
-                          borderRadius: 9999,
-                          borderWidth: 1,
-                          borderColor: active ? theme.primary : theme.border,
-                          backgroundColor: active
-                            ? theme.primary + "20"
-                            : theme.surface,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: active ? theme.primary : theme.textSecondary,
-                            fontWeight: "700",
-                            fontSize: 12,
-                          }}
-                        >
-                          {option.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
                 </View>
               </View>
 
@@ -820,6 +884,47 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                 >
                   Account
                 </Text>
+                <Pressable
+                  onPress={() => void pickAvatar()}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                    marginTop: 10,
+                  }}
+                >
+                  {avatarUri ? (
+                    <Image
+                      source={{ uri: avatarUri }}
+                      style={{ width: 36, height: 36, borderRadius: 18 }}
+                    />
+                  ) : (
+                    <Avatar
+                      userId={account.id}
+                      displayName={account.displayName}
+                      size="md"
+                    />
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        color: theme.text,
+                        fontWeight: "600",
+                        fontSize: 14,
+                      }}
+                    >
+                      Avatar
+                    </Text>
+                    <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                      Upload a photo
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={14}
+                    color={theme.textSecondary}
+                  />
+                </Pressable>
                 <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
                   {account.displayName} @{account.username}
                 </Text>

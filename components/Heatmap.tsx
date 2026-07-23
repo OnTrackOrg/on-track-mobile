@@ -3,6 +3,7 @@ import { View, ScrollView, Text } from "react-native";
 import Svg, { Rect, Circle, Text as SvgText } from "react-native-svg";
 import { addDays, format, subDays, startOfWeek } from "date-fns";
 import { useTheme } from "../contexts/ThemeContext";
+import { mix } from "../utils/color";
 
 interface HMProps {
   startOffsetDays?: number; // how many days back to show
@@ -10,6 +11,7 @@ interface HMProps {
   referenceDate?: Date;
   valueMode?: "count" | "ratio";
   frozenDateKeys?: Set<string>; // yyyy-MM-dd keys for frozen days
+  color?: string; // accent for filled cells; defaults to the legacy greens
 }
 
 export const getHeatmapInitialScrollX = ({
@@ -41,6 +43,7 @@ export default function Heatmap({
   referenceDate = new Date(),
   valueMode = "count",
   frozenDateKeys,
+  color,
 }: HMProps) {
   const scrollViewRef = useRef<ScrollView>(null);
   const { theme, isDark } = useTheme();
@@ -111,6 +114,14 @@ export default function Heatmap({
 
   const scale = (n: number) => {
     if (n <= 0) return theme.border;
+
+    // Goal-accent scale from the redesign: blend the accent into the surface
+    // by intensity.
+    if (color) {
+      const normalized =
+        valueMode === "ratio" ? Math.max(0, Math.min(n, 1)) : 1;
+      return mix(color, 0.25 + normalized * 0.75, theme.surface);
+    }
 
     if (valueMode === "ratio") {
       const normalized = Math.max(0, Math.min(n, 1));

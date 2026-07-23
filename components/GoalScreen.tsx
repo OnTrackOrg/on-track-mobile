@@ -10,23 +10,16 @@ import {
   ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   useStore,
   getCustomFrequencyProgress,
-  getCustomFrequencyAlert,
+  getGoalProgress,
   getGoalStreak,
   getMemberAdherence,
-  getTaskBucketsForDate,
 } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
-import {
-  format,
-  startOfWeek,
-  endOfWeek,
-  isWithinInterval,
-  isToday,
-} from "date-fns";
+import { addDays, format, startOfWeek } from "date-fns";
 import {
   CustomFrequency,
   FriendProfile,
@@ -35,6 +28,8 @@ import {
   Task,
 } from "../types";
 import { haptics } from "../utils/haptics";
+import { goalColor } from "../utils/goalColors";
+import { mix, withAlpha } from "../utils/color";
 import { RootStackParamList } from "../navigation";
 import TrackingDateControls from "./TrackingDateControls";
 import Avatar from "./Avatar";
@@ -72,8 +67,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const deleteGoal = useStore((s) => s.deleteGoal);
   const setGoals = useStore((s) => s.setGoals);
   const setSharedGoals = useStore((s) => s.setSharedGoals);
-  const toggleOwnedTask = useStore((s) => s.toggleTaskCompletion);
-  const toggleSharedTask = useStore((s) => s.toggleSharedTaskCompletion);
   const { theme, isDark } = useTheme();
 
   const isOwner =
@@ -91,7 +84,8 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const [goalTargetDraft, setGoalTargetDraft] = React.useState(
     goal?.target ?? "",
   );
-  const [heatmapMode, setHeatmapMode] = React.useState<"goal" | "task">("goal");
+  // Which task the "Last 8 weeks" heatmap is scoped to (null = whole goal).
+  const [heatmapTaskId, setHeatmapTaskId] = React.useState<string | null>(null);
   const [isInviteOpen, setIsInviteOpen] = React.useState(false);
   const [invitingFriendId, setInvitingFriendId] = React.useState<string | null>(
     null,
@@ -106,18 +100,30 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
 
   if (!goal) return <Text>Not found</Text>;
 
+  const color = goalColor(goal.id);
+
+  // Stat cards (redesign): best task streak, days fully done this week,
+  // and 8-week adherence for the current user.
+  const maxStreak = goal.tasks.reduce(
+    (best, task) => Math.max(best, getGoalStreak(task, frozenDays)),
+    0,
+  );
+  const now = new Date();
+  const statWeekStart = startOfWeek(now, { weekStartsOn: 0 });
+  let weekCompleteDays = 0;
+  for (let i = 0; i < 7; i++) {
+    const day = addDays(statWeekStart, i);
+    if (day > now) break;
+    if (getGoalProgress(goal, day).isComplete) weekCompleteDays++;
+  }
+  const adherencePct = Math.round(
+    getMemberAdherence(goal, account?.id ?? "") * 100,
+  );
+
   const isGoalCompleted = goal.completedAt !== undefined;
   const completedAtLabel = goal.completedAt
     ? `Achieved ${format(new Date(goal.completedAt), "MMM d, yyyy")}`
     : "Achieved";
-
-  const toggleTask = (taskId: string, date: Date) => {
-    if (isOwner && ownedGoal) {
-      toggleOwnedTask(goalId, taskId, date);
-    } else {
-      toggleSharedTask(goalId, taskId, date);
-    }
-  };
 
   const saveGoalDetails = () => {
     const trimmedTitle = goalTitleDraft.trim();
@@ -327,12 +333,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     }
   };
 
-  const isCompletedToday = (dates: Date[], referenceDate: Date) =>
-    dates.some(
-      (date) =>
-        format(date, "yyyy-MM-dd") === format(referenceDate, "yyyy-MM-dd"),
-    );
-
   const getMaxCustomTarget = (type: CustomFrequency["type"]) =>
     type === "weekly" ? MAX_WEEKLY_CUSTOM_TARGET : MAX_MONTHLY_CUSTOM_TARGET;
 
@@ -437,33 +437,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     ]);
   };
 
-  const viewingToday = isToday(selectedDate);
-  const selectedWeekStart = startOfWeek(selectedDate, { weekStartsOn: 0 });
-  const selectedWeekEnd = endOfWeek(selectedDate, { weekStartsOn: 0 });
-  const selectedDayLabel = viewingToday
-    ? "today"
-    : format(selectedDate, "MMM d");
-  const incompleteDailyLabel = viewingToday
-    ? "Done today: No"
-    : `Done on ${selectedDayLabel}: No`;
-  const completedDailyLabel = viewingToday
-    ? "Done today: Yes ✓"
-    : `Done on ${selectedDayLabel}: Yes ✓`;
-  const customCompletionLabel = viewingToday
-    ? "Done today ✓"
-    : `Done on ${selectedDayLabel} ✓`;
-  const weeklyContextLabel = `week of ${format(selectedWeekStart, "MMM d")}`;
-  const getCustomPeriodLabel = (type: CustomFrequency["type"]) => {
-    if (type === "weekly") {
-      return viewingToday ? "this week" : weeklyContextLabel;
-    }
-
-    return viewingToday ? "this month" : format(selectedDate, "MMMM yyyy");
-  };
-
-  const { pending: pendingTasks, completed: completedTasks } =
-    getTaskBucketsForDate(goal, selectedDate);
-
   const hasCompletionsOnSelectedDate = goal.tasks.some(
     (task) =>
       task.frequency !== "once" &&
@@ -485,6 +458,8 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   // ponytail: heatmaps show MY completions only, even on shared goals —
   // same semantics as the old per-goal Consistency screen.
   const recurringTasks = goal.tasks.filter((t) => t.frequency !== "once");
+  const heatmapTask =
+    recurringTasks.find((t) => t.id === heatmapTaskId) ?? null;
   const taskHeatmapValues = (task: Task): Record<string, number> => {
     const values: Record<string, number> = {};
     for (const date of task.completions) {
@@ -552,32 +527,26 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     );
   };
 
+  // Compact frequency line for the redesign task rows; completion state now
+  // lives on the Today tab only.
+  const taskSubtitle = (task: Task): string => {
+    if (task.frequency === "custom" && task.customFrequency) {
+      const progress = getCustomFrequencyProgress(task, selectedDate);
+      const period = task.customFrequency.type === "weekly" ? "week" : "month";
+      return `${task.customFrequency.target} times per ${period} · ${progress.completed}/${progress.target} this ${period}`;
+    }
+    return task.frequency;
+  };
+
   const renderTaskActionButtons = (item: Task) =>
     isOwner ? (
-      <View style={{ alignSelf: "center", gap: 12 }}>
-        <Pressable
-          onPress={() => startEditingTask(item.id)}
-          hitSlop={6}
-          style={{ ...taskActionButtonStyle, opacity: 0.55 }}
-        >
-          <Ionicons
-            name="create-outline"
-            size={16}
-            color={theme.textSecondary}
-          />
-        </Pressable>
-        <Pressable
-          onPress={() => confirmDeleteTask(item.id, item.title)}
-          hitSlop={6}
-          style={{ ...taskActionButtonStyle, opacity: 0.35 }}
-        >
-          <Ionicons
-            name="trash-outline"
-            size={16}
-            color={theme.textSecondary}
-          />
-        </Pressable>
-      </View>
+      <Pressable
+        onPress={() => startEditingTask(item.id)}
+        hitSlop={6}
+        style={{ ...taskActionButtonStyle, opacity: 0.55 }}
+      >
+        <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
+      </Pressable>
     ) : null;
 
   return (
@@ -622,11 +591,19 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                   : theme.success + "55",
               }}
             >
-              <Ionicons
-                name={isGoalCompleted ? "refresh-outline" : "heart-outline"}
-                size={16}
-                color={isGoalCompleted ? theme.textSecondary : theme.success}
-              />
+              {isGoalCompleted ? (
+                <Ionicons
+                  name="refresh-outline"
+                  size={16}
+                  color={theme.textSecondary}
+                />
+              ) : (
+                <MaterialCommunityIcons
+                  name="flag-checkered"
+                  size={16}
+                  color={theme.success}
+                />
+              )}
               <Text style={{ color: theme.text, fontWeight: "700" }}>
                 {isGoalCompleted ? "Move Back" : "Complete"}
               </Text>
@@ -701,6 +678,14 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             </>
           ) : (
             <>
+              <View
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 6,
+                  backgroundColor: color,
+                }}
+              />
               <Text
                 style={{
                   flex: 1,
@@ -791,6 +776,131 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           </View>
         ) : null}
 
+        {/* Stat cards (redesign) */}
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <View
+            style={{
+              ...card(theme, isDark),
+              flex: 1,
+              padding: 12,
+              alignItems: "center",
+            }}
+          >
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+            >
+              <Ionicons name="flash" size={14} color={theme.streak} />
+              <Text
+                style={{ fontSize: 20, fontWeight: "800", color: theme.text }}
+              >
+                {maxStreak}
+              </Text>
+            </View>
+            <Text
+              style={{
+                fontSize: 11,
+                color: theme.textSecondary,
+                marginTop: 2,
+              }}
+            >
+              Streak
+            </Text>
+          </View>
+          <View
+            style={{
+              ...card(theme, isDark),
+              flex: 1,
+              padding: 12,
+              alignItems: "center",
+            }}
+          >
+            <Text
+              style={{ fontSize: 20, fontWeight: "800", color: theme.text }}
+            >
+              {weekCompleteDays}/7
+            </Text>
+            <Text
+              style={{
+                fontSize: 11,
+                color: theme.textSecondary,
+                marginTop: 2,
+              }}
+            >
+              This week
+            </Text>
+          </View>
+          <View
+            style={{
+              ...card(theme, isDark),
+              flex: 1,
+              padding: 12,
+              alignItems: "center",
+            }}
+          >
+            <Text
+              style={{ fontSize: 20, fontWeight: "800", color: theme.text }}
+            >
+              {adherencePct}%
+            </Text>
+            <Text
+              style={{
+                fontSize: 11,
+                color: theme.textSecondary,
+                marginTop: 2,
+              }}
+            >
+              Adherence
+            </Text>
+          </View>
+        </View>
+
+        {/* Last 8 weeks */}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "baseline",
+            gap: 8,
+            marginTop: 4,
+          }}
+        >
+          <Text style={{ fontWeight: "700", color: theme.text }}>
+            Last 8 weeks
+          </Text>
+          <Text
+            style={{
+              fontSize: 11,
+              fontWeight: "600",
+              color: heatmapTask ? color : theme.textSecondary,
+            }}
+          >
+            {heatmapTask
+              ? `${heatmapTask.title} only`
+              : recurringTasks.length > 1
+                ? "All tasks"
+                : ""}
+          </Text>
+        </View>
+        {recurringTasks.length === 0 ? (
+          <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+            Add a repeating task to see its history here.
+          </Text>
+        ) : (
+          <View style={card(theme, isDark)}>
+            <Heatmap
+              startOffsetDays={56}
+              values={
+                heatmapTask
+                  ? taskHeatmapValues(heatmapTask)
+                  : goalHeatmapValues()
+              }
+              valueMode={heatmapTask ? "count" : "ratio"}
+              color={color}
+              referenceDate={selectedDate}
+              frozenDateKeys={frozenDateKeys}
+            />
+          </View>
+        )}
+
         {/* Doing this together */}
         {members.length > 1 ? (
           <View style={{ ...card(theme, isDark), gap: 12 }}>
@@ -868,387 +978,105 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
         ) : null}
 
         {/* Tasks */}
-        <Text style={{ fontWeight: "700", color: theme.text, marginTop: 4 }}>
-          Tasks
-        </Text>
-        {pendingTasks.length === 0 ? (
-          <View
-            style={{
-              padding: 20,
-              borderRadius: 12,
-              backgroundColor: theme.completionCard,
-              borderWidth: 1,
-              borderColor: theme.completionCardBorder,
-              alignItems: "center",
-              marginTop: 8,
-            }}
-          >
-            <Text
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginTop: 4,
+          }}
+        >
+          <Text style={{ fontWeight: "700", color: theme.text }}>Tasks</Text>
+          {recurringTasks.length > 1 ? (
+            <Text style={{ color: theme.textSecondary, fontSize: 11 }}>
+              Tap a task to filter the heatmap
+            </Text>
+          ) : null}
+        </View>
+        {goal.tasks.map((item) => {
+          const selected = heatmapTaskId === item.id;
+          const canFilter = item.frequency !== "once";
+          return (
+            <Pressable
+              key={item.id}
+              onPress={
+                canFilter
+                  ? () => {
+                      void haptics.toggle();
+                      setHeatmapTaskId(selected ? null : item.id);
+                    }
+                  : undefined
+              }
               style={{
-                fontWeight: "700",
-                fontSize: 18,
-                color: theme.success,
-                marginBottom: 4,
+                ...card(theme, isDark),
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                ...(selected
+                  ? {
+                      borderWidth: 1.5,
+                      borderColor: withAlpha(color, 0.55),
+                      backgroundColor: mix(color, 0.06, theme.surface),
+                    }
+                  : {}),
               }}
             >
-              {viewingToday
-                ? "All done for today!"
-                : `All done for ${selectedDayLabel}!`}
-            </Text>
-            <Text style={{ color: theme.success, textAlign: "center" }}>
-              {viewingToday
-                ? "You're right on track! All tasks completed."
-                : `All tasks completed for ${format(selectedDate, "EEEE, MMM d, yyyy")}.`}
-            </Text>
-          </View>
-        ) : (
-          pendingTasks.map((item, index) => (
-            <View key={item.id}>
-              <Pressable
-                onPress={() => {
-                  void haptics.success();
-                  toggleTask(item.id, selectedDate);
+              <View
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: color,
                 }}
-                style={{ ...card(theme, isDark), padding: 12 }}
-              >
+              />
+              <View style={{ flex: 1 }}>
                 <View
                   style={{
                     flexDirection: "row",
-                    justifyContent: "space-between",
-                    alignItems: "flex-start",
+                    alignItems: "center",
+                    gap: 8,
                   }}
                 >
-                  <View style={{ flex: 1, paddingRight: 12 }}>
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontWeight: "700",
-                          color: theme.text,
-                          flexShrink: 1,
-                        }}
-                      >
-                        {item.title}
-                      </Text>
-                      {renderStreakChip(item)}
-                    </View>
-                    {item.frequency === "custom" && item.customFrequency
-                      ? (() => {
-                          const progress = getCustomFrequencyProgress(
-                            item,
-                            selectedDate,
-                          );
-                          const alert = getCustomFrequencyAlert(
-                            item,
-                            selectedDate,
-                          );
-                          return (
-                            <View style={{ marginTop: 8 }}>
-                              <Text
-                                style={{
-                                  color: theme.textSecondary,
-                                  fontSize: 12,
-                                  marginBottom: 4,
-                                }}
-                              >
-                                {progress.completed}/{progress.target} times in{" "}
-                                {getCustomPeriodLabel(
-                                  item.customFrequency.type,
-                                )}
-                              </Text>
-                              <View style={{ flexDirection: "row", gap: 2 }}>
-                                {Array.from(
-                                  { length: progress.target },
-                                  (_, progressIndex) => (
-                                    <View
-                                      key={progressIndex}
-                                      style={{
-                                        flex: 1,
-                                        height: 6,
-                                        backgroundColor:
-                                          progressIndex < progress.completed
-                                            ? theme.primary
-                                            : theme.border,
-                                        borderRadius: 3,
-                                      }}
-                                    />
-                                  ),
-                                )}
-                              </View>
-                              {progress.target > progress.completed && (
-                                <Text
-                                  style={{
-                                    color: theme.textSecondary,
-                                    fontSize: 11,
-                                    marginTop: 2,
-                                  }}
-                                >
-                                  {progress.target - progress.completed} more to
-                                  go
-                                </Text>
-                              )}
-                              {alert ? (
-                                <Text
-                                  style={{
-                                    color:
-                                      alert.tone === "error"
-                                        ? theme.danger
-                                        : alert.tone === "warning"
-                                          ? (theme.warning ?? "#f59e0b")
-                                          : theme.primary,
-                                    fontSize: 11,
-                                    marginTop: 4,
-                                    fontWeight: "600",
-                                  }}
-                                >
-                                  {alert.message}
-                                </Text>
-                              ) : null}
-                            </View>
-                          );
-                        })()
-                      : (() => {
-                          if (item.frequency === "weekly") {
-                            const completedThisWeek = item.completions.some(
-                              (date) =>
-                                isWithinInterval(date, {
-                                  start: selectedWeekStart,
-                                  end: selectedWeekEnd,
-                                }),
-                            );
-                            return (
-                              <>
-                                <Text style={{ color: theme.textSecondary }}>
-                                  Frequency: Weekly
-                                </Text>
-                                <Text style={{ color: theme.textSecondary }}>
-                                  Done for {weeklyContextLabel}:{" "}
-                                  {completedThisWeek ? "Yes" : "No"}
-                                </Text>
-                              </>
-                            );
-                          } else if (item.frequency === "daily") {
-                            return (
-                              <>
-                                <Text style={{ color: theme.textSecondary }}>
-                                  Frequency: Daily
-                                </Text>
-                                <Text style={{ color: theme.textSecondary }}>
-                                  {incompleteDailyLabel}
-                                </Text>
-                              </>
-                            );
-                          } else if (item.frequency === "once") {
-                            return (
-                              <>
-                                <Text style={{ color: theme.textSecondary }}>
-                                  Frequency: Once
-                                </Text>
-                                <Text style={{ color: theme.textSecondary }}>
-                                  Status: Pending
-                                </Text>
-                              </>
-                            );
-                          }
-                          return (
-                            <>
-                              <Text style={{ color: theme.textSecondary }}>
-                                Frequency: {item.frequency}
-                              </Text>
-                              <Text style={{ color: theme.textSecondary }}>
-                                Status: Pending
-                              </Text>
-                            </>
-                          );
-                        })()}
-                  </View>
-                  {renderTaskActionButtons(item)}
-                </View>
-              </Pressable>
-              {index < pendingTasks.length - 1 && (
-                <View style={{ height: 8 }} />
-              )}
-            </View>
-          ))
-        )}
-
-        {/* Completed Tasks Section */}
-        {completedTasks.length > 0 ? (
-          <>
-            <Text
-              style={{
-                fontWeight: "700",
-                marginTop: 16,
-                color: theme.textSecondary,
-              }}
-            >
-              Completed
-            </Text>
-            {completedTasks.map((item, index) => (
-              <View key={item.id}>
-                <Pressable
-                  onPress={() => {
-                    void haptics.tap();
-                    toggleTask(item.id, selectedDate);
-                  }}
-                  style={{
-                    padding: 12,
-                    borderWidth: 1,
-                    borderColor: theme.completedBorder,
-                    borderRadius: 10,
-                    backgroundColor: theme.completedBackground,
-                    opacity: 0.7,
-                  }}
-                >
-                  <View
+                  <Text
                     style={{
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
+                      fontWeight: "700",
+                      color: theme.text,
+                      fontSize: 14,
+                      flexShrink: 1,
                     }}
                   >
-                    <View style={{ flex: 1, paddingRight: 12 }}>
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            fontWeight: "700",
-                            color: theme.textSecondary,
-                            textDecorationLine: "line-through",
-                            flexShrink: 1,
-                          }}
-                        >
-                          {item.title}
-                        </Text>
-                        {renderStreakChip(item)}
-                      </View>
-                      {item.frequency === "custom" && item.customFrequency
-                        ? (() => {
-                            const progress = getCustomFrequencyProgress(
-                              item,
-                              selectedDate,
-                            );
-                            const completedOnSelectedDate = isCompletedToday(
-                              item.completions,
-                              selectedDate,
-                            );
-                            return (
-                              <View style={{ marginTop: 8 }}>
-                                <Text
-                                  style={{
-                                    color: theme.textSecondary,
-                                    fontSize: 12,
-                                    marginBottom: 4,
-                                  }}
-                                >
-                                  {progress.completed}/{progress.target} times
-                                  in{" "}
-                                  {getCustomPeriodLabel(
-                                    item.customFrequency.type,
-                                  )}
-                                </Text>
-                                <View style={{ flexDirection: "row", gap: 2 }}>
-                                  {Array.from(
-                                    { length: progress.target },
-                                    (_, progressIndex) => (
-                                      <View
-                                        key={progressIndex}
-                                        style={{
-                                          flex: 1,
-                                          height: 6,
-                                          backgroundColor:
-                                            progressIndex < progress.completed
-                                              ? theme.success
-                                              : theme.border,
-                                          borderRadius: 3,
-                                        }}
-                                      />
-                                    ),
-                                  )}
-                                </View>
-                                <Text
-                                  style={{
-                                    color: theme.success,
-                                    fontSize: 11,
-                                    marginTop: 2,
-                                  }}
-                                >
-                                  {progress.achieved
-                                    ? "Goal achieved! ✓"
-                                    : completedOnSelectedDate
-                                      ? customCompletionLabel
-                                      : "Progress made ✓"}
-                                </Text>
-                              </View>
-                            );
-                          })()
-                        : (() => {
-                            if (item.frequency === "weekly") {
-                              return (
-                                <>
-                                  <Text style={{ color: theme.textSecondary }}>
-                                    Frequency: Weekly
-                                  </Text>
-                                  <Text style={{ color: theme.success }}>
-                                    Done for {weeklyContextLabel}: Yes ✓
-                                  </Text>
-                                </>
-                              );
-                            } else if (item.frequency === "daily") {
-                              return (
-                                <>
-                                  <Text style={{ color: theme.textSecondary }}>
-                                    Frequency: Daily
-                                  </Text>
-                                  <Text style={{ color: theme.success }}>
-                                    {completedDailyLabel}
-                                  </Text>
-                                </>
-                              );
-                            } else if (item.frequency === "once") {
-                              return (
-                                <>
-                                  <Text style={{ color: theme.textSecondary }}>
-                                    Frequency: Once
-                                  </Text>
-                                  <Text style={{ color: theme.success }}>
-                                    Completed ✓
-                                  </Text>
-                                </>
-                              );
-                            }
-                            return (
-                              <>
-                                <Text style={{ color: theme.textSecondary }}>
-                                  Frequency: {item.frequency}
-                                </Text>
-                                <Text style={{ color: theme.success }}>
-                                  Completed ✓
-                                </Text>
-                              </>
-                            );
-                          })()}
-                    </View>
-                    {renderTaskActionButtons(item)}
-                  </View>
-                </Pressable>
-                {index < completedTasks.length - 1 && (
-                  <View style={{ height: 8 }} />
-                )}
+                    {item.title}
+                  </Text>
+                  {renderStreakChip(item)}
+                </View>
+                <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                  {taskSubtitle(item)}
+                </Text>
               </View>
-            ))}
-          </>
-        ) : null}
+              {selected ? (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 9999,
+                    backgroundColor: withAlpha(color, 0.14),
+                  }}
+                >
+                  <Ionicons name="stats-chart" size={10} color={color} />
+                  <Text style={{ color, fontSize: 10, fontWeight: "700" }}>
+                    SHOWING
+                  </Text>
+                </View>
+              ) : null}
+              {renderTaskActionButtons(item)}
+            </Pressable>
+          );
+        })}
 
         {isOwner ? (
           <Pressable
@@ -1277,91 +1105,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             </Text>
           </Pressable>
         ) : null}
-
-        {/* Last 8 weeks */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginTop: 16,
-          }}
-        >
-          <Text style={{ fontWeight: "700", color: theme.text }}>
-            Last 8 weeks
-          </Text>
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            {(
-              [
-                ["goal", "Goal"],
-                ["task", "By task"],
-              ] as const
-            ).map(([mode, label]) => (
-              <Pressable
-                key={mode}
-                onPress={() => {
-                  void haptics.toggle();
-                  setHeatmapMode(mode);
-                }}
-                style={{
-                  ...pillStyle(heatmapMode === mode),
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                }}
-              >
-                <Text
-                  style={{
-                    fontWeight: "600",
-                    fontSize: 12,
-                    color:
-                      heatmapMode === mode
-                        ? theme.primary
-                        : theme.textSecondary,
-                  }}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-        {recurringTasks.length === 0 ? (
-          <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-            Add a repeating task to see its history here.
-          </Text>
-        ) : heatmapMode === "goal" ? (
-          <View style={card(theme, isDark)}>
-            <Heatmap
-              startOffsetDays={56}
-              values={goalHeatmapValues()}
-              valueMode="ratio"
-              referenceDate={selectedDate}
-              frozenDateKeys={frozenDateKeys}
-            />
-          </View>
-        ) : (
-          <View style={{ ...card(theme, isDark), gap: 12 }}>
-            {recurringTasks.map((task) => (
-              <View key={task.id} style={{ gap: 6 }}>
-                <Text
-                  style={{
-                    color: theme.textSecondary,
-                    fontWeight: "600",
-                    fontSize: 13,
-                  }}
-                >
-                  {task.title}
-                </Text>
-                <Heatmap
-                  startOffsetDays={56}
-                  values={taskHeatmapValues(task)}
-                  referenceDate={selectedDate}
-                  frozenDateKeys={frozenDateKeys}
-                />
-              </View>
-            ))}
-          </View>
-        )}
 
         {isOwner ? (
           <Pressable
@@ -1754,6 +1497,26 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                     ? `Choose from 1 to ${MAX_WEEKLY_CUSTOM_TARGET} times per week.`
                     : `Choose from 1 to ${MAX_MONTHLY_CUSTOM_TARGET} times per month.`}
                 </Text>
+              ) : null}
+              {editingTaskId ? (
+                <Pressable
+                  onPress={() => {
+                    const task = goal.tasks.find((t) => t.id === editingTaskId);
+                    resetTaskEditor();
+                    if (task) confirmDeleteTask(task.id, task.title);
+                  }}
+                  style={{ paddingVertical: 8 }}
+                >
+                  <Text
+                    style={{
+                      color: theme.danger,
+                      textAlign: "center",
+                      fontWeight: "600",
+                    }}
+                  >
+                    Delete task
+                  </Text>
+                </Pressable>
               ) : null}
             </View>
           </View>

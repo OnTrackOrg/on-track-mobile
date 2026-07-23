@@ -3,7 +3,8 @@ export const STORAGE_KEYS = {
   storeDev: "ontrack-store-dev",
   storeProd: "ontrack-store-prod",
   themePreference: "ontrack-theme",
+  accentTheme: "ontrack-accent-theme",
+  avatar: "ontrack-avatar",
+  quoteOfTheDay: "ontrack-quote-of-the-day",
   legacyThemePreference: "theme",
-  reminderSettings: "ontrack-reminder-settings",
-  reminderNotificationId: "ontrack-reminder-notification-id",
 } as const;

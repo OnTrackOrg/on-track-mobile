@@ -1,20 +1,21 @@
 import React from "react";
-import { Alert, Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
+import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 import { useStore, getGoalProgress, getGoalStreak } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
-import { Goal, FriendProfile } from "../types";
+import { goalColor } from "../utils/goalColors";
+import { mix, withAlpha } from "../utils/color";
+import { shouldPlayEntrance } from "../utils/entrance";
+import { Goal } from "../types";
 import { RootStackParamList } from "../navigation";
-import Avatar, { AvatarStack } from "./Avatar";
 import ProgressRing from "./ProgressRing";
 import { card } from "./ui";
-import { addMemberToGoal, inviteFriendToGoal } from "../lib/social";
-import { supabase } from "../lib/supabase";
 
 // ponytail: drag-reorder for goals was dropped with the old HomeScreen;
 // ordering survives via the stored goal order (position on flush) only.
@@ -24,74 +25,59 @@ export default function GoalsScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const goals = useStore((s) => s.goals);
   const sharedGoals = useStore((s) => s.sharedGoals);
-  const friends = useStore((s) => s.friends);
-  const account = useStore((s) => s.account);
-  const setGoals = useStore((s) => s.setGoals);
   const frozenDays = useStore((s) => s.frozenDays);
 
-  const [inviteGoalId, setInviteGoalId] = React.useState<string | null>(null);
-  const [invitingFriendId, setInvitingFriendId] = React.useState<string | null>(
-    null,
-  );
+  const [achievedOpen, setAchievedOpen] = React.useState(false);
+
+  // Entrance rise-in plays once per session for this tab.
+  const [entranceOn] = React.useState(() => shouldPlayEntrance("goals"));
+  const entering = (index: number) =>
+    entranceOn ? FadeInDown.duration(550).delay(index * 70) : undefined;
 
   const today = new Date();
   const activeOwned = goals.filter((g) => g.completedAt === undefined);
   const achieved = goals.filter((g) => g.completedAt !== undefined);
   const activeShared = sharedGoals.filter((g) => g.completedAt === undefined);
 
-  const inviteGoal =
-    inviteGoalId === null
-      ? null
-      : (goals.find((g) => g.id === inviteGoalId) ?? null);
-  const inviteCandidates = inviteGoal
-    ? friends.filter(
-        (f) => !(inviteGoal.members ?? []).some((m) => m.userId === f.userId),
-      )
-    : [];
+  // Last-14-days consistency strip in the goal's colour (redesign mockup).
+  const renderStrip = (goal: Goal, color: string) => (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <View style={{ flexDirection: "row", gap: 3, flex: 1 }}>
+        {Array.from({ length: 14 }, (_, dayIndex) => {
+          const day = subDays(today, 13 - dayIndex);
+          const ratio = getGoalProgress(goal, day).percent;
+          return (
+            <View
+              key={dayIndex}
+              style={{
+                flex: 1,
+                height: 14,
+                borderRadius: 4,
+                backgroundColor:
+                  ratio <= 0
+                    ? withAlpha(theme.textSecondary, 0.14)
+                    : mix(color, 0.3 + ratio * 0.7, theme.surface),
+              }}
+            />
+          );
+        })}
+      </View>
+      <Text
+        style={{
+          color: theme.textSecondary,
+          fontSize: 10,
+          fontWeight: "600",
+          letterSpacing: 0.4,
+        }}
+      >
+        LAST 14 DAYS
+      </Text>
+    </View>
+  );
 
-  const sendInvite = async (goal: Goal, friend: FriendProfile) => {
-    setInvitingFriendId(friend.userId);
-    try {
-      const { data, error } = await supabase.auth.getSession();
-      if (error) throw error;
-      const user = data.session?.user;
-      if (!user) throw new Error("You need to be signed in to invite friends.");
-
-      await inviteFriendToGoal(goal, friend.userId, user);
-
-      const owner = {
-        userId: user.id,
-        username: account?.username ?? "",
-        displayName: account?.displayName ?? "You",
-        isOwner: true,
-      };
-
-      // Merge the member into the CURRENT store goal (ids are stable UUIDs)
-      // so the card updates now and mid-invite mutations survive.
-      setGoals(
-        useStore
-          .getState()
-          .goals.map((g) =>
-            g.id === goal.id ? addMemberToGoal(g, friend, owner) : g,
-          ),
-      );
-      void haptics.success();
-    } catch (error) {
-      void haptics.error();
-      Alert.alert(
-        "Could not invite",
-        error instanceof Error
-          ? error.message
-          : "Something went wrong. Try again.",
-      );
-    } finally {
-      setInvitingFriendId(null);
-    }
-  };
-
-  const renderGoalCard = (goal: Goal, isShared: boolean) => {
+  const renderGoalCard = (goal: Goal, index: number) => {
     const progress = getGoalProgress(goal, today);
-    const members = goal.members ?? [];
+    const color = goalColor(goal.id);
     const maxStreak = goal.tasks.reduce(
       (best, task) => Math.max(best, getGoalStreak(task, frozenDays)),
       0,
@@ -104,111 +90,88 @@ export default function GoalsScreen() {
       .join(" · ");
 
     return (
-      <Pressable
-        key={goal.id}
-        onPress={() => {
-          void haptics.navigate();
-          navigation.navigate("Goal", { goalId: goal.id });
-        }}
-        style={{ ...card(theme, isDark), gap: 10 }}
-      >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-          <ProgressRing size={46} strokeWidth={5} percent={progress.percent}>
-            <Text
-              style={{ color: theme.text, fontWeight: "700", fontSize: 11 }}
+      <Animated.View key={goal.id} entering={entering(index)}>
+        <Pressable
+          onPress={() => {
+            void haptics.navigate();
+            navigation.navigate("Goal", { goalId: goal.id });
+          }}
+          style={{
+            ...card(theme, isDark),
+            gap: 12,
+            paddingLeft: 18,
+            overflow: "hidden",
+          }}
+        >
+          <View
+            style={{
+              position: "absolute",
+              left: 7,
+              top: 14,
+              bottom: 14,
+              width: 3,
+              borderRadius: 2,
+              backgroundColor: color,
+            }}
+          />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <ProgressRing
+              size={46}
+              strokeWidth={5}
+              percent={progress.percent}
+              color={color}
+              trackColor={mix(theme.primary, 0.15, theme.background)}
             >
-              {Math.round(progress.percent * 100)}%
-            </Text>
-          </ProgressRing>
-          <View style={{ flex: 1 }}>
-            <Text
-              style={{ fontWeight: "700", fontSize: 16, color: theme.text }}
-            >
-              {goal.title}
-            </Text>
-            <Text
-              style={{ color: theme.textSecondary, fontSize: 12, marginTop: 2 }}
-            >
-              {subtitle}
-            </Text>
-          </View>
-          {maxStreak > 0 ? (
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 2,
-                paddingHorizontal: 8,
-                paddingVertical: 4,
-                borderRadius: 9999,
-                backgroundColor: theme.streak + "1f",
-              }}
-            >
-              <Ionicons name="flash" size={12} color={theme.streak} />
               <Text
-                style={{ color: theme.streak, fontWeight: "800", fontSize: 12 }}
+                style={{ color: theme.text, fontWeight: "700", fontSize: 11 }}
               >
-                {maxStreak}
+                {Math.round(progress.percent * 100)}%
+              </Text>
+            </ProgressRing>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{ fontWeight: "700", fontSize: 16, color: theme.text }}
+              >
+                {goal.title}
+              </Text>
+              <Text
+                style={{
+                  color: theme.textSecondary,
+                  fontSize: 12,
+                  marginTop: 2,
+                }}
+              >
+                {subtitle}
               </Text>
             </View>
-          ) : null}
-        </View>
-        {members.length > 1 || (!isShared && account) ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {members.length > 1 ? (
-              <>
-                <AvatarStack users={members} size="sm" />
-                <Text
-                  style={{
-                    color: theme.textSecondary,
-                    fontSize: 12,
-                    flex: 1,
-                  }}
-                >
-                  You +{members.length - 1}
-                </Text>
-              </>
-            ) : (
-              <View style={{ flex: 1 }} />
-            )}
-            {!isShared && account ? (
-              <Pressable
-                onPress={() => {
-                  void haptics.tap();
-                  setInviteGoalId(goal.id);
-                }}
-                hitSlop={8}
+            {maxStreak > 0 ? (
+              <View
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
-                  gap: 4,
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
+                  gap: 2,
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
                   borderRadius: 9999,
-                  borderWidth: 1,
-                  borderColor: theme.primary,
-                  backgroundColor: theme.primary + "20",
+                  backgroundColor: theme.streak + "1f",
                 }}
               >
-                <Ionicons
-                  name="person-add-outline"
-                  size={12}
-                  color={theme.primary}
-                />
+                <Ionicons name="flash" size={12} color={theme.streak} />
                 <Text
                   style={{
-                    color: theme.primary,
-                    fontWeight: "600",
+                    color: theme.streak,
+                    fontWeight: "800",
                     fontSize: 12,
                   }}
                 >
-                  Invite
+                  {maxStreak}
                 </Text>
-              </Pressable>
+              </View>
             ) : null}
           </View>
-        ) : null}
-      </Pressable>
+          {renderStrip(goal, color)}
+        </Pressable>
+      </Animated.View>
     );
   };
 
@@ -272,173 +235,134 @@ export default function GoalsScreen() {
           </View>
         ) : (
           <>
-            {activeOwned.map((goal) => renderGoalCard(goal, false))}
-            {activeShared.map((goal) => renderGoalCard(goal, true))}
+            {activeOwned.map((goal, index) => renderGoalCard(goal, index + 1))}
+            {activeShared.map((goal, index) =>
+              renderGoalCard(goal, activeOwned.length + index + 1),
+            )}
           </>
         )}
 
         {achieved.length > 0 ? (
           <>
-            <Text
+            {/* Collapsed achieved badges (redesign mockup) */}
+            <Pressable
+              onPress={() => {
+                void haptics.tap();
+                setAchievedOpen((open) => !open);
+              }}
               style={{
-                fontWeight: "700",
-                fontSize: 12,
-                letterSpacing: 1,
-                color: theme.textSecondary,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
                 marginTop: 8,
+                paddingVertical: 4,
+                paddingHorizontal: 2,
               }}
             >
-              ACHIEVED
-            </Text>
-            {achieved.map((goal) => (
-              <Pressable
-                key={goal.id}
-                onPress={() => {
-                  void haptics.navigate();
-                  navigation.navigate("Goal", { goalId: goal.id });
-                }}
+              <Text
                 style={{
-                  ...card(theme, isDark),
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: 12,
-                  opacity: 0.85,
+                  fontWeight: "700",
+                  fontSize: 12,
+                  letterSpacing: 1,
+                  color: theme.textSecondary,
                 }}
               >
-                <Ionicons
-                  name="trophy-outline"
-                  size={18}
-                  color={theme.warning}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontWeight: "700", color: theme.text }}>
-                    {goal.title}
-                  </Text>
-                  <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-                    Achieved{" "}
-                    {format(new Date(goal.completedAt ?? 0), "MMM d, yyyy")}
-                  </Text>
-                </View>
-                <Ionicons
-                  name="chevron-forward"
-                  size={16}
-                  color={theme.textSecondary}
-                />
-              </Pressable>
-            ))}
+                ACHIEVED
+              </Text>
+              <View
+                style={{
+                  minWidth: 18,
+                  height: 18,
+                  borderRadius: 9,
+                  paddingHorizontal: 5,
+                  backgroundColor: withAlpha(theme.textSecondary, 0.15),
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontSize: 11,
+                    fontWeight: "700",
+                  }}
+                >
+                  {achieved.length}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }} />
+              <Ionicons
+                name={achievedOpen ? "chevron-up" : "chevron-down"}
+                size={14}
+                color={theme.textSecondary}
+              />
+            </Pressable>
+            {achievedOpen ? (
+              <Animated.View
+                entering={FadeInUp.duration(300)}
+                style={{
+                  flexDirection: "row",
+                  flexWrap: "wrap",
+                  gap: 16,
+                  paddingHorizontal: 2,
+                  paddingBottom: 8,
+                }}
+              >
+                {achieved.map((goal) => (
+                  <Pressable
+                    key={goal.id}
+                    onPress={() => {
+                      void haptics.navigate();
+                      navigation.navigate("Goal", { goalId: goal.id });
+                    }}
+                    style={{ alignItems: "center", gap: 6, width: 72 }}
+                  >
+                    <View
+                      style={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: 26,
+                        backgroundColor: mix(
+                          theme.warning,
+                          0.14,
+                          theme.surface,
+                        ),
+                        borderWidth: 1.5,
+                        borderColor: withAlpha(theme.warning, 0.45),
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Ionicons name="trophy" size={22} color={theme.warning} />
+                    </View>
+                    <Text
+                      numberOfLines={2}
+                      style={{
+                        fontSize: 11,
+                        fontWeight: "600",
+                        color: theme.text,
+                        textAlign: "center",
+                        lineHeight: 13,
+                      }}
+                    >
+                      {goal.title}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        color: theme.textSecondary,
+                        marginTop: -3,
+                      }}
+                    >
+                      {format(new Date(goal.completedAt ?? 0), "MMM d")}
+                    </Text>
+                  </Pressable>
+                ))}
+              </Animated.View>
+            ) : null}
           </>
         ) : null}
       </ScrollView>
-
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={inviteGoal !== null}
-        onRequestClose={() => {
-          void haptics.tap();
-          setInviteGoalId(null);
-        }}
-      >
-        <View
-          style={{
-            flex: 1,
-            justifyContent: "center",
-            padding: 24,
-            backgroundColor: "rgba(15, 23, 42, 0.35)",
-          }}
-        >
-          <Pressable
-            onPress={() => {
-              void haptics.tap();
-              setInviteGoalId(null);
-            }}
-            style={{
-              position: "absolute",
-              top: 0,
-              right: 0,
-              bottom: 0,
-              left: 0,
-            }}
-          />
-          <View style={{ ...card(theme, isDark), padding: 16, gap: 10 }}>
-            <Text
-              style={{ fontWeight: "700", fontSize: 18, color: theme.text }}
-            >
-              Invite a friend
-            </Text>
-            {inviteGoal ? (
-              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-                Friends you invite can complete tasks on &ldquo;
-                {inviteGoal.title}&rdquo; with you.
-              </Text>
-            ) : null}
-            {inviteCandidates.length === 0 ? (
-              <Text style={{ color: theme.textSecondary }}>
-                {friends.length === 0
-                  ? "Add friends from the Search tab first."
-                  : "All of your friends are already in this goal."}
-              </Text>
-            ) : (
-              inviteCandidates.map((friend) => (
-                <Pressable
-                  key={friend.userId}
-                  disabled={invitingFriendId !== null}
-                  onPress={() => {
-                    if (!inviteGoal) return;
-                    void haptics.tap();
-                    void sendInvite(inviteGoal, friend);
-                  }}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: 10,
-                    borderWidth: 1,
-                    borderColor: theme.border,
-                    borderRadius: 10,
-                    backgroundColor: theme.background,
-                    opacity:
-                      invitingFriendId !== null &&
-                      invitingFriendId !== friend.userId
-                        ? 0.5
-                        : 1,
-                  }}
-                >
-                  <Avatar
-                    userId={friend.userId}
-                    displayName={friend.displayName}
-                    size="md"
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontWeight: "600", color: theme.text }}>
-                      {friend.displayName}
-                    </Text>
-                    {friend.username ? (
-                      <Text
-                        style={{ color: theme.textSecondary, fontSize: 12 }}
-                      >
-                        @{friend.username}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Text
-                    style={{
-                      color: theme.primary,
-                      fontWeight: "600",
-                      fontSize: 12,
-                    }}
-                  >
-                    {invitingFriendId === friend.userId
-                      ? "Inviting..."
-                      : "Invite"}
-                  </Text>
-                </Pressable>
-              ))
-            )}
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }

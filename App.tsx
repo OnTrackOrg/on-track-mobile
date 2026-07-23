@@ -14,6 +14,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Session, User } from "@supabase/supabase-js";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
+import LaunchScreen from "./components/LaunchScreen";
 import TodayScreen from "./components/TodayScreen";
 import GoalsScreen from "./components/GoalsScreen";
 import SearchScreen from "./components/SearchScreen";
@@ -807,6 +808,7 @@ export default function App() {
       <ThemeProvider>
         <SafeAreaProvider>
           <ThemedNavigation />
+          <LaunchScreen />
         </SafeAreaProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
