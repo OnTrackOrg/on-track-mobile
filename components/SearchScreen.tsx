@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
-  RefreshControl,
   ScrollView,
   Text,
   TextInput,
@@ -12,13 +11,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
-import { useFocusEffect } from "@react-navigation/native";
 import { useTheme } from "../contexts/ThemeContext";
 import { useStore } from "../store";
-import { GoalTemplate, TemplateTask } from "../types";
 import {
-  fetchTemplates,
-  commitToTemplate,
   searchPeople,
   sendFriendRequest,
   PersonSearchResult,
@@ -28,15 +23,7 @@ import Avatar from "./Avatar";
 import { haptics } from "../utils/haptics";
 import { TabParamList } from "../navigation";
 
-type Mode = "templates" | "people";
-
-const frequencyLabel = (task: TemplateTask): string => {
-  if (task.frequency === "custom" && task.customFrequency) {
-    const period = task.customFrequency.type === "weekly" ? "week" : "month";
-    return `${task.customFrequency.target}x per ${period}`;
-  }
-  return task.frequency;
-};
+type Mode = "people" | "templates";
 
 export default function SearchScreen({
   navigation,
@@ -46,18 +33,10 @@ export default function SearchScreen({
   const friends = useStore((s) => s.friends);
   const friendRequests = useStore((s) => s.friendRequests);
   const sentFriendRequestUserIds = useStore((s) => s.sentFriendRequestUserIds);
-  const addGoal = useStore((s) => s.addGoal);
-  const addTask = useStore((s) => s.addTask);
   const accountId = account?.id;
 
-  const [mode, setMode] = React.useState<Mode>("templates");
+  const [mode, setMode] = React.useState<Mode>("people");
   const [query, setQuery] = React.useState("");
-
-  // Public goal templates: fetched on focus, cached in component state.
-  const [templates, setTemplates] = React.useState<GoalTemplate[] | null>(null);
-  const [templatesError, setTemplatesError] = React.useState(false);
-  const [refreshing, setRefreshing] = React.useState(false);
-  const [committingId, setCommittingId] = React.useState<string | null>(null);
 
   // People search: debounced, latest response wins.
   const [people, setPeople] = React.useState<PersonSearchResult[]>([]);
@@ -67,28 +46,6 @@ export default function SearchScreen({
   // (refreshed from the server) covers requests from previous sessions.
   const [sentRequestIds, setSentRequestIds] = React.useState<Set<string>>(
     new Set(),
-  );
-
-  const loadTemplates = React.useCallback(
-    async (isRefresh: boolean) => {
-      if (!accountId) return;
-      if (isRefresh) setRefreshing(true);
-      try {
-        setTemplates(await fetchTemplates(accountId));
-        setTemplatesError(false);
-      } catch {
-        setTemplatesError(true);
-      } finally {
-        if (isRefresh) setRefreshing(false);
-      }
-    },
-    [accountId],
-  );
-
-  useFocusEffect(
-    React.useCallback(() => {
-      if (accountId) void loadTemplates(false);
-    }, [accountId, loadTemplates]),
   );
 
   React.useEffect(() => {
@@ -128,45 +85,6 @@ export default function SearchScreen({
       return "requested";
     }
     return "none";
-  };
-
-  const handleCommit = async (template: GoalTemplate) => {
-    if (!accountId || template.committed || committingId) return;
-    setCommittingId(template.id);
-    try {
-      // Clone into a normal private goal FIRST (offline-safe, rides the
-      // normal flush; social-model.md order), then record the commitment.
-      // A crash in between leaves a goal without a commitment, which a
-      // retry heals; the reverse order left a permanently stuck
-      // "Committed" template with no goal. Skip the clone when a retry
-      // already created it.
-      const alreadyCloned = useStore
-        .getState()
-        .goals.some((g) => g.title === template.title);
-      if (!alreadyCloned) {
-        addGoal(template.title, template.tagline);
-        const goals = useStore.getState().goals;
-        const newGoal = goals[goals.length - 1];
-        for (const task of template.tasks) {
-          addTask(newGoal.id, task.title, task.frequency, task.customFrequency);
-        }
-      }
-      await commitToTemplate(template, accountId);
-      setTemplates(
-        (prev) =>
-          prev?.map((t) =>
-            t.id === template.id
-              ? { ...t, committed: true, commitCount: t.commitCount + 1 }
-              : t,
-          ) ?? prev,
-      );
-      void haptics.success();
-    } catch {
-      void haptics.error();
-      Alert.alert("Couldn't commit", "Check your connection and try again.");
-    } finally {
-      setCommittingId(null);
-    }
   };
 
   const handleAddFriend = async (person: PersonSearchResult) => {
@@ -218,7 +136,7 @@ export default function SearchScreen({
                 textAlign: "center",
               }}
             >
-              Public goals and people search need an account.
+              People search needs an account.
             </Text>
             <Pressable
               onPress={() => {
@@ -244,10 +162,6 @@ export default function SearchScreen({
   }
 
   const trimmedQuery = query.trim();
-  const visibleTemplates =
-    templates?.filter((t) =>
-      t.title.toLowerCase().includes(trimmedQuery.toLowerCase()),
-    ) ?? [];
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
@@ -255,15 +169,6 @@ export default function SearchScreen({
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
         keyboardShouldPersistTaps="handled"
-        refreshControl={
-          mode === "templates" ? (
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => void loadTemplates(true)}
-              tintColor={theme.textSecondary}
-            />
-          ) : undefined
-        }
       >
         <Text style={{ fontSize: 34, fontWeight: "800", color: theme.text }}>
           Search
@@ -284,7 +189,7 @@ export default function SearchScreen({
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder="Goals, people..."
+            placeholder="Find people..."
             placeholderTextColor={theme.textSecondary}
             autoCapitalize="none"
             autoCorrect={false}
@@ -295,8 +200,8 @@ export default function SearchScreen({
         <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
           {(
             [
-              ["templates", "Public goals"],
               ["people", "People"],
+              ["templates", "Public goals"],
             ] as [Mode, string][]
           ).map(([value, label]) => {
             const active = mode === value;
@@ -332,147 +237,27 @@ export default function SearchScreen({
         </View>
 
         {mode === "templates" ? (
-          <View style={{ marginTop: 20 }}>
+          <View style={{ ...cardStyle, marginTop: 20, alignItems: "center" }}>
+            <Ionicons
+              name="rocket-outline"
+              size={40}
+              color={theme.textSecondary}
+            />
+            <Text
+              style={{ marginTop: 8, fontWeight: "700", color: theme.text }}
+            >
+              Coming soon
+            </Text>
             <Text
               style={{
-                fontSize: 12,
-                fontWeight: "700",
-                letterSpacing: 0.5,
+                marginTop: 4,
                 color: theme.textSecondary,
+                textAlign: "center",
               }}
             >
-              POPULAR PUBLIC GOALS
+              Public goals are on the way. For now, find friends in the People
+              tab.
             </Text>
-
-            {templates === null && !templatesError ? (
-              <ActivityIndicator
-                color={theme.textSecondary}
-                style={{ marginTop: 24 }}
-              />
-            ) : templates === null ? (
-              <View style={{ ...cardStyle, marginTop: 12 }}>
-                <Text style={{ color: theme.textSecondary }}>
-                  Couldn&apos;t load public goals.
-                </Text>
-                <Pressable
-                  onPress={() => {
-                    void haptics.tap();
-                    void loadTemplates(false);
-                  }}
-                  style={{ marginTop: 8 }}
-                >
-                  <Text style={{ color: theme.primary, fontWeight: "700" }}>
-                    Try again
-                  </Text>
-                </Pressable>
-              </View>
-            ) : (
-              <View style={{ marginTop: 12, gap: 12 }}>
-                {visibleTemplates.length === 0 ? (
-                  <Text style={{ color: theme.textSecondary }}>
-                    {trimmedQuery
-                      ? "No public goals match your search."
-                      : "No public goals yet."}
-                  </Text>
-                ) : null}
-                {visibleTemplates.map((template) => (
-                  <View key={template.id} style={cardStyle}>
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "flex-start",
-                        justifyContent: "space-between",
-                        gap: 12,
-                      }}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={{
-                            fontSize: 16,
-                            fontWeight: "700",
-                            color: theme.text,
-                          }}
-                        >
-                          {template.title}
-                        </Text>
-                        <Text
-                          style={{
-                            marginTop: 2,
-                            fontSize: 12,
-                            color: theme.textSecondary,
-                          }}
-                        >
-                          by {template.authorName} · {template.commitCount}{" "}
-                          committed
-                        </Text>
-                      </View>
-                      <Pressable
-                        disabled={template.committed || committingId !== null}
-                        onPress={() => void handleCommit(template)}
-                        style={{
-                          borderRadius: 9999,
-                          paddingHorizontal: 14,
-                          paddingVertical: 7,
-                          backgroundColor: template.committed
-                            ? theme.completedBackground
-                            : theme.primary,
-                          borderWidth: template.committed ? 1 : 0,
-                          borderColor: theme.completedBorder,
-                          opacity: committingId === template.id ? 0.6 : 1,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            fontWeight: "700",
-                            fontSize: 13,
-                            color: template.committed
-                              ? theme.textSecondary
-                              : "#ffffff",
-                          }}
-                        >
-                          {template.committed ? "Committed" : "Commit"}
-                        </Text>
-                      </Pressable>
-                    </View>
-                    {template.tagline ? (
-                      <Text
-                        style={{ marginTop: 6, color: theme.textSecondary }}
-                      >
-                        {template.tagline}
-                      </Text>
-                    ) : null}
-                    <View
-                      style={{
-                        marginTop: 10,
-                        flexDirection: "row",
-                        flexWrap: "wrap",
-                        gap: 6,
-                      }}
-                    >
-                      {template.tasks.map((task, index) => (
-                        <View
-                          key={index}
-                          style={{
-                            borderRadius: 9999,
-                            borderWidth: 1,
-                            borderColor: theme.border,
-                            paddingHorizontal: 10,
-                            paddingVertical: 4,
-                          }}
-                        >
-                          <Text style={{ fontSize: 12, color: theme.text }}>
-                            {task.title}{" "}
-                            <Text style={{ color: theme.textSecondary }}>
-                              · {frequencyLabel(task)}
-                            </Text>
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
           </View>
         ) : (
           <View style={{ marginTop: 20, gap: 10 }}>

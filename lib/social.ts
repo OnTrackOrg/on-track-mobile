@@ -1,13 +1,5 @@
 import { User } from "@supabase/supabase-js";
-import {
-  FriendProfile,
-  FriendRequest,
-  Frequency,
-  Goal,
-  GoalMember,
-  GoalTemplate,
-  TemplateTask,
-} from "../types";
+import { FriendProfile, FriendRequest, Goal, GoalMember } from "../types";
 import { supabase } from "./supabase";
 
 /**
@@ -179,79 +171,6 @@ export const searchPeople = async (
     ...toFriendProfile(row),
     mutualFriends: row.mutual_friends ?? 0,
   }));
-};
-
-type TemplateTaskSnapshot = {
-  title: string;
-  frequency: Frequency;
-  custom_type?: "weekly" | "monthly" | null;
-  custom_target?: number | null;
-};
-
-const toTemplateTask = (snapshot: TemplateTaskSnapshot): TemplateTask => ({
-  title: snapshot.title,
-  frequency: snapshot.frequency,
-  customFrequency:
-    snapshot.frequency === "custom" &&
-    snapshot.custom_type &&
-    snapshot.custom_target
-      ? { type: snapshot.custom_type, target: snapshot.custom_target }
-      : undefined,
-});
-
-export const fetchTemplates = async (
-  userId: string,
-): Promise<GoalTemplate[]> => {
-  const [templates, counts, commitments] = await Promise.all([
-    supabase
-      .from("goal_templates")
-      .select("id, title, tagline, author_name, author_handle, tasks")
-      .order("created_at", { ascending: true }),
-    supabase.from("template_commit_counts").select("template_id, commit_count"),
-    supabase
-      .from("template_commitments")
-      .select("template_id")
-      .eq("user_id", userId),
-  ]);
-
-  if (templates.error) throw templates.error;
-  if (counts.error) throw counts.error;
-  if (commitments.error) throw commitments.error;
-
-  const countByTemplateId = new Map(
-    (counts.data ?? []).map((row) => [
-      row.template_id as string,
-      (row.commit_count as number) ?? 0,
-    ]),
-  );
-  const committedTemplateIds = new Set(
-    (commitments.data ?? []).map((row) => row.template_id as string),
-  );
-
-  return (templates.data ?? []).map((row) => ({
-    id: row.id as string,
-    title: row.title as string,
-    tagline: (row.tagline as string | null) ?? undefined,
-    authorName: row.author_name as string,
-    authorHandle: row.author_handle as string,
-    tasks: ((row.tasks ?? []) as TemplateTaskSnapshot[]).map(toTemplateTask),
-    commitCount: countByTemplateId.get(row.id as string) ?? 0,
-    committed: committedTemplateIds.has(row.id as string),
-  }));
-};
-
-// The caller clones the template into a local private goal FIRST (offline-
-// safe, rides the normal flush); this then records the commitment so the
-// public count moves. Duplicate-key means an earlier attempt already
-// recorded it, so a retry converges instead of erroring.
-export const commitToTemplate = async (
-  template: GoalTemplate,
-  userId: string,
-): Promise<void> => {
-  const { error } = await supabase
-    .from("template_commitments")
-    .insert({ template_id: template.id, user_id: userId });
-  if (error && error.code !== "23505") throw error;
 };
 
 /**
