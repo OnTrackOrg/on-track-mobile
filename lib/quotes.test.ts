@@ -1,64 +1,22 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { format } from "date-fns";
-import { FALLBACK_QUOTES, getFallbackQuote, getQuoteOfTheDay } from "./quotes";
-import { STORAGE_KEYS } from "./persistence";
+import { FALLBACK_QUOTES, getFallbackQuote } from "./quotes";
 
 describe("getFallbackQuote", () => {
-  it("is deterministic for a given day", () => {
-    const date = new Date(2026, 6, 23);
-    expect(getFallbackQuote(date)).toEqual(getFallbackQuote(date));
+  it("returns a quote from the bundled pool", () => {
+    expect(FALLBACK_QUOTES).toContainEqual(getFallbackQuote());
   });
 
-  it("rotates through the bundled list day by day", () => {
+  it("can reach every quote in the pool", () => {
     const seen = new Set<string>();
     for (let i = 0; i < FALLBACK_QUOTES.length; i++) {
-      seen.add(getFallbackQuote(new Date(2026, 0, 1 + i)).text);
+      seen.add(getFallbackQuote(() => i / FALLBACK_QUOTES.length).text);
     }
     expect(seen.size).toBe(FALLBACK_QUOTES.length);
   });
-});
 
-describe("getQuoteOfTheDay", () => {
-  beforeEach(async () => {
-    await AsyncStorage.clear();
-  });
-
-  it("returns the cached quote when it is from today", async () => {
-    const today = new Date();
-    await AsyncStorage.setItem(
-      STORAGE_KEYS.quoteOfTheDay,
-      JSON.stringify({
-        text: "Cached wisdom.",
-        author: "Cache",
-        date: format(today, "yyyy-MM-dd"),
-      }),
-    );
-    await expect(getQuoteOfTheDay(today)).resolves.toEqual({
-      text: "Cached wisdom.",
-      author: "Cache",
-    });
-  });
-
-  it("falls back to the bundled rotation for a stale cache", async () => {
-    const today = new Date();
-    await AsyncStorage.setItem(
-      STORAGE_KEYS.quoteOfTheDay,
-      JSON.stringify({
-        text: "Old wisdom.",
-        author: "Cache",
-        date: "2020-01-01",
-      }),
-    );
-    await expect(getQuoteOfTheDay(today)).resolves.toEqual(
-      getFallbackQuote(today),
-    );
-  });
-
-  it("falls back on malformed cache", async () => {
-    await AsyncStorage.setItem(STORAGE_KEYS.quoteOfTheDay, "not json");
-    const today = new Date();
-    await expect(getQuoteOfTheDay(today)).resolves.toEqual(
-      getFallbackQuote(today),
+  it("stays in bounds at the edges of the random range", () => {
+    expect(getFallbackQuote(() => 0)).toEqual(FALLBACK_QUOTES[0]);
+    expect(getFallbackQuote(() => 0.999999)).toEqual(
+      FALLBACK_QUOTES[FALLBACK_QUOTES.length - 1],
     );
   });
 });

@@ -1,7 +1,4 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
-import { format } from "date-fns";
-import { STORAGE_KEYS } from "./persistence";
 
 // API key resolution mirrors lib/supabase.ts: app config extra first, then
 // EXPO_PUBLIC env for local dev.
@@ -16,11 +13,7 @@ export interface Quote {
   author: string;
 }
 
-interface CachedQuote extends Quote {
-  date: string; // "yyyy-MM-dd" the quote was fetched for
-}
-
-// Offline rotation so the launch screen never waits on the network. The
+// Offline pool so the launch screen never waits on the network. The
 // first three are the quotes from the redesign mockups (2a-2c).
 export const FALLBACK_QUOTES: Quote[] = [
   {
@@ -67,62 +60,23 @@ export const FALLBACK_QUOTES: Quote[] = [
   },
 ];
 
-const dayKey = (date: Date) => format(date, "yyyy-MM-dd");
-
-export const getFallbackQuote = (date: Date = new Date()): Quote => {
-  const startOfYear = new Date(date.getFullYear(), 0, 1);
-  const dayOfYear = Math.floor(
-    (date.getTime() - startOfYear.getTime()) / 86400000,
-  );
+export const getFallbackQuote = (
+  random: () => number = Math.random,
+): Quote => {
+  const index = Math.floor(random() * FALLBACK_QUOTES.length);
   return FALLBACK_QUOTES[
-    ((dayOfYear % FALLBACK_QUOTES.length) + FALLBACK_QUOTES.length) %
+    ((index % FALLBACK_QUOTES.length) + FALLBACK_QUOTES.length) %
       FALLBACK_QUOTES.length
   ];
 };
 
 /**
- * Quote for the launch screen: today's cached API quote if we have one,
- * otherwise the bundled rotation. Never throws, never blocks on network.
+ * Fetch a random quote from API Ninjas for the current session. Best-effort:
+ * resolves null on any failure (offline, timeout, bad payload, missing key)
+ * so callers stay on the bundled fallback. Never throws.
  */
-export const getQuoteOfTheDay = async (
-  date: Date = new Date(),
-): Promise<Quote> => {
-  try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.quoteOfTheDay);
-    if (raw) {
-      const cached = JSON.parse(raw) as Partial<CachedQuote>;
-      if (cached.date === dayKey(date) && cached.text && cached.author) {
-        return { text: cached.text, author: cached.author };
-      }
-    }
-  } catch {
-    // Fall through to the bundled rotation.
-  }
-  return getFallbackQuote(date);
-};
-
-/**
- * Fetch today's quote from API Ninjas and cache it. The endpoint returns a
- * random quote, so we fetch at most once per day to keep "quote of the day"
- * semantics (and stay light on the account's quota). Best-effort: returns
- * null when today's quote is already cached or on any failure (offline,
- * timeout, bad payload, missing key).
- */
-export const refreshQuoteOfTheDay = async (
-  date: Date = new Date(),
-): Promise<Quote | null> => {
+export const fetchRandomQuote = async (): Promise<Quote | null> => {
   if (!API_NINJAS_KEY) return null;
-  try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.quoteOfTheDay);
-    if (raw) {
-      const cached = JSON.parse(raw) as Partial<CachedQuote>;
-      if (cached.date === dayKey(date) && cached.text && cached.author) {
-        return null;
-      }
-    }
-  } catch {
-    // Unreadable cache — fetch a fresh quote below.
-  }
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4000);
@@ -142,11 +96,6 @@ export const refreshQuoteOfTheDay = async (
     const text = payload?.[0]?.quote?.trim();
     const author = payload?.[0]?.author?.trim();
     if (!text || !author) return null;
-    const cached: CachedQuote = { text, author, date: dayKey(date) };
-    await AsyncStorage.setItem(
-      STORAGE_KEYS.quoteOfTheDay,
-      JSON.stringify(cached),
-    );
     return { text, author };
   } catch {
     return null;

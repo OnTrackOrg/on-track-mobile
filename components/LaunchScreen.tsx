@@ -14,16 +14,11 @@ import Animated, {
 } from "react-native-reanimated";
 import { useTheme } from "../contexts/ThemeContext";
 import { withAlpha } from "../utils/color";
-import {
-  Quote,
-  getFallbackQuote,
-  getQuoteOfTheDay,
-  refreshQuoteOfTheDay,
-} from "../lib/quotes";
+import { Quote, fetchRandomQuote, getFallbackQuote } from "../lib/quotes";
 
 // Launch animation 2c from the redesign: a heatmap-shaped grid ripples in a
-// diagonal wave in the current accent colour, then the quote of the day
-// fades up. Tap anywhere to skip.
+// diagonal wave in the current accent colour, then a quote fades up. Tap
+// anywhere to skip.
 const COLS = 10;
 const ROWS = 7;
 const CELL = 16;
@@ -191,12 +186,7 @@ export default function LaunchScreen() {
 
   React.useEffect(() => {
     let live = true;
-    void getQuoteOfTheDay().then((cached) => {
-      if (live && Date.now() - shownAt.current < QUOTE_SWAP_CUTOFF_MS) {
-        setQuote(cached);
-      }
-    });
-    void refreshQuoteOfTheDay().then((fresh) => {
+    void fetchRandomQuote().then((fresh) => {
       if (
         live &&
         fresh &&
@@ -222,8 +212,12 @@ export default function LaunchScreen() {
       ) {
         backgroundedAt = null;
         shownAt.current = Date.now();
-        void getQuoteOfTheDay().then(setQuote);
-        void refreshQuoteOfTheDay().catch(() => {});
+        setQuote(getFallbackQuote());
+        void fetchRandomQuote().then((fresh) => {
+          if (fresh && Date.now() - shownAt.current < QUOTE_SWAP_CUTOFF_MS) {
+            setQuote(fresh);
+          }
+        });
         setVisible(true);
       }
     });
