@@ -67,7 +67,7 @@ OnTrack/
 ├── components/        # Screens (Today/Goals/Search/Profile, Goal, Auth, ...) and shared UI (Avatar, Heatmap, ProgressRing)
 ├── contexts/          # ThemeContext
 ├── docs/              # Product and engineering docs
-├── lib/               # auth, dataSync, social, supabase client, persistence, reminders, dateContext
+├── lib/               # auth, dataSync, social, supabase client, persistence, dateContext
 ├── supabase/          # SQL migrations, edge functions, config
 ├── tests/             # Jest tests (plus co-located *.test.ts files)
 ├── utils/             # Small helpers (haptics)

@@ -105,5 +105,5 @@ app.
 The app requires an account: `App.tsx` renders `AuthScreen` whenever there is
 no session, so no tab is reachable signed out. The signed-out cards in Search
 and Profile are future-proofing only and are currently unreachable. Goal data
-is still local-first once signed in; freeze days, theme, reminders, and UI
+is still local-first once signed in; freeze days, theme, and UI
 preferences remain device-local and are never synced.

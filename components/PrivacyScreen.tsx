@@ -31,7 +31,7 @@ export default function PrivacyScreen() {
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
             Account profile details, goal titles, optional targets, task
             frequency settings, completion history, completed-goal status,
-            freeze days, reminder preferences, and your theme preference.
+            freeze days, and your theme preference.
           </Text>
         </InfoSection>
 
