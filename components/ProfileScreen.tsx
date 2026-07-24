@@ -39,7 +39,10 @@ import {
 } from "../lib/social";
 import { importLocalDataToCloud } from "../lib/importLocal";
 import { supabase } from "../lib/supabase";
-import { ONBOARDING_STORAGE_KEY } from "../onboarding";
+import {
+  APP_TOUR_STORAGE_KEY,
+  LEGACY_ONBOARDING_STORAGE_KEY,
+} from "../onboarding";
 import { FriendProfile, FriendRequest } from "../types";
 
 type ProfileProps = CompositeScreenProps<
@@ -299,7 +302,8 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
               await haptics.destructive();
               await deleteCurrentAccount();
               await useStore.persist.clearStorage();
-              await AsyncStorage.removeItem(ONBOARDING_STORAGE_KEY);
+              await AsyncStorage.removeItem(APP_TOUR_STORAGE_KEY);
+              await AsyncStorage.removeItem(LEGACY_ONBOARDING_STORAGE_KEY);
               setGoals([]);
               setSharedGoals([]);
               setSocialGraph([], [], []);

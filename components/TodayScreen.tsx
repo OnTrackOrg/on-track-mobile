@@ -23,6 +23,7 @@ import { shouldPlayEntrance } from "../utils/entrance";
 import { TabParamList } from "../navigation";
 import TrackingDateControls from "./TrackingDateControls";
 import ProgressRing from "./ProgressRing";
+import { TourAnchor } from "./tour/TourAnchor";
 import Confetti from "./Confetti";
 import { AvatarStack } from "./Avatar";
 import { card } from "./ui";
@@ -122,95 +123,105 @@ export default function TodayScreen({ navigation }: TodayProps) {
     }
   };
 
-  const renderRow = (item: TodayItem, isDone: boolean, index: number) => {
+  const renderRow = (
+    item: TodayItem,
+    isDone: boolean,
+    index: number,
+    isTourTask = false,
+  ) => {
     const color = goalColor(item.goal.id);
+    const row = (
+      <Pressable
+        onPress={() => toggleItem(item, !isDone)}
+        style={{
+          ...card(theme, isDark),
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          padding: 12,
+          paddingLeft: 18,
+          opacity: isDone ? 0.62 : 1,
+          overflow: "hidden",
+        }}
+      >
+        {/* Goal colour edge (mockup 1b) */}
+        <View
+          style={{
+            position: "absolute",
+            left: 7,
+            top: 12,
+            bottom: 12,
+            width: 3,
+            borderRadius: 2,
+            backgroundColor: color,
+          }}
+        />
+        {isDone ? (
+          <View
+            style={{
+              width: 26,
+              height: 26,
+              borderRadius: 13,
+              backgroundColor: color,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Ionicons name="checkmark" size={16} color="#ffffff" />
+          </View>
+        ) : (
+          <View
+            style={{
+              width: 26,
+              height: 26,
+              borderRadius: 13,
+              borderWidth: 2,
+              borderColor: mix(color, 0.5, theme.surface),
+            }}
+          />
+        )}
+        <View style={{ flex: 1 }}>
+          <Text
+            style={{
+              fontWeight: "700",
+              fontSize: 14,
+              color: theme.text,
+              textDecorationLine: isDone ? "line-through" : "none",
+            }}
+          >
+            {item.task.title}
+          </Text>
+          <Text
+            style={{ color: theme.textSecondary, fontSize: 12, marginTop: 1 }}
+          >
+            <Text style={{ color, fontWeight: "600" }}>{item.goal.title}</Text>{" "}
+            · {frequencyLabel(item.task)}
+          </Text>
+        </View>
+        {item.isShared && item.goal.members && item.goal.members.length > 1 ? (
+          <AvatarStack
+            users={item.goal.members.map((member) => ({
+              userId: member.userId,
+              displayName: member.displayName,
+            }))}
+            size="sm"
+            max={3}
+          />
+        ) : null}
+      </Pressable>
+    );
+
     return (
       <Animated.View
         key={`${item.goal.id}:${item.task.id}`}
         entering={entering(index)}
       >
-        <Pressable
-          onPress={() => toggleItem(item, !isDone)}
-          style={{
-            ...card(theme, isDark),
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 12,
-            padding: 12,
-            paddingLeft: 18,
-            opacity: isDone ? 0.62 : 1,
-            overflow: "hidden",
-          }}
-        >
-          {/* Goal colour edge (mockup 1b) */}
-          <View
-            style={{
-              position: "absolute",
-              left: 7,
-              top: 12,
-              bottom: 12,
-              width: 3,
-              borderRadius: 2,
-              backgroundColor: color,
-            }}
-          />
-          {isDone ? (
-            <View
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: 13,
-                backgroundColor: color,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Ionicons name="checkmark" size={16} color="#ffffff" />
-            </View>
-          ) : (
-            <View
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: 13,
-                borderWidth: 2,
-                borderColor: mix(color, 0.5, theme.surface),
-              }}
-            />
-          )}
-          <View style={{ flex: 1 }}>
-            <Text
-              style={{
-                fontWeight: "700",
-                fontSize: 14,
-                color: theme.text,
-                textDecorationLine: isDone ? "line-through" : "none",
-              }}
-            >
-              {item.task.title}
-            </Text>
-            <Text
-              style={{ color: theme.textSecondary, fontSize: 12, marginTop: 1 }}
-            >
-              <Text style={{ color, fontWeight: "600" }}>
-                {item.goal.title}
-              </Text>{" "}
-              · {frequencyLabel(item.task)}
-            </Text>
-          </View>
-          {item.isShared &&
-          item.goal.members &&
-          item.goal.members.length > 1 ? (
-            <AvatarStack
-              users={item.goal.members.map((member) => ({
-                userId: member.userId,
-                displayName: member.displayName,
-              }))}
-              size="sm"
-              max={3}
-            />
-          ) : null}
-        </Pressable>
+        {isTourTask ? (
+          // The tour spotlights the first to-do row when one exists.
+          <TourAnchor anchorKey="today-task">{row}</TourAnchor>
+        ) : (
+          row
+        )}
       </Animated.View>
     );
   };
@@ -239,107 +250,119 @@ export default function TodayScreen({ navigation }: TodayProps) {
         </View>
 
         {totals.total > 0 ? (
-          <Animated.View
-            entering={entering(0)}
-            style={{
-              ...card(theme, isDark),
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 16,
-              padding: 16,
-            }}
-          >
-            <Animated.View style={ringPopStyle}>
-              <ProgressRing
-                size={72}
-                strokeWidth={8}
-                percent={totals.done / totals.total}
-                trackColor={mix(theme.primary, 0.18, theme.background)}
-              >
-                <Text
-                  style={{ fontWeight: "800", fontSize: 15, color: theme.text }}
+          <TourAnchor anchorKey="today-summary">
+            <Animated.View
+              entering={entering(0)}
+              style={{
+                ...card(theme, isDark),
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 16,
+                padding: 16,
+              }}
+            >
+              <Animated.View style={ringPopStyle}>
+                <ProgressRing
+                  size={72}
+                  strokeWidth={8}
+                  percent={totals.done / totals.total}
+                  trackColor={mix(theme.primary, 0.18, theme.background)}
                 >
-                  {totals.done}/{totals.total}
-                </Text>
-              </ProgressRing>
-              {celebrateKey > 0 ? (
-                <Confetti key={celebrateKey} size={72} />
-              ) : null}
-            </Animated.View>
-            <View style={{ flex: 1 }}>
-              <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
-              >
-                <Text
-                  style={{ fontSize: 18, fontWeight: "700", color: theme.text }}
-                >
-                  {allDone ? "All done" : "Keep it moving"}
-                </Text>
-                {allDone ? (
-                  <Animated.View
-                    entering={ZoomIn.springify().delay(150)}
+                  <Text
                     style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: 11,
-                      backgroundColor: theme.primary + "26",
-                      alignItems: "center",
-                      justifyContent: "center",
+                      fontWeight: "800",
+                      fontSize: 15,
+                      color: theme.text,
                     }}
                   >
-                    <Ionicons name="trophy" size={12} color={theme.primary} />
-                  </Animated.View>
+                    {totals.done}/{totals.total}
+                  </Text>
+                </ProgressRing>
+                {celebrateKey > 0 ? (
+                  <Confetti key={celebrateKey} size={72} />
                 ) : null}
+              </Animated.View>
+              <View style={{ flex: 1 }}>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 18,
+                      fontWeight: "700",
+                      color: theme.text,
+                    }}
+                  >
+                    {allDone ? "All done" : "Keep it moving"}
+                  </Text>
+                  {allDone ? (
+                    <Animated.View
+                      entering={ZoomIn.springify().delay(150)}
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: 11,
+                        backgroundColor: theme.primary + "26",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Ionicons name="trophy" size={12} color={theme.primary} />
+                    </Animated.View>
+                  ) : null}
+                </View>
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    marginTop: 2,
+                    fontSize: 14,
+                  }}
+                >
+                  {allDone
+                    ? "Every goal touched today — see you tomorrow"
+                    : `${totals.done} of ${totals.total} tasks across ${totals.goalCount} goal${totals.goalCount === 1 ? "" : "s"}`}
+                </Text>
               </View>
+            </Animated.View>
+          </TourAnchor>
+        ) : !frozen ? (
+          <TourAnchor anchorKey="today-summary">
+            <Animated.View
+              entering={entering(0)}
+              style={{
+                ...card(theme, isDark),
+                padding: 20,
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
               <Text
+                style={{ fontWeight: "700", fontSize: 16, color: theme.text }}
+              >
+                Nothing scheduled
+              </Text>
+              <Text style={{ color: theme.textSecondary, textAlign: "center" }}>
+                No tasks are due on this day. Set up a goal to get started.
+              </Text>
+              <Pressable
+                onPress={() => {
+                  void haptics.navigate();
+                  navigation.navigate("Goals");
+                }}
                 style={{
-                  color: theme.textSecondary,
-                  marginTop: 2,
-                  fontSize: 14,
+                  marginTop: 4,
+                  paddingHorizontal: 16,
+                  paddingVertical: 8,
+                  borderRadius: 9999,
+                  backgroundColor: theme.primary,
                 }}
               >
-                {allDone
-                  ? "Every goal touched today — see you tomorrow"
-                  : `${totals.done} of ${totals.total} tasks across ${totals.goalCount} goal${totals.goalCount === 1 ? "" : "s"}`}
-              </Text>
-            </View>
-          </Animated.View>
-        ) : !frozen ? (
-          <Animated.View
-            entering={entering(0)}
-            style={{
-              ...card(theme, isDark),
-              padding: 20,
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <Text
-              style={{ fontWeight: "700", fontSize: 16, color: theme.text }}
-            >
-              Nothing scheduled
-            </Text>
-            <Text style={{ color: theme.textSecondary, textAlign: "center" }}>
-              No tasks are due on this day. Set up a goal to get started.
-            </Text>
-            <Pressable
-              onPress={() => {
-                void haptics.navigate();
-                navigation.navigate("Goals");
-              }}
-              style={{
-                marginTop: 4,
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-                borderRadius: 9999,
-                backgroundColor: theme.primary,
-              }}
-            >
-              <Text style={{ color: "#ffffff", fontWeight: "700" }}>
-                Go to Goals
-              </Text>
-            </Pressable>
-          </Animated.View>
+                <Text style={{ color: "#ffffff", fontWeight: "700" }}>
+                  Go to Goals
+                </Text>
+              </Pressable>
+            </Animated.View>
+          </TourAnchor>
         ) : null}
 
         {todo.length > 0 ? (
@@ -361,7 +384,9 @@ export default function TodayScreen({ navigation }: TodayProps) {
                 {todo.length} left
               </Text>
             </View>
-            {todo.map((item, index) => renderRow(item, false, index + 1))}
+            {todo.map((item, index) =>
+              renderRow(item, false, index + 1, index === 0),
+            )}
           </>
         ) : null}
 
