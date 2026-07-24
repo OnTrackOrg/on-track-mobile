@@ -42,7 +42,8 @@
         {
           "photosPermission": "OnTrack uses your photo library to set your profile photo."
         }
-      ]
+      ],
+      "expo-notifications"
     ]
   }
 }
