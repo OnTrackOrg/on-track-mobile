@@ -14,6 +14,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useTheme } from "../contexts/ThemeContext";
 import { withAlpha } from "../utils/color";
+import { setLaunchScreenVisible } from "../lib/launchVisibility";
 import { Quote, fetchRandomQuote, getFallbackQuote } from "../lib/quotes";
 
 // Launch animation 2c from the redesign: a heatmap-shaped grid ripples in a
@@ -183,6 +184,11 @@ export default function LaunchScreen() {
   const [visible, setVisible] = React.useState(true);
   const [quote, setQuote] = React.useState<Quote>(() => getFallbackQuote());
   const shownAt = React.useRef(Date.now());
+
+  // Lets the app tour hold off until the splash is out of the way.
+  React.useEffect(() => {
+    setLaunchScreenVisible(visible);
+  }, [visible]);
 
   React.useEffect(() => {
     let live = true;

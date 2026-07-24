@@ -15,6 +15,7 @@ import { shouldPlayEntrance } from "../utils/entrance";
 import { Goal } from "../types";
 import { RootStackParamList } from "../navigation";
 import ProgressRing from "./ProgressRing";
+import { TourAnchor } from "./tour/TourAnchor";
 import { card } from "./ui";
 
 // ponytail: drag-reorder for goals was dropped with the old HomeScreen;
@@ -89,88 +90,97 @@ export default function GoalsScreen() {
       .filter(Boolean)
       .join(" · ");
 
-    return (
-      <Animated.View key={goal.id} entering={entering(index)}>
-        <Pressable
-          onPress={() => {
-            void haptics.navigate();
-            navigation.navigate("Goal", { goalId: goal.id });
-          }}
+    const goalCard = (
+      <Pressable
+        onPress={() => {
+          void haptics.navigate();
+          navigation.navigate("Goal", { goalId: goal.id });
+        }}
+        style={{
+          ...card(theme, isDark),
+          gap: 12,
+          paddingLeft: 18,
+          overflow: "hidden",
+        }}
+      >
+        <View
           style={{
-            ...card(theme, isDark),
-            gap: 12,
-            paddingLeft: 18,
-            overflow: "hidden",
+            position: "absolute",
+            left: 7,
+            top: 14,
+            bottom: 14,
+            width: 3,
+            borderRadius: 2,
+            backgroundColor: color,
           }}
-        >
-          <View
-            style={{
-              position: "absolute",
-              left: 7,
-              top: 14,
-              bottom: 14,
-              width: 3,
-              borderRadius: 2,
-              backgroundColor: color,
-            }}
-          />
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-            <ProgressRing
-              size={46}
-              strokeWidth={5}
-              percent={progress.percent}
-              color={color}
-              trackColor={mix(theme.primary, 0.15, theme.background)}
+        />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <ProgressRing
+            size={46}
+            strokeWidth={5}
+            percent={progress.percent}
+            color={color}
+            trackColor={mix(theme.primary, 0.15, theme.background)}
+          >
+            <Text
+              style={{ color: theme.text, fontWeight: "700", fontSize: 11 }}
             >
-              <Text
-                style={{ color: theme.text, fontWeight: "700", fontSize: 11 }}
-              >
-                {Math.round(progress.percent * 100)}%
-              </Text>
-            </ProgressRing>
-            <View style={{ flex: 1 }}>
-              <Text
-                style={{ fontWeight: "700", fontSize: 16, color: theme.text }}
-              >
-                {goal.title}
-              </Text>
+              {Math.round(progress.percent * 100)}%
+            </Text>
+          </ProgressRing>
+          <View style={{ flex: 1 }}>
+            <Text
+              style={{ fontWeight: "700", fontSize: 16, color: theme.text }}
+            >
+              {goal.title}
+            </Text>
+            <Text
+              style={{
+                color: theme.textSecondary,
+                fontSize: 12,
+                marginTop: 2,
+              }}
+            >
+              {subtitle}
+            </Text>
+          </View>
+          {maxStreak > 0 ? (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 2,
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                borderRadius: 9999,
+                backgroundColor: theme.streak + "1f",
+              }}
+            >
+              <Ionicons name="flash" size={12} color={theme.streak} />
               <Text
                 style={{
-                  color: theme.textSecondary,
+                  color: theme.streak,
+                  fontWeight: "800",
                   fontSize: 12,
-                  marginTop: 2,
                 }}
               >
-                {subtitle}
+                {maxStreak}
               </Text>
             </View>
-            {maxStreak > 0 ? (
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 2,
-                  paddingHorizontal: 8,
-                  paddingVertical: 4,
-                  borderRadius: 9999,
-                  backgroundColor: theme.streak + "1f",
-                }}
-              >
-                <Ionicons name="flash" size={12} color={theme.streak} />
-                <Text
-                  style={{
-                    color: theme.streak,
-                    fontWeight: "800",
-                    fontSize: 12,
-                  }}
-                >
-                  {maxStreak}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-          {renderStrip(goal, color)}
-        </Pressable>
+          ) : null}
+        </View>
+        {renderStrip(goal, color)}
+      </Pressable>
+    );
+
+    return (
+      <Animated.View key={goal.id} entering={entering(index)}>
+        {index === 1 ? (
+          // The tour spotlights the first goal card on the list.
+          <TourAnchor anchorKey="goals-card">{goalCard}</TourAnchor>
+        ) : (
+          goalCard
+        )}
       </Animated.View>
     );
   };
@@ -192,47 +202,51 @@ export default function GoalsScreen() {
           <Text style={{ fontSize: 34, fontWeight: "800", color: theme.text }}>
             Goals
           </Text>
-          <Pressable
-            onPress={() => {
-              void haptics.navigate();
-              navigation.navigate("NewGoal");
-            }}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 4,
-              paddingHorizontal: 14,
-              paddingVertical: 8,
-              borderRadius: 9999,
-              backgroundColor: theme.primary,
-            }}
-          >
-            <Ionicons name="add" size={16} color="#ffffff" />
-            <Text style={{ color: "#ffffff", fontWeight: "700" }}>New</Text>
-          </Pressable>
+          <TourAnchor anchorKey="goals-new-button">
+            <Pressable
+              onPress={() => {
+                void haptics.navigate();
+                navigation.navigate("NewGoal");
+              }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+                paddingHorizontal: 14,
+                paddingVertical: 8,
+                borderRadius: 9999,
+                backgroundColor: theme.primary,
+              }}
+            >
+              <Ionicons name="add" size={16} color="#ffffff" />
+              <Text style={{ color: "#ffffff", fontWeight: "700" }}>New</Text>
+            </Pressable>
+          </TourAnchor>
         </View>
 
         {activeOwned.length === 0 && activeShared.length === 0 ? (
-          <View
-            style={{
-              ...card(theme, isDark),
-              padding: 20,
-              alignItems: "center",
-            }}
-          >
-            <Text style={{ fontWeight: "700", color: theme.text }}>
-              No goals yet
-            </Text>
-            <Text
+          <TourAnchor anchorKey="goals-card">
+            <View
               style={{
-                color: theme.textSecondary,
-                marginTop: 4,
-                textAlign: "center",
+                ...card(theme, isDark),
+                padding: 20,
+                alignItems: "center",
               }}
             >
-              Tap &ldquo;+ New&rdquo; to create your first goal.
-            </Text>
-          </View>
+              <Text style={{ fontWeight: "700", color: theme.text }}>
+                No goals yet
+              </Text>
+              <Text
+                style={{
+                  color: theme.textSecondary,
+                  marginTop: 4,
+                  textAlign: "center",
+                }}
+              >
+                Tap &ldquo;+ New&rdquo; to create your first goal.
+              </Text>
+            </View>
+          </TourAnchor>
         ) : (
           <>
             {activeOwned.map((goal, index) => renderGoalCard(goal, index + 1))}

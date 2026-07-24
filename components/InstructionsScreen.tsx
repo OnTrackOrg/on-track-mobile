@@ -95,7 +95,7 @@ export default function InstructionsScreen() {
 
         <InfoSection title="6. Start with your own goals">
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-            After onboarding and account setup, OnTrack starts empty. Add your
+            After the app tour and account setup, OnTrack starts empty. Add your
             own goals and tasks to build a consistency history that reflects
             your real routine.
           </Text>
