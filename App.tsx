@@ -20,6 +20,7 @@ import TodayScreen from "./components/TodayScreen";
 import GoalsScreen from "./components/GoalsScreen";
 import SearchScreen from "./components/SearchScreen";
 import ProfileScreen from "./components/ProfileScreen";
+import FriendScreen from "./components/FriendScreen";
 import GoalScreen from "./components/GoalScreen";
 import NewGoalScreen from "./components/NewGoalScreen";
 import PrivacyScreen from "./components/PrivacyScreen";
@@ -55,6 +56,7 @@ import { fetchSocialGraph } from "./lib/social";
 import { setAccountDeletedHandler } from "./lib/accountDeleted";
 import { supabase } from "./lib/supabase";
 import { reconcileAvatarWithProfile } from "./lib/avatar";
+import { registerPushTokenForCurrentUser } from "./lib/pushNotifications";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -285,6 +287,15 @@ function ThemedNavigation() {
       return;
     }
     void reconcileAvatarWithProfile(session.user.id).catch(() => {});
+  }, [session]);
+
+  React.useEffect(() => {
+    if (!session?.user) {
+      return;
+    }
+    void registerPushTokenForCurrentUser().catch((error) => {
+      console.warn("Push notification registration failed", error);
+    });
   }, [session]);
 
   React.useEffect(() => {
@@ -787,6 +798,11 @@ function ThemedNavigation() {
           name="NewGoal"
           component={NewGoalScreen}
           options={{ title: "New Goal" }}
+        />
+        <Stack.Screen
+          name="Friend"
+          component={FriendScreen}
+          options={{ title: "Friend" }}
         />
         <Stack.Screen
           name="Instructions"

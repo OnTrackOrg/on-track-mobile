@@ -682,6 +682,10 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
               return (
                 <Pressable
                   key={friend.userId}
+                  onPress={() => {
+                    void haptics.navigate();
+                    navigation.navigate("Friend", { friend });
+                  }}
                   onLongPress={() => openFriendMenu(friend)}
                   style={{
                     flexDirection: "row",
