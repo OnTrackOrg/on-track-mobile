@@ -14,12 +14,19 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   useStore,
   getCustomFrequencyProgress,
+  getGoalLifecycleStatus,
   getGoalProgress,
+  getGoalStartDate,
   getGoalStreak,
   getMemberAdherence,
 } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
-import { addDays, format, startOfWeek } from "date-fns";
+import {
+  addDays,
+  differenceInCalendarDays,
+  format,
+  startOfWeek,
+} from "date-fns";
 import {
   CustomFrequency,
   FriendProfile,
@@ -33,6 +40,7 @@ import { mix, withAlpha } from "../utils/color";
 import { RootStackParamList } from "../navigation";
 import TrackingDateControls from "./TrackingDateControls";
 import Avatar from "./Avatar";
+import DatePickerModal from "./DatePickerModal";
 import Heatmap from "./Heatmap";
 import { card } from "./ui";
 import {
@@ -56,7 +64,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const goal = ownedGoal ?? sharedGoal;
   const account = useStore((s) => s.account);
   const friends = useStore((s) => s.friends);
-  const frozenDays = useStore((s) => s.frozenDays);
   const selectedDate = useStore((s) => s.selectedDate);
   const addTask = useStore((s) => s.addTask);
   const updateTask = useStore((s) => s.updateTask);
@@ -90,6 +97,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const [invitingFriendId, setInvitingFriendId] = React.useState<string | null>(
     null,
   );
+  const [isDuePickerOpen, setIsDuePickerOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (goal && !isEditingGoalDetails) {
@@ -105,7 +113,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   // Stat cards (redesign): best task streak, days fully done this week,
   // and 8-week adherence for the current user.
   const maxStreak = goal.tasks.reduce(
-    (best, task) => Math.max(best, getGoalStreak(task, frozenDays)),
+    (best, task) => Math.max(best, getGoalStreak(task)),
     0,
   );
   const now = new Date();
@@ -124,6 +132,24 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const completedAtLabel = goal.completedAt
     ? `Achieved ${format(new Date(goal.completedAt), "MMM d, yyyy")}`
     : "Achieved";
+
+  const lifecycleStatus = getGoalLifecycleStatus(goal);
+  const goalStartDate = getGoalStartDate(goal);
+  const goalStartDayKey = format(goalStartDate, "yyyy-MM-dd");
+  const dueDate = goal.dueDay
+    ? (() => {
+        const [year, month, day] = goal.dueDay.split("-").map(Number);
+        return new Date(year, month - 1, day);
+      })()
+    : null;
+  const daysUntilDue = dueDate
+    ? differenceInCalendarDays(dueDate, new Date())
+    : null;
+  const dueLabel = dueDate
+    ? daysUntilDue !== null && daysUntilDue < 0
+      ? `Due ${format(dueDate, "MMM d, yyyy")} · ${-daysUntilDue}d overdue`
+      : `Due ${format(dueDate, "MMM d, yyyy")} · ${daysUntilDue}d left`
+    : null;
 
   const saveGoalDetails = () => {
     const trimmedTitle = goalTitleDraft.trim();
@@ -454,7 +480,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const memberIds = new Set(members.map((m) => m.userId));
   const invitableFriends = friends.filter((f) => !memberIds.has(f.userId));
 
-  const frozenDateKeys = new Set(frozenDays.map((fd) => fd.date));
   // ponytail: heatmaps show MY completions only, even on shared goals —
   // same semantics as the old per-goal Consistency screen.
   const recurringTasks = goal.tasks.filter((t) => t.frequency !== "once");
@@ -504,7 +529,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
 
   const renderStreakChip = (task: Task) => {
     if (task.frequency === "once") return null;
-    const streak = getGoalStreak(task, frozenDays);
+    const streak = getGoalStreak(task);
     if (streak <= 0) return null;
     return (
       <View
@@ -755,7 +780,117 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             Target: {goal.target}
           </Text>
         ) : null}
+
+        {/* Due date chip: owners tap to set/change/clear (achieved goals
+            keep their history without an overdue warning) */}
+        {!isGoalCompleted && (dueLabel || isOwner) ? (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            <Pressable
+              disabled={!isOwner}
+              onPress={() => {
+                void haptics.tap();
+                setIsDuePickerOpen(true);
+              }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 9999,
+                backgroundColor:
+                  daysUntilDue !== null && daysUntilDue < 0
+                    ? theme.danger + "1c"
+                    : withAlpha(theme.primary, 0.12),
+              }}
+            >
+              <Ionicons
+                name="flag-outline"
+                size={14}
+                color={
+                  daysUntilDue !== null && daysUntilDue < 0
+                    ? theme.danger
+                    : theme.primary
+                }
+              />
+              <Text
+                style={{
+                  fontWeight: "700",
+                  fontSize: 13,
+                  color:
+                    daysUntilDue !== null && daysUntilDue < 0
+                      ? theme.danger
+                      : theme.primary,
+                }}
+              >
+                {dueLabel ?? "Add due date"}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         <TrackingDateControls hasCompletions={hasCompletionsOnSelectedDate} />
+
+        {lifecycleStatus === "draft" ? (
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              borderWidth: 1,
+              borderColor: theme.border,
+              borderRadius: 10,
+              padding: 12,
+              backgroundColor: withAlpha(theme.textSecondary, 0.08),
+            }}
+          >
+            <Ionicons
+              name="document-outline"
+              size={18}
+              color={theme.textSecondary}
+            />
+            <Text style={{ color: theme.text, fontWeight: "700" }}>
+              Draft — start it from the Goals tab
+            </Text>
+          </View>
+        ) : null}
+        {lifecycleStatus === "scheduled" && goal.startDay ? (
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              borderWidth: 1,
+              borderColor: withAlpha(theme.primary, 0.35),
+              borderRadius: 10,
+              padding: 12,
+              backgroundColor: withAlpha(theme.primary, 0.1),
+            }}
+          >
+            <Ionicons name="calendar-outline" size={18} color={theme.primary} />
+            <Text style={{ color: theme.text, fontWeight: "700" }}>
+              Starts {format(goalStartDate, "MMM d, yyyy")}
+            </Text>
+          </View>
+        ) : null}
+
+        <DatePickerModal
+          visible={isDuePickerOpen}
+          title="Due date"
+          initialDay={goal.dueDay}
+          minDay={
+            goal.startDay && goal.startDay > format(new Date(), "yyyy-MM-dd")
+              ? goal.startDay
+              : format(new Date(), "yyyy-MM-dd")
+          }
+          allowClear={Boolean(goal.dueDay)}
+          onSelect={(day) => {
+            updateGoal(goalId, { dueDay: day });
+            void haptics.success();
+          }}
+          onClear={() => updateGoal(goalId, { dueDay: null })}
+          onClose={() => setIsDuePickerOpen(false)}
+        />
         {isGoalCompleted ? (
           <View
             style={{
@@ -840,7 +975,9 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             <Text
               style={{ fontSize: 20, fontWeight: "800", color: theme.text }}
             >
-              {adherencePct}%
+              {lifecycleStatus === "draft" || lifecycleStatus === "scheduled"
+                ? "—"
+                : `${adherencePct}%`}
             </Text>
             <Text
               style={{
@@ -854,7 +991,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           </View>
         </View>
 
-        {/* Last 8 weeks */}
+        {/* Full history since the goal started (scroll back in the grid) */}
         <View
           style={{
             flexDirection: "row",
@@ -864,7 +1001,9 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           }}
         >
           <Text style={{ fontWeight: "700", color: theme.text }}>
-            Last 8 weeks
+            {lifecycleStatus === "draft" || lifecycleStatus === "scheduled"
+              ? "History"
+              : `History since ${format(goalStartDate, "MMM d, yyyy")}`}
           </Text>
           <Text
             style={{
@@ -880,7 +1019,11 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 : ""}
           </Text>
         </View>
-        {recurringTasks.length === 0 ? (
+        {lifecycleStatus === "draft" || lifecycleStatus === "scheduled" ? (
+          <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+            History starts when the goal does.
+          </Text>
+        ) : recurringTasks.length === 0 ? (
           <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
             Add a repeating task to see its history here.
           </Text>
@@ -888,6 +1031,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           <View style={card(theme, isDark)}>
             <Heatmap
               startOffsetDays={56}
+              historyStartDay={goalStartDayKey}
               values={
                 heatmapTask
                   ? taskHeatmapValues(heatmapTask)
@@ -896,7 +1040,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
               valueMode={heatmapTask ? "count" : "ratio"}
               color={color}
               referenceDate={selectedDate}
-              frozenDateKeys={frozenDateKeys}
             />
           </View>
         )}
@@ -931,6 +1074,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                   <Avatar
                     userId={member.userId}
                     displayName={member.displayName}
+                    avatarUri={member.avatarUri}
                     size="md"
                   />
                   <View style={{ flex: 1, gap: 5 }}>
@@ -1186,6 +1330,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                     <Avatar
                       userId={friend.userId}
                       displayName={friend.displayName}
+                      avatarUri={friend.avatarUri}
                       size="md"
                     />
                     <View style={{ flex: 1 }}>

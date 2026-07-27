@@ -7,7 +7,6 @@ import {
   CustomFrequency,
   Task,
   UserAccount,
-  FreezeDay,
   FriendProfile,
   FriendRequest,
 } from "./types";
@@ -71,6 +70,40 @@ const normalizeGoal = (goal: PersistedGoal): Goal => ({
   completedAt: normalizeOptionalTimestamp(goal.completedAt),
   tasks: (goal.tasks ?? goal.subGoals ?? []).map(normalizeTask),
 });
+
+// Goal lifecycle -------------------------------------------------------------
+
+export type GoalLifecycleStatus = "draft" | "scheduled" | "active" | "achieved";
+
+export const getGoalLifecycleStatus = (
+  goal: Goal,
+  referenceDate: Date = new Date(),
+): GoalLifecycleStatus => {
+  if (goal.completedAt !== undefined) return "achieved";
+  if (goal.isDraft) return "draft";
+  if (goal.startDay && goal.startDay > dateToKey(referenceDate)) {
+    return "scheduled";
+  }
+  return "active";
+};
+
+/** True once the goal's tasks can be due (started on or before this day). */
+export const hasGoalStarted = (
+  goal: Goal,
+  referenceDate: Date = new Date(),
+): boolean => {
+  if (goal.isDraft) return false;
+  return !goal.startDay || goal.startDay <= dateToKey(referenceDate);
+};
+
+/** The calendar day the goal's history begins (start day, else creation). */
+export const getGoalStartDate = (goal: Goal): Date => {
+  if (goal.startDay) {
+    const [year, month, day] = goal.startDay.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+  return normalizeDate(new Date(goal.createdAt));
+};
 
 // Helper functions for custom frequency calculations
 export const getCustomFrequencyProgress = (
@@ -211,13 +244,14 @@ export const getGoalProgress = (
 /**
  * Per-frequency pending/done split for one goal on one calendar day. Lifted
  * from GoalScreen so Today and GoalDetail share the exact same semantics.
- * `frozen` marks the day as a rest day: nothing is due, done stays as-is.
+ * Tasks in `postponedTaskIds` ("Not Today") move out of pending into their
+ * own bucket: not due, not done.
  */
 export const getTaskBucketsForDate = (
   goal: Goal,
   date: Date,
-  frozen = false,
-): { pending: Task[]; completed: Task[] } => {
+  postponedTaskIds?: ReadonlySet<string>,
+): { pending: Task[]; completed: Task[]; postponed: Task[] } => {
   const weekStart = startOfWeek(date, { weekStartsOn: 0 });
   const weekEnd = endOfWeek(date, { weekStartsOn: 0 });
   const doneOnDate = (task: Task) =>
@@ -238,17 +272,77 @@ export const getTaskBucketsForDate = (
     return isOnceTaskCompletedOnDate(task, date);
   });
 
-  const pending = frozen
-    ? []
-    : goal.tasks.filter((task) => {
-        if (task.frequency === "custom")
-          return shouldShowCustomTask(task, date);
-        if (task.frequency === "daily") return !doneOnDate(task);
-        if (task.frequency === "weekly") return !doneThisWeek(task);
-        return task.completions.length === 0; // once
-      });
+  const due = goal.tasks.filter((task) => {
+    if (task.frequency === "custom") return shouldShowCustomTask(task, date);
+    if (task.frequency === "daily") return !doneOnDate(task);
+    if (task.frequency === "weekly") return !doneThisWeek(task);
+    return task.completions.length === 0; // once
+  });
 
-  return { pending, completed };
+  const pending = due.filter((task) => !postponedTaskIds?.has(task.id));
+  const postponed = due.filter((task) => postponedTaskIds?.has(task.id));
+
+  return { pending, completed, postponed };
+};
+
+/**
+ * Whether a pending task can be pushed off to another day without making the
+ * goal unmeetable. Daily tasks can never move. Repeating tasks need at least
+ * as many days left in their period (after `date`, clamped to the goal's due
+ * day) as completions still owed. One-off tasks only block on the goal's
+ * final day.
+ */
+export const canPostponeTask = (
+  goal: Goal,
+  task: Task,
+  date: Date = new Date(),
+): boolean => {
+  const day = normalizeDate(date);
+  const dayKey = dateToKey(day);
+
+  if (task.frequency === "daily") return false;
+
+  if (task.frequency === "once") {
+    return !goal.dueDay || dayKey < goal.dueDay;
+  }
+
+  // weekly behaves like a custom weekly target of 1
+  const target =
+    task.frequency === "weekly" ? 1 : (task.customFrequency?.target ?? 0);
+  if (target <= 0) return true;
+
+  let periodEnd: Date;
+  let completedInPeriod: number;
+  if (task.frequency === "weekly") {
+    const weekStart = startOfWeek(day, { weekStartsOn: 0 });
+    const weekEnd = endOfWeek(day, { weekStartsOn: 0 });
+    periodEnd = weekEnd;
+    completedInPeriod = task.completions.some((completion) =>
+      isWithinInterval(completion, { start: weekStart, end: weekEnd }),
+    )
+      ? 1
+      : 0;
+  } else {
+    const progress = getCustomFrequencyProgress(task, day);
+    if (!progress.periodEnd) return true;
+    periodEnd = progress.periodEnd;
+    completedInPeriod = progress.completed;
+  }
+
+  const remainingNeeded = target - completedInPeriod;
+  if (remainingNeeded <= 0) return true; // quota already met
+
+  // Days still usable after today: the rest of the period, cut short by the
+  // goal's due day when that lands inside the period.
+  let lastUsableDay = normalizeDate(periodEnd);
+  if (goal.dueDay) {
+    const [year, month, dd] = goal.dueDay.split("-").map(Number);
+    const due = new Date(year, month - 1, dd);
+    if (due < lastUsableDay) lastUsableDay = due;
+  }
+  const daysLeftAfterToday = differenceInCalendarDays(lastUsableDay, day);
+
+  return remainingNeeded <= daysLeftAfterToday;
 };
 
 export type TodayItem = { goal: Goal; task: Task; isShared: boolean };
@@ -257,22 +351,29 @@ export const getTodayItems = (
   goals: Goal[],
   sharedGoals: Goal[],
   date: Date,
-  frozen = false,
+  postponedTaskIds?: ReadonlySet<string>,
 ): {
   todo: TodayItem[];
   done: TodayItem[];
+  postponed: TodayItem[];
   totals: { done: number; total: number; goalCount: number };
 } => {
   const todo: TodayItem[] = [];
   const done: TodayItem[] = [];
+  const postponed: TodayItem[] = [];
   const goalIds = new Set<string>();
 
   const collect = (goal: Goal, isShared: boolean) => {
     if (goal.completedAt !== undefined) return;
-    const { pending, completed } = getTaskBucketsForDate(goal, date, frozen);
-    if (pending.length + completed.length > 0) goalIds.add(goal.id);
-    for (const task of pending) todo.push({ goal, task, isShared });
-    for (const task of completed) done.push({ goal, task, isShared });
+    if (!hasGoalStarted(goal, date)) return; // drafts + scheduled starts
+    const buckets = getTaskBucketsForDate(goal, date, postponedTaskIds);
+    if (buckets.pending.length + buckets.completed.length > 0) {
+      goalIds.add(goal.id);
+    }
+    for (const task of buckets.pending) todo.push({ goal, task, isShared });
+    for (const task of buckets.completed) done.push({ goal, task, isShared });
+    for (const task of buckets.postponed)
+      postponed.push({ goal, task, isShared });
   };
 
   goals.forEach((goal) => collect(goal, false));
@@ -281,6 +382,7 @@ export const getTodayItems = (
   return {
     todo,
     done,
+    postponed,
     totals: {
       done: done.length,
       total: todo.length + done.length,
@@ -326,8 +428,7 @@ export const getMemberAdherence = (
 ): number => {
   const view = goalAsSeenBy(goal, userId);
   const end = normalizeDate(referenceDate);
-  const ageDays =
-    differenceInCalendarDays(end, normalizeDate(new Date(goal.createdAt))) + 1;
+  const ageDays = differenceInCalendarDays(end, getGoalStartDate(goal)) + 1;
   const days = Math.max(1, Math.min(windowDays, ageDays));
 
   let sum = 0;
@@ -384,82 +485,30 @@ export const getCustomFrequencyAlert = (
 };
 
 // Helper to calculate streak for any goal type
-// frozenDays: pass the store's frozenDays array so frozen dates are skipped (not broken)
-export const getGoalStreak = (
-  task: Task,
-  frozenDays: FreezeDay[] = [],
-): number => {
+export const getGoalStreak = (task: Task): number => {
   let streak = 0;
-  let currentDate = new Date();
-
-  // Build a Set of frozen date keys for O(1) lookup
-  const frozenDateKeys = new Set(frozenDays.map((fd) => fd.date));
-  const isDateKeyFrozen = (dateKey: string) => frozenDateKeys.has(dateKey);
+  const currentDate = new Date();
 
   if (task.frequency === "custom" && task.customFrequency) {
-    // For custom frequencies, check period achievements
+    // For custom frequencies, count consecutive achieved periods
     const { type } = task.customFrequency;
 
-    // First check if current period is achieved (with freeze-adjusted target)
-    let currentProgress = getCustomFrequencyProgress(task, currentDate);
-    let frozenInCurrentPeriod = 0;
-    if (currentProgress.periodStart && currentProgress.periodEnd) {
-      let d = startOfDay(currentProgress.periodStart);
-      while (d <= currentProgress.periodEnd) {
-        if (isDateKeyFrozen(format(d, "yyyy-MM-dd"))) frozenInCurrentPeriod++;
-        d = addDays(d, 1);
-      }
-    }
-    const minTarget = Math.max(1, Math.ceil(currentProgress.target * 0.5));
-    const adjustedTarget = Math.max(
-      minTarget,
-      currentProgress.target - frozenInCurrentPeriod,
-    );
-    const currentAchieved = currentProgress.completed >= adjustedTarget;
-
-    // If current period is achieved, start counting from it
-    if (currentAchieved) {
+    const currentProgress = getCustomFrequencyProgress(task, currentDate);
+    if (currentProgress.completed >= currentProgress.target) {
       streak++;
-      // Move to previous period
-      if (type === "weekly") {
-        currentDate.setDate(currentDate.getDate() - 7);
-      } else {
-        currentDate.setMonth(currentDate.getMonth() - 1);
-      }
+    }
+    // Whether or not the current period is achieved yet, keep counting from
+    // the previous period backwards.
+    if (type === "weekly") {
+      currentDate.setDate(currentDate.getDate() - 7);
     } else {
-      // If current period is not achieved, start from previous period
-      if (type === "weekly") {
-        currentDate.setDate(currentDate.getDate() - 7);
-      } else {
-        currentDate.setMonth(currentDate.getMonth() - 1);
-      }
+      currentDate.setMonth(currentDate.getMonth() - 1);
     }
 
-    // Now count consecutive achieved periods going backwards
     while (true) {
       const progress = getCustomFrequencyProgress(task, currentDate);
-
-      // Count frozen days in this period to reduce effective target
-      let frozenInPeriod = 0;
-      if (progress.periodStart && progress.periodEnd) {
-        let d = startOfDay(progress.periodStart);
-        while (d <= progress.periodEnd) {
-          if (isDateKeyFrozen(format(d, "yyyy-MM-dd"))) frozenInPeriod++;
-          d = addDays(d, 1);
-        }
-      }
-      // Require at least 50% of original target (rounded up) to prevent
-      // streaks from continuing with minimal effort when many days are frozen
-      const minTarget = Math.max(1, Math.ceil(progress.target * 0.5));
-      const adjustedTarget = Math.max(
-        minTarget,
-        progress.target - frozenInPeriod,
-      );
-      const periodAchieved = progress.completed >= adjustedTarget;
-
-      if (periodAchieved) {
+      if (progress.completed >= progress.target) {
         streak++;
-        // Move to previous period
         if (type === "weekly") {
           currentDate.setDate(currentDate.getDate() - 7);
         } else {
@@ -473,7 +522,7 @@ export const getGoalStreak = (
       if (streak > 104) break;
     }
   } else if (task.frequency === "daily") {
-    // For daily tasks, check consecutive days; frozen days are skipped (neutral)
+    // For daily tasks, check consecutive days
     while (true) {
       const dateStr = format(currentDate, "yyyy-MM-dd");
       const hasCompletion = task.completions.some(
@@ -482,10 +531,6 @@ export const getGoalStreak = (
 
       if (hasCompletion) {
         streak++;
-        // Move to previous day
-        currentDate.setDate(currentDate.getDate() - 1);
-      } else if (isDateKeyFrozen(dateStr)) {
-        // Frozen day: skip without incrementing or breaking
         currentDate.setDate(currentDate.getDate() - 1);
       } else {
         break; // Streak broken
@@ -496,7 +541,6 @@ export const getGoalStreak = (
     }
   } else if (task.frequency === "weekly") {
     // For weekly tasks, check consecutive weeks
-    // A week is "frozen" if it has no completions but all 7 days are frozen
     while (true) {
       const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 }); // Sunday
       const weekEnd = endOfWeek(currentDate, { weekStartsOn: 0 }); // Saturday
@@ -507,25 +551,9 @@ export const getGoalStreak = (
 
       if (hasCompletionThisWeek) {
         streak++;
-        // Move to previous week
         currentDate.setDate(currentDate.getDate() - 7);
       } else {
-        // Check if the entire week is frozen (all 7 days)
-        let allFrozen = true;
-        let d = startOfDay(weekStart);
-        while (d <= weekEnd) {
-          if (!isDateKeyFrozen(format(d, "yyyy-MM-dd"))) {
-            allFrozen = false;
-            break;
-          }
-          d = addDays(d, 1);
-        }
-        if (allFrozen) {
-          // Skip this week without incrementing or breaking
-          currentDate.setDate(currentDate.getDate() - 7);
-        } else {
-          break; // Streak broken
-        }
+        break; // Streak broken
       }
 
       // Safety check - don't go back more than 104 weeks (2 years)
@@ -930,7 +958,8 @@ interface State {
   cloudSyncEnabled: boolean;
   syncRevision: number;
   lastSyncedRevision: number;
-  frozenDays: FreezeDay[];
+  // "Not Today" swipes: taskIds postponed per "yyyy-MM-dd" day key.
+  postponedTasks: Record<string, string[]>;
   setGoals: (goals: Goal[]) => void;
   setSharedGoals: (sharedGoals: Goal[]) => void;
   setSocialGraph: (
@@ -946,11 +975,21 @@ interface State {
   ) => void;
   setCloudSyncEnabled: (enabled: boolean) => void;
   markGoalsSynced: (revision: number) => void;
-  addGoal: (title: string, target?: string) => void;
+  addGoal: (
+    title: string,
+    target?: string,
+    lifecycle?: { isDraft?: boolean; startDay?: string; dueDay?: string },
+  ) => void;
+  startGoal: (goalId: string, startDay: string) => void;
   setSelectedDate: (date: Date) => void;
   updateGoal: (
     goalId: string,
-    updates: { title?: string; target?: string | null },
+    updates: {
+      title?: string;
+      target?: string | null;
+      dueDay?: string | null;
+      startDay?: string | null;
+    },
   ) => void;
   completeGoal: (goalId: string, completedAt?: number) => void;
   reactivateGoal: (goalId: string) => void;
@@ -971,10 +1010,8 @@ interface State {
   ) => void;
   deleteTask: (goalId: string, taskId: string) => void;
   toggleTaskCompletion: (goalId: string, taskId: string, date?: Date) => void;
-  freezeDay: (date: Date, reason: string) => boolean;
-  unfreezeDay: (date: Date) => void;
-  isDayFrozen: (date: Date) => boolean;
-  getFreezeReason: (date: Date) => string | undefined;
+  postponeTask: (taskId: string, date?: Date) => void;
+  undoPostponeTask: (taskId: string, date?: Date) => void;
   completionsByDate: () => Record<string, number>;
   deleteGoal: (goalId: string) => void;
   resetAppData: () => void;
@@ -1065,7 +1102,7 @@ export const useStore = create<State>()(
       cloudSyncEnabled: false,
       syncRevision: 0,
       lastSyncedRevision: 0,
-      frozenDays: [],
+      postponedTasks: {},
 
       /**
        * This setter is the bridge between remote reads and the existing
@@ -1106,6 +1143,7 @@ export const useStore = create<State>()(
                 friends: [],
                 friendRequests: [],
                 sentFriendRequestUserIds: [],
+                postponedTasks: {},
                 syncRevision: 0,
                 lastSyncedRevision: 0,
               },
@@ -1150,13 +1188,32 @@ export const useStore = create<State>()(
           lastSyncedRevision: Math.max(s.lastSyncedRevision, revision),
         })),
 
-      addGoal: (title, target) =>
+      addGoal: (title, target, lifecycle) =>
         set((s) => ({
           ...buildDirtyGoalState(
             [
               ...s.goals,
-              { id: makeId(), title, target, tasks: [], createdAt: Date.now() },
+              {
+                id: makeId(),
+                title,
+                target,
+                tasks: [],
+                createdAt: Date.now(),
+                isDraft: lifecycle?.isDraft || undefined,
+                startDay: lifecycle?.isDraft ? undefined : lifecycle?.startDay,
+                dueDay: lifecycle?.dueDay,
+              },
             ],
+            s.syncRevision,
+          ),
+        })),
+      /** Take a goal out of draft (or reschedule it) to begin on `startDay`. */
+      startGoal: (goalId, startDay) =>
+        set((s) => ({
+          ...buildDirtyGoalState(
+            s.goals.map((g) =>
+              g.id === goalId ? { ...g, isDraft: undefined, startDay } : g,
+            ),
             s.syncRevision,
           ),
         })),
@@ -1178,6 +1235,18 @@ export const useStore = create<State>()(
                         : updates.target !== undefined
                           ? updates.target
                           : g.target,
+                    dueDay:
+                      updates.dueDay === null
+                        ? undefined
+                        : updates.dueDay !== undefined
+                          ? updates.dueDay
+                          : g.dueDay,
+                    startDay:
+                      updates.startDay === null
+                        ? undefined
+                        : updates.startDay !== undefined
+                          ? updates.startDay
+                          : g.startDay,
                   }
                 : g,
             ),
@@ -1297,40 +1366,41 @@ export const useStore = create<State>()(
           ),
         ),
       /**
-       * Freeze a day with a required reason. Returns true on success,
-       * false if the reason is empty/whitespace.
-       * Upserting by date key means re-freezing the same day updates the reason.
+       * "Not Today": hide a due task from one calendar day's list. Purely a
+       * personal view preference, so it stays local (no sync). Entries older
+       * than a week are pruned on every write to keep the map tiny.
        */
-      freezeDay: (date, reason) => {
-        const trimmedReason = reason.trim();
-        if (!trimmedReason) return false;
+      postponeTask: (taskId, date = new Date()) => {
         const dateKey = dateToKey(date);
-        set((s) => ({
-          frozenDays: [
-            ...s.frozenDays.filter((fd) => fd.date !== dateKey),
-            { date: dateKey, reason: trimmedReason, createdAt: Date.now() },
-          ],
-          syncRevision: s.syncRevision + 1,
-        }));
-        return true;
+        const cutoff = dateToKey(addDays(normalizeDate(new Date()), -7));
+        set((s) => {
+          const next: Record<string, string[]> = {};
+          for (const [key, ids] of Object.entries(s.postponedTasks)) {
+            // The day being written always survives the prune.
+            if (key >= cutoff || key === dateKey) next[key] = ids;
+          }
+          const existing = next[dateKey] ?? [];
+          if (!existing.includes(taskId)) {
+            next[dateKey] = [...existing, taskId];
+          }
+          return { postponedTasks: next };
+        });
       },
 
-      unfreezeDay: (date) => {
+      undoPostponeTask: (taskId, date = new Date()) => {
         const dateKey = dateToKey(date);
-        set((s) => ({
-          frozenDays: s.frozenDays.filter((fd) => fd.date !== dateKey),
-          syncRevision: s.syncRevision + 1,
-        }));
-      },
-
-      isDayFrozen: (date) => {
-        const dateKey = dateToKey(date);
-        return get().frozenDays.some((fd) => fd.date === dateKey);
-      },
-
-      getFreezeReason: (date) => {
-        const dateKey = dateToKey(date);
-        return get().frozenDays.find((fd) => fd.date === dateKey)?.reason;
+        set((s) => {
+          const ids = s.postponedTasks[dateKey];
+          if (!ids?.includes(taskId)) return s;
+          const remaining = ids.filter((id) => id !== taskId);
+          const next = { ...s.postponedTasks };
+          if (remaining.length > 0) {
+            next[dateKey] = remaining;
+          } else {
+            delete next[dateKey];
+          }
+          return { postponedTasks: next };
+        });
       },
 
       completionsByDate: () => {
@@ -1361,6 +1431,7 @@ export const useStore = create<State>()(
           goals: getInitialGoals(),
           selectedDate: normalizeDate(new Date()),
           account: s.account,
+          postponedTasks: {},
           syncRevision: s.syncRevision + 1,
         }));
       },
@@ -1392,6 +1463,14 @@ export const useStore = create<State>()(
     {
       name: ACTIVE_STORAGE_KEY, // Dynamic storage key based on CURRENT_MODE
       storage: createJSONStorage(() => AsyncStorage),
+      // v1 strips the retired freeze-days feature from persisted state.
+      version: 1,
+      migrate: (persisted) => {
+        if (persisted && typeof persisted === "object") {
+          delete (persisted as Record<string, unknown>).frozenDays;
+        }
+        return persisted;
+      },
       // Custom onRehydrateStorage to convert ISO strings back to Date objects
       onRehydrateStorage: () => {
         return (state) => {

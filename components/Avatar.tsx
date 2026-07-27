@@ -1,5 +1,5 @@
 import React from "react";
-import { Text, View, ViewStyle } from "react-native";
+import { Image, Text, View, ViewStyle } from "react-native";
 import { useTheme } from "../contexts/ThemeContext";
 
 // Fixed palette (saturated mid-tones, readable with white text in both themes).
@@ -33,15 +33,40 @@ const SIZES = { sm: 24, md: 36, lg: 72 } as const;
 
 export type AvatarSize = keyof typeof SIZES;
 
-type AvatarUser = { userId: string; displayName: string };
+type AvatarUser = { userId: string; displayName: string; avatarUri?: string };
 
 export default function Avatar({
   userId,
   displayName,
+  avatarUri,
   size = "md",
   style,
 }: AvatarUser & { size?: AvatarSize; style?: ViewStyle }) {
   const px = SIZES[size];
+
+  // A synced profile photo wins; initials remain the fallback.
+  if (avatarUri) {
+    return (
+      <View
+        style={[
+          {
+            width: px,
+            height: px,
+            borderRadius: px / 2,
+            overflow: "hidden",
+            backgroundColor: colorForUserId(userId),
+          },
+          style,
+        ]}
+      >
+        <Image
+          source={{ uri: avatarUri }}
+          style={{ width: "100%", height: "100%" }}
+        />
+      </View>
+    );
+  }
+
   return (
     <View
       style={[
@@ -86,6 +111,7 @@ export function AvatarStack({
           key={user.userId}
           userId={user.userId}
           displayName={user.displayName}
+          avatarUri={user.avatarUri}
           size={size}
           style={{
             marginLeft: index === 0 ? 0 : -px / 3,

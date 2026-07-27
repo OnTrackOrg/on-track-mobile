@@ -35,7 +35,7 @@ the single-owner model described in `account-sync-foundation.md`.
 user's** completions. Other members' completions arrive as
 `Task.memberCompletions: Record<userId, string[]>` (yyyy-MM-dd day keys, the
 same encoding as `completed_day`). This keeps every existing selector
-(`getGoalProgress`, `getGoalStreak`, heatmaps, freeze days) working untouched
+(`getGoalProgress`, `getGoalStreak`, heatmaps) working untouched
 for "me"; member views are computed by swapping completions in via the
 `goalAsSeenBy(goal, userId)` adapter and reusing the same selectors.
 
@@ -105,5 +105,5 @@ app.
 The app requires an account: `App.tsx` renders `AuthScreen` whenever there is
 no session, so no tab is reachable signed out. The signed-out cards in Search
 and Profile are future-proofing only and are currently unreachable. Goal data
-is still local-first once signed in; freeze days, theme, and UI
+is still local-first once signed in; theme and UI
 preferences remain device-local and are never synced.

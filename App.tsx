@@ -54,6 +54,7 @@ import { importLocalDataToCloud, pruneDroppedTaskIds } from "./lib/importLocal";
 import { fetchSocialGraph } from "./lib/social";
 import { setAccountDeletedHandler } from "./lib/accountDeleted";
 import { supabase } from "./lib/supabase";
+import { reconcileAvatarWithProfile } from "./lib/avatar";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -276,6 +277,15 @@ function ThemedNavigation() {
     setAccountDeletedHandler(() => setShowAccountDeletedScreen(true));
     return () => setAccountDeletedHandler(null);
   }, []);
+
+  // Avatars are shared via profiles.avatar_uri; reconcile the device photo
+  // with the profile once per sign-in (upload local-only, adopt remote-only).
+  React.useEffect(() => {
+    if (!session?.user) {
+      return;
+    }
+    void reconcileAvatarWithProfile(session.user.id).catch(() => {});
+  }, [session]);
 
   React.useEffect(() => {
     if (!session?.user) {

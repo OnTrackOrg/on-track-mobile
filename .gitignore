@@ -45,3 +45,6 @@ dist/
 .DS_Store
 .openclaw
 supabase/.temp/
+
+# Local dev harness fixtures (screenshot/preview seeds)
+*.local.json
