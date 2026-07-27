@@ -4,9 +4,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { format, subDays } from "date-fns";
+import { differenceInCalendarDays, format, subDays } from "date-fns";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
-import { useStore, getGoalProgress, getGoalStreak } from "../store";
+import {
+  useStore,
+  getGoalLifecycleStatus,
+  getGoalProgress,
+  getGoalStartDate,
+  getGoalStreak,
+} from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
 import { goalColor } from "../utils/goalColors";
@@ -14,9 +20,15 @@ import { mix, withAlpha } from "../utils/color";
 import { shouldPlayEntrance } from "../utils/entrance";
 import { Goal } from "../types";
 import { RootStackParamList } from "../navigation";
+import DatePickerModal from "./DatePickerModal";
 import ProgressRing from "./ProgressRing";
 import { TourAnchor } from "./tour/TourAnchor";
 import { card } from "./ui";
+
+const getDayDate = (dayKey: string): Date => {
+  const [year, month, day] = dayKey.split("-").map(Number);
+  return new Date(year, month - 1, day);
+};
 
 // ponytail: drag-reorder for goals was dropped with the old HomeScreen;
 // ordering survives via the stored goal order (position on flush) only.
@@ -26,9 +38,13 @@ export default function GoalsScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const goals = useStore((s) => s.goals);
   const sharedGoals = useStore((s) => s.sharedGoals);
-  const frozenDays = useStore((s) => s.frozenDays);
+  const startGoal = useStore((s) => s.startGoal);
 
   const [achievedOpen, setAchievedOpen] = React.useState(false);
+  // Goal whose "start on..." date picker is open.
+  const [startingGoalId, setStartingGoalId] = React.useState<string | null>(
+    null,
+  );
 
   // Entrance rise-in plays once per session for this tab.
   const [entranceOn] = React.useState(() => shouldPlayEntrance("goals"));
@@ -36,9 +52,17 @@ export default function GoalsScreen() {
     entranceOn ? FadeInDown.duration(550).delay(index * 70) : undefined;
 
   const today = new Date();
-  const activeOwned = goals.filter((g) => g.completedAt === undefined);
+  const statusOf = (g: Goal) => getGoalLifecycleStatus(g, today);
+  const activeOwned = goals.filter((g) => statusOf(g) === "active");
+  // Shared drafts stay visible to invited members too (start is owner-only).
+  const drafts = [...goals, ...sharedGoals].filter(
+    (g) => statusOf(g) === "draft",
+  );
+  const scheduled = [...goals, ...sharedGoals].filter(
+    (g) => statusOf(g) === "scheduled",
+  );
   const achieved = goals.filter((g) => g.completedAt !== undefined);
-  const activeShared = sharedGoals.filter((g) => g.completedAt === undefined);
+  const activeShared = sharedGoals.filter((g) => statusOf(g) === "active");
 
   // Last-14-days consistency strip in the goal's colour (redesign mockup).
   const renderStrip = (goal: Goal, color: string) => (
@@ -80,12 +104,15 @@ export default function GoalsScreen() {
     const progress = getGoalProgress(goal, today);
     const color = goalColor(goal.id);
     const maxStreak = goal.tasks.reduce(
-      (best, task) => Math.max(best, getGoalStreak(task, frozenDays)),
+      (best, task) => Math.max(best, getGoalStreak(task)),
       0,
     );
     const subtitle = [
       `${goal.tasks.length} task${goal.tasks.length === 1 ? "" : "s"}`,
       goal.target,
+      goal.dueDay
+        ? `Due ${format(getDayDate(goal.dueDay), "MMM d, yyyy")}`
+        : undefined,
     ]
       .filter(Boolean)
       .join(" · ");
@@ -185,6 +212,191 @@ export default function GoalsScreen() {
     );
   };
 
+  const sectionHeaderStyle = {
+    fontWeight: "700" as const,
+    fontSize: 12,
+    letterSpacing: 1,
+    color: theme.textSecondary,
+    marginTop: 8,
+    paddingHorizontal: 2,
+  };
+
+  const lifecycleSubtitle = (goal: Goal): string =>
+    [
+      `${goal.tasks.length} task${goal.tasks.length === 1 ? "" : "s"}`,
+      goal.target,
+      goal.dueDay
+        ? `Due ${format(getDayDate(goal.dueDay), "MMM d, yyyy")}`
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+  // Draft cards: dashed outline, no progress chrome, a Start action.
+  const renderDraftCard = (goal: Goal) => {
+    const color = goalColor(goal.id);
+    const isOwned = goals.some((g) => g.id === goal.id);
+    return (
+      <Pressable
+        key={goal.id}
+        onPress={() => {
+          void haptics.navigate();
+          navigation.navigate("Goal", { goalId: goal.id });
+        }}
+        style={{
+          ...card(theme, isDark),
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          paddingLeft: 18,
+          overflow: "hidden",
+          borderWidth: 1.5,
+          borderStyle: "dashed",
+          borderColor: withAlpha(theme.textSecondary, 0.35),
+        }}
+      >
+        <View
+          style={{
+            position: "absolute",
+            left: 7,
+            top: 14,
+            bottom: 14,
+            width: 3,
+            borderRadius: 2,
+            backgroundColor: withAlpha(color, 0.45),
+          }}
+        />
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text
+              style={{ fontWeight: "700", fontSize: 16, color: theme.text }}
+            >
+              {goal.title}
+            </Text>
+            <View
+              style={{
+                paddingHorizontal: 7,
+                paddingVertical: 2,
+                borderRadius: 6,
+                backgroundColor: withAlpha(theme.textSecondary, 0.15),
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 10,
+                  fontWeight: "800",
+                  letterSpacing: 0.6,
+                  color: theme.textSecondary,
+                }}
+              >
+                DRAFT
+              </Text>
+            </View>
+          </View>
+          <Text
+            style={{ color: theme.textSecondary, fontSize: 12, marginTop: 2 }}
+          >
+            {lifecycleSubtitle(goal)}
+          </Text>
+        </View>
+        {isOwned ? (
+          <Pressable
+            onPress={() => {
+              void haptics.tap();
+              setStartingGoalId(goal.id);
+            }}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 4,
+              paddingHorizontal: 12,
+              paddingVertical: 7,
+              borderRadius: 9999,
+              backgroundColor: theme.primary,
+            }}
+          >
+            <Ionicons name="play" size={12} color="#ffffff" />
+            <Text style={{ color: "#ffffff", fontWeight: "700", fontSize: 13 }}>
+              Start
+            </Text>
+          </Pressable>
+        ) : null}
+      </Pressable>
+    );
+  };
+
+  // Scheduled cards: start-date badge; owners can tap it to reschedule.
+  const renderScheduledCard = (goal: Goal) => {
+    const color = goalColor(goal.id);
+    const isOwned = goals.some((g) => g.id === goal.id);
+    const startDate = getGoalStartDate(goal);
+    const daysUntil = differenceInCalendarDays(startDate, today);
+    return (
+      <Pressable
+        key={goal.id}
+        onPress={() => {
+          void haptics.navigate();
+          navigation.navigate("Goal", { goalId: goal.id });
+        }}
+        style={{
+          ...card(theme, isDark),
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          paddingLeft: 18,
+          overflow: "hidden",
+        }}
+      >
+        <View
+          style={{
+            position: "absolute",
+            left: 7,
+            top: 14,
+            bottom: 14,
+            width: 3,
+            borderRadius: 2,
+            backgroundColor: color,
+          }}
+        />
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontWeight: "700", fontSize: 16, color: theme.text }}>
+            {goal.title}
+          </Text>
+          <Text
+            style={{ color: theme.textSecondary, fontSize: 12, marginTop: 2 }}
+          >
+            {lifecycleSubtitle(goal)}
+          </Text>
+        </View>
+        <Pressable
+          disabled={!isOwned}
+          onPress={() => {
+            void haptics.tap();
+            setStartingGoalId(goal.id);
+          }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 5,
+            paddingHorizontal: 10,
+            paddingVertical: 6,
+            borderRadius: 9999,
+            backgroundColor: withAlpha(theme.primary, 0.14),
+          }}
+        >
+          <Ionicons name="calendar-outline" size={12} color={theme.primary} />
+          <Text
+            style={{ color: theme.primary, fontWeight: "700", fontSize: 12 }}
+          >
+            {daysUntil <= 1
+              ? "Starts tomorrow"
+              : `Starts ${format(startDate, "MMM d")}`}
+          </Text>
+        </Pressable>
+      </Pressable>
+    );
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
       <ScrollView
@@ -224,7 +436,10 @@ export default function GoalsScreen() {
           </TourAnchor>
         </View>
 
-        {activeOwned.length === 0 && activeShared.length === 0 ? (
+        {activeOwned.length === 0 &&
+        activeShared.length === 0 &&
+        drafts.length === 0 &&
+        scheduled.length === 0 ? (
           <TourAnchor anchorKey="goals-card">
             <View
               style={{
@@ -255,6 +470,20 @@ export default function GoalsScreen() {
             )}
           </>
         )}
+
+        {scheduled.length > 0 ? (
+          <>
+            <Text style={sectionHeaderStyle}>SCHEDULED</Text>
+            {scheduled.map((goal) => renderScheduledCard(goal))}
+          </>
+        ) : null}
+
+        {drafts.length > 0 ? (
+          <>
+            <Text style={sectionHeaderStyle}>DRAFTS</Text>
+            {drafts.map((goal) => renderDraftCard(goal))}
+          </>
+        ) : null}
 
         {achieved.length > 0 ? (
           <>
@@ -377,6 +606,20 @@ export default function GoalsScreen() {
           </>
         ) : null}
       </ScrollView>
+
+      <DatePickerModal
+        visible={startingGoalId !== null}
+        title="Start this goal on…"
+        initialDay={format(today, "yyyy-MM-dd")}
+        minDay={format(today, "yyyy-MM-dd")}
+        onSelect={(day) => {
+          if (startingGoalId) {
+            startGoal(startingGoalId, day);
+            void haptics.success();
+          }
+        }}
+        onClose={() => setStartingGoalId(null)}
+      />
     </SafeAreaView>
   );
 }

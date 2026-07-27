@@ -11,12 +11,15 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { format } from "date-fns";
 import { useStore } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
+import { withAlpha } from "../utils/color";
 import { RootStackParamList } from "../navigation";
 import LabeledTextField from "./LabeledTextField";
 import Avatar from "./Avatar";
+import DatePickerModal from "./DatePickerModal";
 import { CustomFrequency, Frequency } from "../types";
 import { addMemberToGoal, inviteFriendToGoal } from "../lib/social";
 import { getPersistedSession } from "../lib/auth";
@@ -54,6 +57,16 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
     { type: "weekly", target: 3 },
   );
   const [isCreating, setIsCreating] = React.useState(false);
+
+  // Goal lifecycle: start immediately, on a chosen day, or park as a draft.
+  const [startMode, setStartMode] = React.useState<
+    "now" | "scheduled" | "draft"
+  >("now");
+  const [startDay, setStartDay] = React.useState<string | null>(null);
+  const [dueDay, setDueDay] = React.useState<string | null>(null);
+  const [isStartPickerOpen, setIsStartPickerOpen] = React.useState(false);
+  const [isDuePickerOpen, setIsDuePickerOpen] = React.useState(false);
+  const todayKey = format(new Date(), "yyyy-MM-dd");
 
   const canCreate = title.trim().length > 0 && !isCreating;
   const showFriendPicker = Boolean(account) && friends.length > 0;
@@ -190,7 +203,14 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
     setIsCreating(true);
 
     // addGoal returns void, so grab the freshly appended goal from the store.
-    addGoal(trimmedTitle, target.trim() || undefined);
+    addGoal(trimmedTitle, target.trim() || undefined, {
+      isDraft: startMode === "draft",
+      startDay:
+        startMode === "scheduled" && startDay && startDay > todayKey
+          ? startDay
+          : undefined,
+      dueDay: dueDay ?? undefined,
+    });
     const created = useStore.getState().goals.at(-1);
     if (!created) {
       setIsCreating(false);
@@ -241,6 +261,145 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
           value={target}
           onChangeText={setTarget}
         />
+
+        <Text
+          style={{
+            fontWeight: "700",
+            fontSize: 12,
+            letterSpacing: 0.6,
+            color: theme.textSecondary,
+            marginTop: 4,
+          }}
+        >
+          DUE DATE (OPTIONAL)
+        </Text>
+        <Pressable
+          onPress={() => {
+            void haptics.tap();
+            setIsDuePickerOpen(true);
+          }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            padding: 12,
+            borderWidth: 1,
+            borderColor: dueDay ? theme.primary : theme.border,
+            borderRadius: 10,
+            backgroundColor: theme.surface,
+          }}
+        >
+          <Ionicons
+            name="flag-outline"
+            size={16}
+            color={dueDay ? theme.primary : theme.textSecondary}
+          />
+          <Text
+            style={{
+              flex: 1,
+              fontWeight: "600",
+              color: dueDay ? theme.text : theme.textSecondary,
+            }}
+          >
+            {dueDay
+              ? `Reach it by ${format(new Date(`${dueDay}T00:00:00`), "MMM d, yyyy")}`
+              : "Pick a date to reach it by"}
+          </Text>
+          {dueDay ? (
+            <Pressable
+              onPress={() => {
+                void haptics.tap();
+                setDueDay(null);
+              }}
+              hitSlop={8}
+            >
+              <Ionicons
+                name="close-circle"
+                size={18}
+                color={theme.textSecondary}
+              />
+            </Pressable>
+          ) : null}
+        </Pressable>
+
+        <Text
+          style={{
+            fontWeight: "700",
+            fontSize: 12,
+            letterSpacing: 0.6,
+            color: theme.textSecondary,
+            marginTop: 4,
+          }}
+        >
+          WHEN TO START
+        </Text>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          {(
+            [
+              { mode: "now", label: "Now", icon: "play" },
+              {
+                mode: "scheduled",
+                label: "On a date",
+                icon: "calendar-outline",
+              },
+              { mode: "draft", label: "Draft", icon: "document-outline" },
+            ] as const
+          ).map(({ mode, label, icon }) => {
+            const active = startMode === mode;
+            return (
+              <Pressable
+                key={mode}
+                onPress={() => {
+                  void haptics.toggle();
+                  setStartMode(mode);
+                  if (mode === "scheduled") {
+                    setIsStartPickerOpen(true);
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 5,
+                  paddingVertical: 10,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: active ? theme.primary : theme.border,
+                  backgroundColor: active
+                    ? withAlpha(theme.primary, 0.12)
+                    : theme.surface,
+                }}
+              >
+                <Ionicons
+                  name={icon}
+                  size={14}
+                  color={active ? theme.primary : theme.textSecondary}
+                />
+                <Text
+                  style={{
+                    fontWeight: "700",
+                    fontSize: 13,
+                    color: active ? theme.primary : theme.textSecondary,
+                  }}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {startMode === "scheduled" ? (
+          <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+            {startDay && startDay > todayKey
+              ? `Tasks become due on ${format(new Date(`${startDay}T00:00:00`), "MMM d, yyyy")}.`
+              : "Pick a day — until then the goal waits in Scheduled."}
+          </Text>
+        ) : startMode === "draft" ? (
+          <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+            Drafts sit on the Goals tab until you start them.
+          </Text>
+        ) : null}
 
         <Text
           style={{
@@ -349,6 +508,7 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
                       <Avatar
                         userId={friend.userId}
                         displayName={friend.displayName}
+                        avatarUri={friend.avatarUri}
                         size="md"
                       />
                     </View>
@@ -382,10 +542,45 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
           <Text
             style={{ color: "white", textAlign: "center", fontWeight: "700" }}
           >
-            {isCreating ? "Creating…" : "Create Goal"}
+            {isCreating
+              ? "Creating…"
+              : startMode === "draft"
+                ? "Save Draft"
+                : "Create Goal"}
           </Text>
         </Pressable>
       </ScrollView>
+
+      <DatePickerModal
+        visible={isDuePickerOpen}
+        title="Reach this goal by…"
+        initialDay={dueDay ?? undefined}
+        minDay={startDay && startDay > todayKey ? startDay : todayKey}
+        allowClear={Boolean(dueDay)}
+        onSelect={(day) => setDueDay(day)}
+        onClear={() => setDueDay(null)}
+        onClose={() => setIsDuePickerOpen(false)}
+      />
+      <DatePickerModal
+        visible={isStartPickerOpen}
+        title="Start this goal on…"
+        initialDay={startDay ?? undefined}
+        minDay={todayKey}
+        maxDay={dueDay ?? undefined}
+        onSelect={(day) => setStartDay(day)}
+        onClose={() => {
+          setIsStartPickerOpen(false);
+          // Backing out without a (future) day just means "start now" —
+          // reflect that in the mode so the UI never over-promises.
+          setStartDay((current) => {
+            const kept = current && current > todayKey ? current : null;
+            if (!kept) {
+              setStartMode("now");
+            }
+            return kept;
+          });
+        }}
+      />
 
       {/* Draft task editor (same pattern as GoalScreen's task modal) */}
       <Modal

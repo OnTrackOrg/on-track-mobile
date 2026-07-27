@@ -29,9 +29,10 @@ export default function PrivacyScreen() {
 
         <InfoSection title="What the app stores">
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-            Account profile details, goal titles, optional targets, task
-            frequency settings, completion history, completed-goal status,
-            freeze days, and your theme preference.
+            Account profile details, goal titles, optional targets, start and
+            due dates, task frequency settings, completion history,
+            completed-goal status, your profile photo, and your theme
+            preference.
           </Text>
         </InfoSection>
 

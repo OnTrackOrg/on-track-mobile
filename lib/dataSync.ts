@@ -11,6 +11,9 @@ type GoalRow = {
   position?: number | null;
   created_at?: string | null;
   completed_at?: string | null;
+  is_draft?: boolean | null;
+  start_day?: string | null;
+  due_day?: string | null;
 };
 
 type TaskRow = {
@@ -39,6 +42,7 @@ type ProfileRow = {
   id: string;
   username: string | null;
   display_name: string | null;
+  avatar_uri?: string | null;
 };
 
 type ExistingRemoteGraph = {
@@ -225,6 +229,7 @@ const buildGoals = (
         username: profile?.username ?? "",
         displayName: profile?.display_name ?? "Member",
         isOwner: userId === goal.owner_user_id,
+        avatarUri: profile?.avatar_uri ?? undefined,
       };
     });
 
@@ -238,6 +243,9 @@ const buildGoals = (
       target: goal.target ?? undefined,
       createdAt: toTimestamp(goal.created_at),
       completedAt: toOptionalTimestamp(goal.completed_at),
+      isDraft: goal.is_draft ? true : undefined,
+      startDay: goal.start_day ?? undefined,
+      dueDay: goal.due_day ?? undefined,
       ownerUserId: goal.owner_user_id,
       members,
       tasks: buildTasks(
@@ -297,7 +305,7 @@ export const fetchAccessibleGoals = async (
   const { data: goalRows, error: goalsError } = await supabase
     .from("goals")
     .select(
-      "id, owner_user_id, title, target, position, created_at, completed_at",
+      "id, owner_user_id, title, target, position, created_at, completed_at, is_draft, start_day, due_day",
     )
     .order("created_at", { ascending: true });
 
@@ -368,7 +376,7 @@ export const fetchAccessibleGoals = async (
   const typedProfileRows = await inChunks(profileIds, async (chunk) => {
     const { data: profileRows, error: profilesError } = await supabase
       .from("public_profiles")
-      .select("id, username, display_name")
+      .select("id, username, display_name, avatar_uri")
       .in("id", chunk);
 
     if (profilesError) {
@@ -456,6 +464,9 @@ export const replaceRemoteGoalsForUser = async (
     completed_at: goal.completedAt
       ? new Date(goal.completedAt).toISOString()
       : null,
+    is_draft: goal.isDraft ?? false,
+    start_day: goal.startDay ?? null,
+    due_day: goal.dueDay ?? null,
   }));
 
   const taskPayload = goals.flatMap((goal) =>

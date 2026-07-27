@@ -1,5 +1,5 @@
 import { Goal } from "../types";
-import { getMemberAdherence } from "../store";
+import { getMemberAdherence, hasGoalStarted } from "../store";
 import { supabase } from "./supabase";
 
 const NUDGE_ADHERENCE_THRESHOLD = 0.7;
@@ -22,6 +22,8 @@ export const getNudgeCandidates = (
     .filter(
       (goal) =>
         goal.completedAt === undefined &&
+        // Drafts and scheduled goals aren't due yet — nothing to nudge about.
+        hasGoalStarted(goal) &&
         goal.members?.some((member) => member.userId === friendUserId),
     )
     .map((goal) => ({

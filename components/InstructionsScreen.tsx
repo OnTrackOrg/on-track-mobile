@@ -80,16 +80,17 @@ export default function InstructionsScreen() {
           </Text>
         </InfoSection>
 
-        <InfoSection title="5. Freeze a day when life gets in the way">
+        <InfoSection title="5. Plan ahead with drafts and due dates">
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-            On the date card, tap ❄️ Freeze This Day to pause tracking for that
-            day. You must enter a reason, this keeps you accountable while
-            protecting your streaks.
+            Goals don&rsquo;t have to begin right away. Save one as a draft, or
+            schedule it to start on a specific day — its tasks only become due
+            once it starts. Add a due date to give the goal a finish line, like
+            &ldquo;180 lb by June 11&rdquo;.
           </Text>
           <Text style={{ color: theme.textSecondary, lineHeight: 22 }}>
-            Frozen days are shown with a snowflake on heatmaps and in the date
-            card. They do not count toward your streak, but they also do not
-            break it. Tap the frozen pill to unfreeze at any time.
+            On the Today tab, swipe a task left for &ldquo;Not today&rdquo; to
+            push it off — but only when the goal can still be met without it.
+            Daily tasks, and repeating tasks out of spare days, stay put.
           </Text>
         </InfoSection>
 

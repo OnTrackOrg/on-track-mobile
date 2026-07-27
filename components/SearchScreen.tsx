@@ -290,6 +290,7 @@ export default function SearchScreen({
                     <Avatar
                       userId={person.userId}
                       displayName={person.displayName}
+                      avatarUri={person.avatarUri}
                       size="md"
                     />
                     <View style={{ flex: 1 }}>

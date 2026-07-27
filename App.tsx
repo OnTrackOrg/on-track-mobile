@@ -4,6 +4,7 @@ import {
   DarkTheme,
   DefaultTheme,
   NavigationContainer,
+  createNavigationContainerRef,
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -24,13 +25,14 @@ import GoalScreen from "./components/GoalScreen";
 import NewGoalScreen from "./components/NewGoalScreen";
 import PrivacyScreen from "./components/PrivacyScreen";
 import InstructionsScreen from "./components/InstructionsScreen";
-import IntroductionWizard from "./components/IntroductionWizard";
+import AppTour from "./components/tour/AppTour";
+import { TourAnchor, TourAnchorKey } from "./components/tour/TourAnchor";
 import AuthScreen from "./components/AuthScreen";
 import UpdatePasswordScreen from "./components/UpdatePasswordScreen";
 import ImportLocalDataScreen from "./components/ImportLocalDataScreen";
 import AccountDeletedScreen from "./components/AccountDeletedScreen";
 import { RootStackParamList, TabParamList } from "./navigation";
-import { ONBOARDING_STORAGE_KEY, shouldShowOnboarding } from "./onboarding";
+import { APP_TOUR_STORAGE_KEY, shouldShowAppTour } from "./onboarding";
 import { useStore } from "./store";
 import {
   AuthMode,
@@ -53,10 +55,14 @@ import { importLocalDataToCloud, pruneDroppedTaskIds } from "./lib/importLocal";
 import { fetchSocialGraph } from "./lib/social";
 import { setAccountDeletedHandler } from "./lib/accountDeleted";
 import { supabase } from "./lib/supabase";
+import { reconcileAvatarWithProfile } from "./lib/avatar";
 import { registerPushTokenForCurrentUser } from "./lib/pushNotifications";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
+
+// Lets the app tour drive tab switches from outside the navigator tree.
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 const TAB_ICONS: Record<
   keyof TabParamList,
@@ -66,6 +72,13 @@ const TAB_ICONS: Record<
   Goals: ["flag", "flag-outline"],
   Search: ["search", "search-outline"],
   Profile: ["person", "person-outline"],
+};
+
+const TAB_TOUR_ANCHORS: Record<keyof TabParamList, TourAnchorKey> = {
+  Today: "tab-today",
+  Goals: "tab-goals",
+  Search: "tab-search",
+  Profile: "tab-profile",
 };
 
 function MainTabs() {
@@ -83,11 +96,13 @@ function MainTabs() {
           borderTopColor: theme.border,
         },
         tabBarIcon: ({ focused, color, size }) => (
-          <Ionicons
-            name={TAB_ICONS[route.name][focused ? 0 : 1]}
-            size={size}
-            color={color}
-          />
+          <TourAnchor anchorKey={TAB_TOUR_ANCHORS[route.name]}>
+            <Ionicons
+              name={TAB_ICONS[route.name][focused ? 0 : 1]}
+              size={size}
+              color={color}
+            />
+          </TourAnchor>
         ),
       })}
     >
@@ -112,9 +127,8 @@ function ThemedNavigation() {
   const syncRevision = useStore((s) => s.syncRevision);
   const lastSyncedRevision = useStore((s) => s.lastSyncedRevision);
   const markGoalsSynced = useStore((s) => s.markGoalsSynced);
-  const [showIntroduction, setShowIntroduction] = React.useState(false);
-  const [hasCheckedIntroduction, setHasCheckedIntroduction] =
-    React.useState(false);
+  const [showAppTour, setShowAppTour] = React.useState(false);
+  const [hasHydratedStore, setHasHydratedStore] = React.useState(false);
   const [hasCheckedSession, setHasCheckedSession] = React.useState(false);
   const [session, setSession] = React.useState<Session | null>(null);
   const [authMode, setAuthMode] = React.useState<AuthMode>("sign-up");
@@ -266,6 +280,24 @@ function ThemedNavigation() {
     return () => setAccountDeletedHandler(null);
   }, []);
 
+  // Avatars are shared via profiles.avatar_uri; reconcile the device photo
+  // with the profile once per sign-in (upload local-only, adopt remote-only).
+  React.useEffect(() => {
+    if (!session?.user) {
+      return;
+    }
+    void reconcileAvatarWithProfile(session.user.id).catch(() => {});
+  }, [session]);
+
+  React.useEffect(() => {
+    if (!session?.user) {
+      return;
+    }
+    void registerPushTokenForCurrentUser().catch((error) => {
+      console.warn("Push notification registration failed", error);
+    });
+  }, [session]);
+
   React.useEffect(() => {
     if (!session?.user) {
       return;
@@ -286,45 +318,24 @@ function ThemedNavigation() {
   }, [refreshSocialGraph, session, syncWithRemote]);
 
   React.useEffect(() => {
-    if (!session?.user) {
-      return;
-    }
-    void registerPushTokenForCurrentUser().catch((error) => {
-      console.warn("Push notification registration failed", error);
-    });
-  }, [session]);
-
-  React.useEffect(() => {
     let isCancelled = false;
 
-    const hydrateIntroductionState = async () => {
+    const hydrateTourState = async () => {
       await useStore.persist.rehydrate();
 
-      const hasCompletedOnboarding = await AsyncStorage.getItem(
-        ONBOARDING_STORAGE_KEY,
-      );
-      const hasExistingGoals = useStore.getState().goals.length > 0;
+      const hasCompletedTour = await AsyncStorage.getItem(APP_TOUR_STORAGE_KEY);
 
       if (isCancelled) {
         return;
       }
 
-      const shouldIntroduceUser = shouldShowOnboarding({
-        hasCompletedOnboarding: Boolean(hasCompletedOnboarding),
-        hasExistingGoals,
-      });
-
-      if (!shouldIntroduceUser) {
-        setShowIntroduction(false);
-        setHasCheckedIntroduction(true);
-        return;
-      }
-
-      setShowIntroduction(true);
-      setHasCheckedIntroduction(true);
+      setShowAppTour(
+        shouldShowAppTour({ hasCompletedTour: hasCompletedTour !== null }),
+      );
+      setHasHydratedStore(true);
     };
 
-    void hydrateIntroductionState();
+    void hydrateTourState();
 
     return () => {
       isCancelled = true;
@@ -525,9 +536,9 @@ function ThemedNavigation() {
     syncRevision,
   ]);
 
-  const handleIntroductionDone = React.useCallback(async () => {
-    await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
-    setShowIntroduction(false);
+  const handleAppTourDone = React.useCallback(() => {
+    setShowAppTour(false);
+    void AsyncStorage.setItem(APP_TOUR_STORAGE_KEY, "true");
   }, []);
 
   const handleImportLocalData = React.useCallback(async () => {
@@ -678,17 +689,8 @@ function ThemedNavigation() {
     [],
   );
 
-  if (!hasCheckedIntroduction || !hasCheckedSession) {
+  if (!hasHydratedStore || !hasCheckedSession) {
     return null;
-  }
-
-  if (showIntroduction) {
-    return (
-      <>
-        <IntroductionWizard onDone={handleIntroductionDone} />
-        <StatusBar style={isDark ? "light" : "dark"} />
-      </>
-    );
   }
 
   if (showAccountDeletedScreen) {
@@ -770,7 +772,7 @@ function ThemedNavigation() {
   };
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer ref={navigationRef} theme={navTheme}>
       <Stack.Navigator
         screenOptions={{
           headerStyle: {
@@ -813,6 +815,10 @@ function ThemedNavigation() {
           options={{ title: "Privacy & Data" }}
         />
       </Stack.Navigator>
+      {/* Overlay tour of the real UI; runs once per device (issue #151). */}
+      {showAppTour ? (
+        <AppTour navigationRef={navigationRef} onDone={handleAppTourDone} />
+      ) : null}
       <StatusBar style={isDark ? "light" : "dark"} />
     </NavigationContainer>
   );

@@ -83,6 +83,7 @@ export default function FriendScreen({ route }: FriendScreenProps) {
           <Avatar
             userId={friend.userId}
             displayName={friend.displayName}
+            avatarUri={friend.avatarUri}
             size="lg"
           />
           <Text

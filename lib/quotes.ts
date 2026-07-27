@@ -60,9 +60,7 @@ export const FALLBACK_QUOTES: Quote[] = [
   },
 ];
 
-export const getFallbackQuote = (
-  random: () => number = Math.random,
-): Quote => {
+export const getFallbackQuote = (random: () => number = Math.random): Quote => {
   const index = Math.floor(random() * FALLBACK_QUOTES.length);
   return FALLBACK_QUOTES[
     ((index % FALLBACK_QUOTES.length) + FALLBACK_QUOTES.length) %

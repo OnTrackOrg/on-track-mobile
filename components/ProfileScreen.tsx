@@ -13,10 +13,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import { CompositeScreenProps, useFocusEffect } from "@react-navigation/native";
 import { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useStore, getGoalStreak } from "../store";
+import { useStore, getGoalLifecycleStatus, getGoalStreak } from "../store";
 import { useTheme, THEME_OPTIONS } from "../contexts/ThemeContext";
 import Avatar from "./Avatar";
 import IconButton from "./IconButton";
@@ -38,8 +39,12 @@ import {
   unfriend,
 } from "../lib/social";
 import { importLocalDataToCloud } from "../lib/importLocal";
+import { uploadAvatarToProfile } from "../lib/avatar";
 import { supabase } from "../lib/supabase";
-import { ONBOARDING_STORAGE_KEY } from "../onboarding";
+import {
+  APP_TOUR_STORAGE_KEY,
+  LEGACY_ONBOARDING_STORAGE_KEY,
+} from "../onboarding";
 import { FriendProfile, FriendRequest } from "../types";
 
 type ProfileProps = CompositeScreenProps<
@@ -59,7 +64,6 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
   const friends = useStore((s) => s.friends);
   const friendRequests = useStore((s) => s.friendRequests);
   const account = useStore((s) => s.account);
-  const frozenDays = useStore((s) => s.frozenDays);
   const cloudSyncEnabled = useStore((s) => s.cloudSyncEnabled);
   const setGoals = useStore((s) => s.setGoals);
   const setSharedGoals = useStore((s) => s.setSharedGoals);
@@ -77,7 +81,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
     [goals, sharedGoals],
   );
   const activeGoals = React.useMemo(
-    () => allGoals.filter((goal) => goal.completedAt === undefined),
+    () => allGoals.filter((goal) => getGoalLifecycleStatus(goal) === "active"),
     [allGoals],
   );
   const achievedGoals = React.useMemo(
@@ -86,11 +90,15 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
   );
 
   // Profile photo (redesign): stored locally as a data URI, like the mock.
-  React.useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEYS.avatar)
-      .then((value) => setAvatarUri(value))
-      .catch(() => {});
-  }, []);
+  // Re-read on focus so a photo adopted from the profile (fresh install)
+  // shows up without an app restart.
+  useFocusEffect(
+    React.useCallback(() => {
+      AsyncStorage.getItem(STORAGE_KEYS.avatar)
+        .then((value) => setAvatarUri(value))
+        .catch(() => {});
+    }, []),
+  );
 
   const pickAvatar = async () => {
     void haptics.tap();
@@ -102,13 +110,41 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
       base64: true,
     });
     const asset = result.canceled ? null : result.assets?.[0];
-    if (!asset?.base64) return;
-    const uri = `data:${asset.mimeType ?? "image/jpeg"};base64,${asset.base64}`;
+    if (!asset) return;
+    // Shrink to avatar size before it hits AsyncStorage, the profile row,
+    // and every friend's social queries — full camera crops are megabytes.
+    let uri: string;
+    try {
+      const resized = await ImageManipulator.manipulateAsync(
+        asset.uri,
+        [{ resize: { width: 256, height: 256 } }],
+        {
+          compress: 0.7,
+          format: ImageManipulator.SaveFormat.JPEG,
+          base64: true,
+        },
+      );
+      if (!resized.base64) return;
+      uri = `data:image/jpeg;base64,${resized.base64}`;
+    } catch {
+      if (!asset.base64) return;
+      uri = `data:${asset.mimeType ?? "image/jpeg"};base64,${asset.base64}`;
+    }
     setAvatarUri(uri);
     try {
       await AsyncStorage.setItem(STORAGE_KEYS.avatar, uri);
     } catch {
       // Keep the in-memory photo even if persisting fails.
+    }
+    // Publish to the profile so friends see it too; offline picks are
+    // reconciled on the next app launch.
+    try {
+      const session = await getPersistedSession();
+      if (session?.user) {
+        await uploadAvatarToProfile(session.user.id, uri);
+      }
+    } catch {
+      // Best-effort; the launch reconcile retries.
     }
     void haptics.success();
   };
@@ -117,11 +153,11 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
     let best = 0;
     for (const goal of allGoals) {
       for (const task of goal.tasks) {
-        best = Math.max(best, getGoalStreak(task, frozenDays));
+        best = Math.max(best, getGoalStreak(task));
       }
     }
     return best;
-  }, [allGoals, frozenDays]);
+  }, [allGoals]);
 
   const sharedGoalCountFor = (friendUserId: string): number =>
     allGoals.filter((goal) =>
@@ -274,6 +310,11 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
           onPress: async () => {
             try {
               await signOut();
+              // The photo belongs to the signed-out account; don't let the next
+              // sign-in upload it to a different profile.
+              await AsyncStorage.removeItem(STORAGE_KEYS.avatar).catch(
+                () => {},
+              );
               setSettingsVisible(false);
             } catch {
               Alert.alert("Error", "Failed to sign out. Please try again.");
@@ -299,7 +340,8 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
               await haptics.destructive();
               await deleteCurrentAccount();
               await useStore.persist.clearStorage();
-              await AsyncStorage.removeItem(ONBOARDING_STORAGE_KEY);
+              await AsyncStorage.removeItem(APP_TOUR_STORAGE_KEY);
+              await AsyncStorage.removeItem(LEGACY_ONBOARDING_STORAGE_KEY);
               setGoals([]);
               setSharedGoals([]);
               setSocialGraph([], [], []);
@@ -576,6 +618,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                 >
                   <Avatar
                     userId={request.requester.userId}
+                    avatarUri={request.requester.avatarUri}
                     displayName={request.requester.displayName}
                   />
                   <View style={{ flex: 1 }}>
@@ -657,6 +700,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                 >
                   <Avatar
                     userId={friend.userId}
+                    avatarUri={friend.avatarUri}
                     displayName={friend.displayName}
                   />
                   <View style={{ flex: 1 }}>

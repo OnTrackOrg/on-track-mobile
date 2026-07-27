@@ -1,11 +1,5 @@
 export type Frequency = "once" | "daily" | "weekly" | "custom";
 
-export interface FreezeDay {
-  date: string; // "yyyy-MM-dd" canonical day key
-  reason: string; // required, trimmed, non-empty
-  createdAt: number; // Date.now() at freeze time
-}
-
 export interface CustomFrequency {
   type: "weekly" | "monthly";
   target: number; // e.g., 3 times per week, 5 times per month
@@ -27,8 +21,14 @@ export interface GoalMember {
   username: string;
   displayName: string;
   isOwner: boolean;
+  avatarUri?: string; // data URI synced from profiles.avatar_uri
 }
 
+/**
+ * Lifecycle: draft (isDraft) → scheduled (startDay in the future) → active →
+ * achieved (completedAt). Goals created before the lifecycle feature have
+ * neither flag and count as active since creation.
+ */
 export interface Goal {
   id: string;
   title: string;
@@ -36,6 +36,9 @@ export interface Goal {
   tasks: Task[];
   createdAt: number;
   completedAt?: number;
+  isDraft?: boolean; // drafted, not started yet; never due
+  startDay?: string; // "yyyy-MM-dd"; tasks only become due from this day on
+  dueDay?: string; // "yyyy-MM-dd"; target date to reach the goal by
   ownerUserId?: string;
   members?: GoalMember[]; // includes the owner, isOwner flagged
 }
@@ -44,6 +47,7 @@ export interface FriendProfile {
   userId: string;
   username: string;
   displayName: string;
+  avatarUri?: string; // data URI synced from profiles.avatar_uri
 }
 
 export interface FriendRequest {

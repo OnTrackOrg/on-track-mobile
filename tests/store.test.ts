@@ -1,18 +1,20 @@
 import {
+  canPostponeTask,
   getCustomFrequencyProgress,
+  getGoalLifecycleStatus,
   getGoalProgress,
-  getGoalStreak,
   getMemberAdherence,
   getSampleGoals,
   getTaskBucketsForDate,
   getTodayItems,
+  hasGoalStarted,
   goalAsSeenBy,
   isOnceTaskCompletedOnDate,
   upgradeLegacyIds,
   useStore,
 } from "../store";
-import { FreezeDay, Goal, Task } from "../types";
-import { format, startOfWeek } from "date-fns";
+import { Goal, Task } from "../types";
+import { format } from "date-fns";
 
 describe("getCustomFrequencyProgress", () => {
   it("counts weekly custom completions inside the active week", () => {
@@ -463,298 +465,6 @@ describe("goal completion state", () => {
   });
 });
 
-// ─── Freeze Days ─────────────────────────────────────────────────────────────
-
-describe("freeze day store actions", () => {
-  const originalState = useStore.getState();
-
-  afterEach(() => {
-    useStore.setState(originalState, true);
-  });
-
-  it("freezeDay persists a freeze with the given reason", () => {
-    const date = new Date("2026-05-10T12:00:00.000Z");
-    const result = useStore.getState().freezeDay(date, "Family emergency");
-
-    expect(result).toBe(true);
-    const frozen = useStore.getState().frozenDays;
-    expect(frozen).toHaveLength(1);
-    expect(frozen[0].date).toBe("2026-05-10");
-    expect(frozen[0].reason).toBe("Family emergency");
-  });
-
-  it("freezeDay rejects empty or whitespace-only reasons", () => {
-    const date = new Date("2026-05-10T12:00:00.000Z");
-    const result = useStore.getState().freezeDay(date, "   ");
-
-    expect(result).toBe(false);
-    expect(useStore.getState().frozenDays).toHaveLength(0);
-  });
-
-  it("unfreezeDay removes the freeze for the given date", () => {
-    const date = new Date("2026-05-10T12:00:00.000Z");
-    useStore.getState().freezeDay(date, "Travel day");
-    useStore.getState().unfreezeDay(date);
-
-    expect(useStore.getState().frozenDays).toHaveLength(0);
-  });
-
-  it("isDayFrozen returns true for a frozen date and false otherwise", () => {
-    const date = new Date("2026-05-10T12:00:00.000Z");
-    useStore.getState().freezeDay(date, "Illness");
-
-    expect(useStore.getState().isDayFrozen(date)).toBe(true);
-    expect(
-      useStore.getState().isDayFrozen(new Date("2026-05-11T12:00:00.000Z")),
-    ).toBe(false);
-  });
-
-  it("getFreezeReason returns the reason for a frozen date", () => {
-    const date = new Date("2026-05-10T12:00:00.000Z");
-    useStore.getState().freezeDay(date, "Doctor appointment");
-
-    expect(useStore.getState().getFreezeReason(date)).toBe(
-      "Doctor appointment",
-    );
-    expect(
-      useStore.getState().getFreezeReason(new Date("2026-05-11T12:00:00.000Z")),
-    ).toBeUndefined();
-  });
-
-  it("re-freezing the same day updates the reason (upsert)", () => {
-    const date = new Date("2026-05-10T12:00:00.000Z");
-    useStore.getState().freezeDay(date, "First reason");
-    useStore.getState().freezeDay(date, "Updated reason");
-
-    const frozen = useStore.getState().frozenDays;
-    expect(frozen).toHaveLength(1);
-    expect(frozen[0].reason).toBe("Updated reason");
-  });
-});
-
-// ─── getGoalStreak with frozen days ──────────────────────────────────────────
-
-// Helper: get a local date key (yyyy-MM-dd) for N days ago, matching how
-// getGoalStreak uses format(currentDate, "yyyy-MM-dd") with local time.
-function localDateKey(daysAgo: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - daysAgo);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function localDate(daysAgo: number): Date {
-  const d = new Date();
-  d.setHours(12, 0, 0, 0);
-  d.setDate(d.getDate() - daysAgo);
-  return d;
-}
-
-describe("getGoalStreak with frozen days", () => {
-  beforeEach(() => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date("2026-05-20T12:00:00"));
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
-  it("daily streak: frozen gap day does not break the streak", () => {
-    // today=0, yesterday=1, twoDaysAgo=2 (frozen), threeDaysAgo=3
-    const task: Task = {
-      id: "streak-daily-relative",
-      title: "Meditate",
-      frequency: "daily",
-      completions: [
-        localDate(0), // today
-        localDate(1), // yesterday
-        // localDate(2) is the gap (frozen)
-        localDate(3), // 3 days ago
-      ],
-    };
-    const frozenDays: FreezeDay[] = [
-      { date: localDateKey(2), reason: "Travel", createdAt: Date.now() },
-    ];
-
-    // Without freeze: streak = 2 (today + yesterday, then gap breaks)
-    expect(getGoalStreak(task, [])).toBe(2);
-    // With freeze: streak = 3 (today, yesterday, frozen gap skipped without incrementing, 3 days ago)
-    // Frozen days are neutral — they don't break the chain but also don't count toward the streak.
-    expect(getGoalStreak(task, frozenDays)).toBe(3);
-  });
-
-  it("daily streak: non-frozen gap still breaks the streak", () => {
-    const task: Task = {
-      id: "streak-daily-break",
-      title: "Run",
-      frequency: "daily",
-      completions: [
-        localDate(0), // today
-        localDate(1), // yesterday
-        // localDate(2) is NOT frozen and NOT completed — streak breaks here
-        localDate(3), // 3 days ago
-      ],
-    };
-
-    // No freeze: streak = 2 (today + yesterday, then gap breaks)
-    expect(getGoalStreak(task, [])).toBe(2);
-    // Even with an unrelated freeze, the gap still breaks
-    const unrelatedFreeze: FreezeDay[] = [
-      { date: "2020-01-01", reason: "Old freeze", createdAt: Date.now() },
-    ];
-    expect(getGoalStreak(task, unrelatedFreeze)).toBe(2);
-  });
-
-  it("weekly streak: all 7 days frozen in a gap week bridges to an older completed week", () => {
-    // This week: has completion → streak=1
-    // Last week: has completion → streak=2
-    // Two weeks ago: all 7 days frozen (no completion) → skip, streak stays 2
-    // Three weeks ago: has completion → streak=3
-    // Four weeks ago: no completion, not frozen → break
-    const thisWeekDate = new Date();
-    const lastWeekDate = new Date();
-    lastWeekDate.setDate(lastWeekDate.getDate() - 7);
-    const threeWeeksAgoDate = new Date();
-    threeWeeksAgoDate.setDate(threeWeeksAgoDate.getDate() - 21);
-
-    const task: Task = {
-      id: "streak-weekly-frozen",
-      title: "Clean house",
-      frequency: "weekly",
-      completions: [thisWeekDate, lastWeekDate, threeWeeksAgoDate],
-    };
-
-    // Freeze all 7 days of the week two weeks ago (the gap week)
-    const frozenDays: FreezeDay[] = [];
-    const twoWeeksAgo = new Date();
-    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-    const weekStart = startOfWeek(twoWeeksAgo, { weekStartsOn: 0 });
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(weekStart);
-      d.setDate(d.getDate() + i);
-      frozenDays.push({
-        date: format(d, "yyyy-MM-dd"),
-        reason: "Vacation",
-        createdAt: Date.now(),
-      });
-    }
-
-    // Without freeze: streak = 2 (this week + last week, then gap breaks)
-    expect(getGoalStreak(task, [])).toBe(2);
-    // With all 7 days frozen in the gap week: streak = 3 (bridges to three weeks ago)
-    expect(getGoalStreak(task, frozenDays)).toBe(3);
-  });
-
-  it("weekly streak: partially frozen week still breaks the streak", () => {
-    const thisWeekDate = new Date();
-    const lastWeekDate = new Date();
-    lastWeekDate.setDate(lastWeekDate.getDate() - 7);
-    const threeWeeksAgoDate = new Date();
-    threeWeeksAgoDate.setDate(threeWeeksAgoDate.getDate() - 21);
-
-    const task: Task = {
-      id: "streak-weekly-partial-freeze",
-      title: "Clean house",
-      frequency: "weekly",
-      completions: [thisWeekDate, lastWeekDate, threeWeeksAgoDate],
-    };
-
-    // Freeze only 3 days of the week two weeks ago (not all 7)
-    const frozenDays: FreezeDay[] = [];
-    const twoWeeksAgo = new Date();
-    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-    const weekStart = startOfWeek(twoWeeksAgo, { weekStartsOn: 0 });
-    for (let i = 0; i < 3; i++) {
-      const d = new Date(weekStart);
-      d.setDate(d.getDate() + i);
-      frozenDays.push({
-        date: format(d, "yyyy-MM-dd"),
-        reason: "Sick",
-        createdAt: Date.now(),
-      });
-    }
-
-    // Streak should still be 2 because the gap week is not fully frozen
-    expect(getGoalStreak(task, frozenDays)).toBe(2);
-  });
-
-  it("custom weekly streak: freeze-adjusted target allows streak to continue", () => {
-    // Task requires 3 times per week
-    // This week: 3 completions → achieved → streak=1
-    // Last week: 2 completions + 1 frozen → adjusted target = max(2, 3-1) = 2 → achieved → streak=2
-    // Two weeks ago: 1 completion + 2 frozen → adjusted target = max(2, 3-2) = 2 → NOT achieved (1 < 2) → break
-    const thisWeekDate = new Date();
-    const lastWeekDate = new Date();
-    lastWeekDate.setDate(lastWeekDate.getDate() - 7);
-    const twoWeeksAgoDate = new Date();
-    twoWeeksAgoDate.setDate(twoWeeksAgoDate.getDate() - 14);
-
-    const task: Task = {
-      id: "streak-custom-weekly",
-      title: "Go to gym",
-      frequency: "custom",
-      customFrequency: { type: "weekly", target: 3 },
-      completions: [
-        // This week: 3 completions
-        thisWeekDate,
-        new Date(
-          thisWeekDate.getFullYear(),
-          thisWeekDate.getMonth(),
-          thisWeekDate.getDate() - 1,
-        ),
-        new Date(
-          thisWeekDate.getFullYear(),
-          thisWeekDate.getMonth(),
-          thisWeekDate.getDate() - 2,
-        ),
-        // Last week: 2 completions
-        lastWeekDate,
-        new Date(
-          lastWeekDate.getFullYear(),
-          lastWeekDate.getMonth(),
-          lastWeekDate.getDate() - 1,
-        ),
-      ],
-    };
-
-    // Freeze 1 day in last week and 2 days in two weeks ago
-    const frozenDays: FreezeDay[] = [];
-    // Last week: freeze 1 day (so adjusted target = max(2, 3-1) = 2, completed = 2 → achieved)
-    const lastWeekFreeze = new Date(lastWeekDate);
-    lastWeekFreeze.setDate(lastWeekFreeze.getDate() + 2);
-    frozenDays.push({
-      date: format(lastWeekFreeze, "yyyy-MM-dd"),
-      reason: "Travel",
-      createdAt: Date.now(),
-    });
-
-    // Two weeks ago: freeze 2 days, 1 completion (adjusted target = max(2, 3-2) = 2, completed = 1 → NOT achieved)
-    const weekStart = startOfWeek(twoWeeksAgoDate, { weekStartsOn: 0 });
-    for (let i = 0; i < 2; i++) {
-      const d = new Date(weekStart);
-      d.setDate(d.getDate() + i);
-      frozenDays.push({
-        date: format(d, "yyyy-MM-dd"),
-        reason: "Sick",
-        createdAt: Date.now(),
-      });
-    }
-    // Add 1 completion in that week
-    const completionDate = new Date(weekStart);
-    completionDate.setDate(completionDate.getDate() + 2);
-    task.completions.push(completionDate);
-
-    // With freeze adjustment: streak = 2 (this week + last week, then two weeks ago fails)
-    expect(getGoalStreak(task, frozenDays)).toBe(2);
-
-    // Without freezes: last week only has 2/3 → NOT achieved, so streak = 1
-    expect(getGoalStreak(task, [])).toBe(1);
-  });
-});
-
 // ─── Social selectors ────────────────────────────────────────────────────────
 
 const socialGoal = (): Goal => ({
@@ -821,14 +531,15 @@ describe("getTaskBucketsForDate", () => {
     expect(completed.map((t) => t.id)).toEqual(["daily-done", "weekly-done"]);
   });
 
-  it("marks nothing as due on a frozen day", () => {
-    const { pending, completed } = getTaskBucketsForDate(
+  it("moves postponed tasks out of pending into their own bucket", () => {
+    const { pending, completed, postponed } = getTaskBucketsForDate(
       goal,
       new Date(2026, 4, 12, 18),
-      true,
+      new Set(["daily-pending"]),
     );
 
     expect(pending).toEqual([]);
+    expect(postponed.map((t) => t.id)).toEqual(["daily-pending"]);
     expect(completed.map((t) => t.id)).toEqual(["daily-done", "weekly-done"]);
   });
 });
@@ -953,11 +664,11 @@ describe("getTodayItems", () => {
     expect(totals).toEqual({ done: 1, total: 2, goalCount: 2 });
   });
 
-  it("frozen days keep done items and report consistent totals", () => {
+  it("excludes postponed tasks from todo and totals", () => {
     const date = new Date(2026, 4, 12, 18);
-    const doneGoal: Goal = {
-      id: "done-goal",
-      title: "Done today",
+    const goal: Goal = {
+      id: "postpone-goal",
+      title: "Mixed",
       createdAt: Date.now(),
       tasks: [
         {
@@ -966,34 +677,53 @@ describe("getTodayItems", () => {
           frequency: "daily",
           completions: [new Date(2026, 4, 12, 12)],
         },
-      ],
-    };
-    const pendingGoal: Goal = {
-      id: "pending-goal",
-      title: "Not started",
-      createdAt: Date.now(),
-      tasks: [
         {
-          id: "pending-task",
-          title: "Read",
-          frequency: "daily",
+          id: "skipped-task",
+          title: "Gym",
+          frequency: "custom",
+          customFrequency: { type: "weekly", target: 2 },
           completions: [],
         },
       ],
     };
 
-    const { todo, done, totals } = getTodayItems(
-      [doneGoal, pendingGoal],
+    const { todo, done, postponed, totals } = getTodayItems(
+      [goal],
       [],
       date,
-      true,
+      new Set(["skipped-task"]),
     );
 
-    // Nothing is due, done stays, and goalCount only counts goals that
-    // actually contributed items (not the pending-only goal).
     expect(todo).toEqual([]);
     expect(done.map((item) => item.task.id)).toEqual(["done-task"]);
+    expect(postponed.map((item) => item.task.id)).toEqual(["skipped-task"]);
     expect(totals).toEqual({ done: 1, total: 1, goalCount: 1 });
+  });
+
+  it("hides drafts and not-yet-started goals from Today", () => {
+    const date = new Date(2026, 4, 12, 18);
+    const mk = (id: string, extra: Partial<Goal>): Goal => ({
+      id,
+      title: id,
+      createdAt: Date.now(),
+      tasks: [
+        { id: `${id}-t`, title: "Do", frequency: "daily", completions: [] },
+      ],
+      ...extra,
+    });
+
+    const { todo } = getTodayItems(
+      [
+        mk("draft", { isDraft: true }),
+        mk("future", { startDay: "2026-05-20" }),
+        mk("started", { startDay: "2026-05-12" }),
+        mk("legacy", {}),
+      ],
+      [],
+      date,
+    );
+
+    expect(todo.map((item) => item.goal.id)).toEqual(["started", "legacy"]);
   });
 });
 
@@ -1247,5 +977,199 @@ describe("goal/task ids", () => {
     const cleanResult = upgradeLegacyIds(upgradedResult.goals);
     expect(cleanResult.upgraded).toBe(false);
     expect(cleanResult.goals).toBe(upgradedResult.goals);
+  });
+});
+
+// ─── Goal lifecycle ──────────────────────────────────────────────────────────
+
+describe("goal lifecycle", () => {
+  const base: Goal = {
+    id: "lifecycle-goal",
+    title: "180 lb",
+    target: "180 lb",
+    createdAt: new Date(2026, 4, 1, 12).getTime(),
+    tasks: [],
+  };
+  const ref = new Date(2026, 4, 12, 18);
+
+  it("derives draft / scheduled / active / achieved", () => {
+    expect(getGoalLifecycleStatus({ ...base, isDraft: true }, ref)).toBe(
+      "draft",
+    );
+    expect(
+      getGoalLifecycleStatus({ ...base, startDay: "2026-05-20" }, ref),
+    ).toBe("scheduled");
+    expect(
+      getGoalLifecycleStatus({ ...base, startDay: "2026-05-12" }, ref),
+    ).toBe("active");
+    expect(getGoalLifecycleStatus(base, ref)).toBe("active");
+    expect(
+      getGoalLifecycleStatus({ ...base, completedAt: Date.now() }, ref),
+    ).toBe("achieved");
+  });
+
+  it("hasGoalStarted matches the scheduled boundary day", () => {
+    expect(hasGoalStarted({ ...base, startDay: "2026-05-12" }, ref)).toBe(true);
+    expect(hasGoalStarted({ ...base, startDay: "2026-05-13" }, ref)).toBe(
+      false,
+    );
+    expect(hasGoalStarted({ ...base, isDraft: true }, ref)).toBe(false);
+    expect(hasGoalStarted(base, ref)).toBe(true);
+  });
+
+  it("addGoal stores lifecycle fields and startGoal activates a draft", () => {
+    const originalState = useStore.getState();
+    try {
+      useStore.setState({ ...originalState, goals: [] });
+
+      useStore.getState().addGoal("Get to 180 lb", "180 lb", {
+        isDraft: true,
+        dueDay: "2027-06-11",
+      });
+      let created = useStore.getState().goals.at(-1)!;
+      expect(created.isDraft).toBe(true);
+      expect(created.dueDay).toBe("2027-06-11");
+      expect(getGoalLifecycleStatus(created)).toBe("draft");
+
+      useStore.getState().startGoal(created.id, "2026-05-12");
+      created = useStore.getState().goals.at(-1)!;
+      expect(created.isDraft).toBeUndefined();
+      expect(created.startDay).toBe("2026-05-12");
+    } finally {
+      useStore.setState(originalState, true);
+    }
+  });
+
+  it("updateGoal can set and clear the due day", () => {
+    const originalState = useStore.getState();
+    try {
+      useStore.setState({
+        ...originalState,
+        goals: [{ ...base, id: "due-goal" }],
+      });
+
+      useStore.getState().updateGoal("due-goal", { dueDay: "2027-06-11" });
+      expect(useStore.getState().goals[0].dueDay).toBe("2027-06-11");
+
+      useStore.getState().updateGoal("due-goal", { dueDay: null });
+      expect(useStore.getState().goals[0].dueDay).toBeUndefined();
+    } finally {
+      useStore.setState(originalState, true);
+    }
+  });
+});
+
+// ─── Not Today (postponement) ────────────────────────────────────────────────
+
+describe("canPostponeTask", () => {
+  // Tue May 12 2026; the Sun-Sat week runs May 10-16.
+  const tue = new Date(2026, 4, 12, 18);
+  const goal = (extra: Partial<Goal> = {}): Goal => ({
+    id: "postpone-goal",
+    title: "Fitness",
+    createdAt: Date.now(),
+    tasks: [],
+    ...extra,
+  });
+  const task = (extra: Partial<Task>): Task => ({
+    id: "t",
+    title: "Task",
+    frequency: "daily",
+    completions: [],
+    ...extra,
+  });
+
+  it("never allows postponing daily tasks", () => {
+    expect(canPostponeTask(goal(), task({ frequency: "daily" }), tue)).toBe(
+      false,
+    );
+  });
+
+  it("allows weekly tasks while spare days remain in the week", () => {
+    expect(canPostponeTask(goal(), task({ frequency: "weekly" }), tue)).toBe(
+      true,
+    );
+    // On Saturday (last day of the week) an unmet weekly task cannot move.
+    const sat = new Date(2026, 4, 16, 18);
+    expect(canPostponeTask(goal(), task({ frequency: "weekly" }), sat)).toBe(
+      false,
+    );
+  });
+
+  it("blocks a 2x-week task when completions left exceed days left", () => {
+    const twoPerWeek = task({
+      frequency: "custom",
+      customFrequency: { type: "weekly", target: 2 },
+    });
+    // Tue: 0/2 done, 4 days left after today → fine.
+    expect(canPostponeTask(goal(), twoPerWeek, tue)).toBe(true);
+    // Fri May 15: 0/2 done, only Sat left after today → blocked.
+    const fri = new Date(2026, 4, 15, 18);
+    expect(canPostponeTask(goal(), twoPerWeek, fri)).toBe(false);
+    // Fri with 1/2 done → one day left covers the one remaining rep.
+    const oneDone = task({
+      frequency: "custom",
+      customFrequency: { type: "weekly", target: 2 },
+      completions: [new Date(2026, 4, 11, 12)],
+    });
+    expect(canPostponeTask(goal(), oneDone, fri)).toBe(true);
+  });
+
+  it("clamps the period to the goal's due day", () => {
+    const twoPerWeek = task({
+      frequency: "custom",
+      customFrequency: { type: "weekly", target: 2 },
+    });
+    // Tue with the goal due Wednesday: only Wed remains after today, but two
+    // reps are owed → blocked despite the week running until Saturday.
+    expect(
+      canPostponeTask(goal({ dueDay: "2026-05-13" }), twoPerWeek, tue),
+    ).toBe(false);
+  });
+
+  it("one-off tasks block only on the goal's final day", () => {
+    const once = task({ frequency: "once" });
+    expect(canPostponeTask(goal(), once, tue)).toBe(true);
+    expect(canPostponeTask(goal({ dueDay: "2026-05-12" }), once, tue)).toBe(
+      false,
+    );
+    expect(canPostponeTask(goal({ dueDay: "2026-06-01" }), once, tue)).toBe(
+      true,
+    );
+  });
+});
+
+describe("postponeTask store actions", () => {
+  const originalState = useStore.getState();
+
+  afterEach(() => {
+    useStore.setState(originalState, true);
+  });
+
+  it("records and clears per-day postponements", () => {
+    const date = new Date(2026, 4, 12, 18);
+    useStore.getState().postponeTask("task-1", date);
+    useStore.getState().postponeTask("task-2", date);
+    expect(useStore.getState().postponedTasks["2026-05-12"]).toEqual([
+      "task-1",
+      "task-2",
+    ]);
+
+    useStore.getState().undoPostponeTask("task-1", date);
+    expect(useStore.getState().postponedTasks["2026-05-12"]).toEqual([
+      "task-2",
+    ]);
+
+    useStore.getState().undoPostponeTask("task-2", date);
+    expect(useStore.getState().postponedTasks["2026-05-12"]).toBeUndefined();
+  });
+
+  it("prunes entries older than a week on write", () => {
+    useStore.setState({
+      ...originalState,
+      postponedTasks: { "2020-01-01": ["stale-task"] },
+    });
+    useStore.getState().postponeTask("fresh-task");
+    expect(useStore.getState().postponedTasks["2020-01-01"]).toBeUndefined();
   });
 });

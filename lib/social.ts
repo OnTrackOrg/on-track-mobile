@@ -12,6 +12,7 @@ type PublicProfileRow = {
   id: string;
   username: string | null;
   display_name: string | null;
+  avatar_uri?: string | null;
 };
 
 type FriendshipRow = {
@@ -26,6 +27,7 @@ const toFriendProfile = (row: PublicProfileRow): FriendProfile => ({
   userId: row.id,
   username: row.username ?? "",
   displayName: row.display_name ?? "Member",
+  avatarUri: row.avatar_uri ?? undefined,
 });
 
 const fallbackProfile = (userId: string): FriendProfile => ({
@@ -83,7 +85,7 @@ export const fetchSocialGraph = async (
   if (profileIds.length > 0) {
     const { data: profileRows, error: profilesError } = await supabase
       .from("public_profiles")
-      .select("id, username, display_name")
+      .select("id, username, display_name, avatar_uri")
       .in("id", profileIds);
     if (profilesError) throw profilesError;
     for (const row of (profileRows ?? []) as PublicProfileRow[]) {
@@ -198,6 +200,9 @@ export const inviteFriendToGoal = async (
       completed_at: goal.completedAt
         ? new Date(goal.completedAt).toISOString()
         : null,
+      is_draft: goal.isDraft ?? false,
+      start_day: goal.startDay ?? null,
+      due_day: goal.dueDay ?? null,
     },
     { onConflict: "id" },
   );
@@ -255,6 +260,7 @@ export const addMemberToGoal = (
       username: friend.username,
       displayName: friend.displayName,
       isOwner: false,
+      avatarUri: friend.avatarUri,
     },
   ],
   tasks: goal.tasks.map((task) => ({

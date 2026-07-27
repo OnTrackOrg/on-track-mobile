@@ -1,16 +1,24 @@
 import React, { useRef, useEffect, useMemo } from "react";
 import { View, ScrollView, Text } from "react-native";
-import Svg, { Rect, Circle, Text as SvgText } from "react-native-svg";
-import { addDays, format, subDays, startOfWeek } from "date-fns";
+import Svg, { Rect, Circle } from "react-native-svg";
+import {
+  addDays,
+  differenceInCalendarDays,
+  format,
+  subDays,
+  startOfWeek,
+} from "date-fns";
 import { useTheme } from "../contexts/ThemeContext";
-import { mix } from "../utils/color";
+import { mix, withAlpha } from "../utils/color";
 
 interface HMProps {
-  startOffsetDays?: number; // how many days back to show
+  startOffsetDays?: number; // how many days back to show (fallback window)
+  // "yyyy-MM-dd" the goal's history starts on. When set, the grid reaches
+  // back to this day (however long ago), instead of a fixed window.
+  historyStartDay?: string;
   values: Record<string, number>; // yyyy-MM-dd -> count
   referenceDate?: Date;
   valueMode?: "count" | "ratio";
-  frozenDateKeys?: Set<string>; // yyyy-MM-dd keys for frozen days
   color?: string; // accent for filled cells; defaults to the legacy greens
 }
 
@@ -37,24 +45,40 @@ export const getHeatmapInitialScrollX = ({
   return Math.max(0, (focusColumn - trailingColumns) * (cell + gap));
 };
 
-export default function Heatmap({
+function Heatmap({
   startOffsetDays = 120,
+  historyStartDay,
   values,
   referenceDate = new Date(),
   valueMode = "count",
-  frozenDateKeys,
   color,
 }: HMProps) {
   const scrollViewRef = useRef<ScrollView>(null);
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
   const focusDate = referenceDate;
   const today = useMemo(() => new Date(), []);
 
-  // Calculate start date and adjust to the previous Sunday to ensure Sunday is always top row
-  const roughStart = subDays(today, startOffsetDays);
-  const start = startOfWeek(roughStart, { weekStartsOn: 0 }); // 0 = Sunday
+  // The grid reaches back to the goal's start day (scrollable all the way),
+  // with a minimum window so young goals still show some context. Snap to
+  // the previous Sunday so Sunday is always the top row.
+  const offsetDays = useMemo(() => {
+    if (!historyStartDay) {
+      return startOffsetDays;
+    }
+    const [year, month, day] = historyStartDay.split("-").map(Number);
+    const historyStart = new Date(year, month - 1, day);
+    return Math.max(
+      startOffsetDays,
+      differenceInCalendarDays(today, historyStart),
+    );
+  }, [historyStartDay, startOffsetDays, today]);
 
+  // Built in one memo so `days` is referentially stable across re-renders;
+  // a fresh array here would re-fire the autoscroll effect and yank the
+  // user back while they are scrolling through history.
   const days = useMemo(() => {
+    const roughStart = subDays(today, offsetDays);
+    const start = startOfWeek(roughStart, { weekStartsOn: 0 }); // 0 = Sunday
     const dayKeys: string[] = [];
 
     for (let d = new Date(start); d <= today; d = addDays(d, 1)) {
@@ -62,7 +86,7 @@ export default function Heatmap({
     }
 
     return dayKeys;
-  }, [start, today]);
+  }, [offsetDays, today]);
 
   const cols = Math.ceil(days.length / 7);
   const cell = 14;
@@ -96,18 +120,26 @@ export default function Heatmap({
   // Day labels (S, M, T, W, T, F, S)
   const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
 
-  // Calculate month boundaries
+  // Calculate month boundaries. Long histories get "Mon 'YY" labels so
+  // scrolling years back stays legible.
+  const showYears = days.length > 370;
   const monthPositions: { month: string; x: number }[] = [];
   let currentMonth = "";
 
   days.forEach((d, i) => {
     const date = new Date(d);
-    const monthYear = format(date, "MMM");
+    const monthYear = format(date, showYears ? "MMM ''yy" : "MMM");
     const col = Math.floor(i / 7);
 
     if (monthYear !== currentMonth) {
       currentMonth = monthYear;
       const x = gap + col * (cell + gap);
+      const previous = monthPositions[monthPositions.length - 1];
+      // A month that starts in the grid's first column can leave the
+      // previous label less than a column of room — drop the cramped one.
+      if (previous && x - previous.x < 30) {
+        monthPositions.pop();
+      }
       monthPositions.push({ month: monthYear, x });
     }
   });
@@ -213,8 +245,9 @@ export default function Heatmap({
                 const y = gap + row * (cell + gap);
                 const n = values[d] || 0;
                 const isFocusDate = d === focusDateKey;
-
-                const isFrozen = frozenDateKeys ? frozenDateKeys.has(d) : false;
+                // Week-alignment padding before the goal existed.
+                const preHistory =
+                  historyStartDay !== undefined && d < historyStartDay;
 
                 return (
                   <React.Fragment key={d}>
@@ -225,37 +258,22 @@ export default function Heatmap({
                       height={cell}
                       rx={3}
                       fill={
-                        isFrozen ? (isDark ? "#1e3a5f" : "#bfdbfe") : scale(n)
+                        // Backfilled completions stay visible even before
+                        // the goal's official start day.
+                        preHistory && n <= 0
+                          ? withAlpha(theme.border, 0.35)
+                          : scale(n)
                       }
-                      stroke={
-                        isFocusDate
-                          ? theme.primary
-                          : isFrozen
-                            ? isDark
-                              ? "#60a5fa"
-                              : "#60a5fa"
-                            : "transparent"
-                      }
-                      strokeWidth={isFocusDate ? 2 : isFrozen ? 1 : 0}
+                      stroke={isFocusDate ? theme.primary : "transparent"}
+                      strokeWidth={isFocusDate ? 2 : 0}
                     />
-                    {isFocusDate && !isFrozen && (
+                    {isFocusDate && (
                       <Circle
                         cx={x + cell / 2}
                         cy={y + cell / 2}
                         r={2}
                         fill={theme.primary}
                       />
-                    )}
-                    {isFrozen && (
-                      <SvgText
-                        x={x + cell / 2}
-                        y={y + cell / 2 + 4}
-                        fontSize={9}
-                        textAnchor="middle"
-                        fill={isDark ? "#93c5fd" : "#1d4ed8"}
-                      >
-                        ❄
-                      </SvgText>
                     )}
                   </React.Fragment>
                 );
@@ -267,3 +285,6 @@ export default function Heatmap({
     </View>
   );
 }
+
+// ~1000+ SVG cells for long histories: skip re-renders when inputs match.
+export default React.memo(Heatmap);
