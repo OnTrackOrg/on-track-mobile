@@ -8,6 +8,7 @@ import {
   Switch,
   Modal,
   Image,
+  TextInput,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -21,6 +22,7 @@ import { useStore, getGoalLifecycleStatus, getGoalStreak } from "../store";
 import { useTheme, THEME_OPTIONS } from "../contexts/ThemeContext";
 import Avatar from "./Avatar";
 import IconButton from "./IconButton";
+import LabeledTextField from "./LabeledTextField";
 import { card } from "./ui";
 import { haptics } from "../utils/haptics";
 import { mix, withAlpha } from "../utils/color";
@@ -58,6 +60,14 @@ const SECTION_HEADER = {
   letterSpacing: 0.8,
 };
 
+const ACCOLADE_TIERS = [
+  "Bronze",
+  "Silver",
+  "Gold",
+  "Platinum",
+  "Diamond",
+] as const;
+
 export default function ProfileScreen({ navigation }: ProfileProps) {
   const goals = useStore((s) => s.goals);
   const sharedGoals = useStore((s) => s.sharedGoals);
@@ -74,6 +84,10 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [profileDetailsVisible, setProfileDetailsVisible] = useState(false);
+  const [isSavingProfileDetails, setIsSavingProfileDetails] = useState(false);
+  const [occupationDraft, setOccupationDraft] = useState("");
+  const [bioDraft, setBioDraft] = useState("");
 
   const accountId = account?.id;
   const allGoals = React.useMemo(
@@ -99,6 +113,13 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
         .catch(() => {});
     }, []),
   );
+
+  React.useEffect(() => {
+    if (!profileDetailsVisible) {
+      setOccupationDraft(account?.occupation ?? "");
+      setBioDraft(account?.bio ?? "");
+    }
+  }, [account?.bio, account?.occupation, profileDetailsVisible]);
 
   const pickAvatar = async () => {
     void haptics.tap();
@@ -362,6 +383,56 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
     );
   };
 
+  const openProfileDetailsEditor = () => {
+    void haptics.tap();
+    setOccupationDraft(account?.occupation ?? "");
+    setBioDraft(account?.bio ?? "");
+    setProfileDetailsVisible(true);
+  };
+
+  const saveProfileDetails = async () => {
+    if (!account) return;
+
+    const nextOccupation = occupationDraft.trim();
+    const nextBio = bioDraft.trim();
+
+    setIsSavingProfileDetails(true);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          occupation: nextOccupation || null,
+          bio: nextBio || null,
+        })
+        .eq("id", account.id);
+
+      if (error) {
+        throw error;
+      }
+
+      setAccount({
+        id: account.id,
+        displayName: account.displayName,
+        username: account.username,
+        email: account.email,
+        createdAt: account.createdAt,
+        ...(nextBio ? { bio: nextBio } : {}),
+        ...(nextOccupation ? { occupation: nextOccupation } : {}),
+      });
+      setProfileDetailsVisible(false);
+      void haptics.success();
+    } catch (error) {
+      Alert.alert(
+        "Couldn't save profile",
+        error instanceof Error
+          ? error.message
+          : "Check your connection and try again.",
+      );
+    } finally {
+      setIsSavingProfileDetails(false);
+    }
+  };
+
   const settingsCardStyle = {
     backgroundColor: theme.background,
     padding: 12,
@@ -423,6 +494,9 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
       </SafeAreaView>
     );
   }
+
+  const profileOccupation = account.occupation?.trim();
+  const profileBio = account.bio?.trim();
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
@@ -532,6 +606,129 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                 </Text>
               </View>
             ))}
+          </View>
+
+          <View style={{ ...card(theme, isDark), padding: 16, gap: 14 }}>
+            <View
+              style={{
+                alignItems: "center",
+                flexDirection: "row",
+                justifyContent: "space-between",
+              }}
+            >
+              <Text
+                style={{
+                  ...SECTION_HEADER,
+                  color: theme.textSecondary,
+                }}
+              >
+                ABOUT
+              </Text>
+              <Pressable onPress={openProfileDetailsEditor}>
+                <Text style={{ color: theme.primary, fontWeight: "700" }}>
+                  Edit
+                </Text>
+              </Pressable>
+            </View>
+            <View style={{ gap: 12 }}>
+              <View>
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontSize: 12,
+                    fontWeight: "700",
+                    letterSpacing: 0.5,
+                  }}
+                >
+                  WHAT I DO
+                </Text>
+                <Text
+                  style={{
+                    color: theme.text,
+                    lineHeight: 21,
+                    marginTop: 4,
+                  }}
+                >
+                  {profileOccupation ??
+                    "Add what you do for a living so friends know more about you."}
+                </Text>
+              </View>
+              <View
+                style={{
+                  borderTopWidth: 1,
+                  borderTopColor: theme.border,
+                  paddingTop: 12,
+                }}
+              >
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontSize: 12,
+                    fontWeight: "700",
+                    letterSpacing: 0.5,
+                  }}
+                >
+                  BIO
+                </Text>
+                <Text
+                  style={{
+                    color: theme.text,
+                    lineHeight: 21,
+                    marginTop: 4,
+                  }}
+                >
+                  {profileBio ??
+                    "Add a short bio so friends know what you're about."}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={{ ...card(theme, isDark), padding: 16, gap: 14 }}>
+            <View
+              style={{
+                alignItems: "center",
+                flexDirection: "row",
+                justifyContent: "space-between",
+              }}
+            >
+              <Text
+                style={{
+                  ...SECTION_HEADER,
+                  color: theme.textSecondary,
+                }}
+              >
+                ACCOLADES
+              </Text>
+              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                Coming soon
+              </Text>
+            </View>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {ACCOLADE_TIERS.map((tier) => (
+                <View
+                  key={tier}
+                  style={{
+                    borderColor: theme.border,
+                    borderRadius: 9999,
+                    borderWidth: 1,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    backgroundColor: theme.background,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: theme.textSecondary,
+                      fontSize: 12,
+                      fontWeight: "700",
+                    }}
+                  >
+                    {tier}
+                  </Text>
+                </View>
+              ))}
+            </View>
           </View>
 
           {achievedGoals.length > 0 ? (
@@ -760,6 +957,144 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
           <View style={{ height: 20 }} />
         </View>
       </ScrollView>
+
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={profileDetailsVisible}
+        onRequestClose={() => {
+          void haptics.tap();
+          setProfileDetailsVisible(false);
+        }}
+      >
+        <View
+          style={{
+            flex: 1,
+            justifyContent: "flex-end",
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: theme.surface,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              padding: 20,
+              paddingBottom: 32,
+              borderTopWidth: 1,
+              borderTopColor: theme.border,
+              maxHeight: "85%",
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 20,
+              }}
+            >
+              <Text
+                style={{ fontSize: 18, fontWeight: "700", color: theme.text }}
+              >
+                Edit profile
+              </Text>
+              <Pressable
+                onPress={() => {
+                  void haptics.tap();
+                  setProfileDetailsVisible(false);
+                }}
+                style={{
+                  padding: 8,
+                  borderRadius: 8,
+                  backgroundColor: theme.background,
+                }}
+              >
+                <Ionicons name="close" size={20} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={settingsCardStyle}>
+                <LabeledTextField
+                  label="What I do"
+                  placeholder="Student, designer, engineer..."
+                  value={occupationDraft}
+                  onChangeText={setOccupationDraft}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  helpText="Visible on your friends-facing profile."
+                />
+
+                <View style={{ gap: 8, marginTop: 14 }}>
+                  <Text
+                    style={{
+                      color: theme.text,
+                      fontSize: 16,
+                      fontWeight: "700",
+                    }}
+                  >
+                    Bio
+                  </Text>
+                  <TextInput
+                    value={bioDraft}
+                    onChangeText={setBioDraft}
+                    placeholder="A short bio about you"
+                    multiline
+                    maxLength={160}
+                    textAlignVertical="top"
+                    style={{
+                      minHeight: 112,
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                      borderRadius: 8,
+                      backgroundColor: theme.surface,
+                      color: theme.text,
+                      paddingHorizontal: 12,
+                      paddingVertical: 12,
+                    }}
+                    placeholderTextColor={theme.textSecondary}
+                    selectionColor={theme.primary}
+                    underlineColorAndroid="transparent"
+                    keyboardAppearance={isDark ? "dark" : "light"}
+                  />
+                  <View
+                    style={{
+                      alignItems: "center",
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                      Visible on your friends-facing profile.
+                    </Text>
+                    <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                      {bioDraft.length}/160
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              <Pressable
+                disabled={isSavingProfileDetails}
+                onPress={() => void saveProfileDetails()}
+                style={{
+                  alignItems: "center",
+                  backgroundColor: theme.primary,
+                  borderRadius: 12,
+                  marginBottom: 12,
+                  opacity: isSavingProfileDetails ? 0.7 : 1,
+                  padding: 14,
+                }}
+              >
+                <Text style={{ color: "#ffffff", fontWeight: "700" }}>
+                  {isSavingProfileDetails ? "Saving…" : "Save profile"}
+                </Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Settings Modal (ported from the old HomeScreen) */}
       <Modal

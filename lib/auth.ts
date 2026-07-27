@@ -21,6 +21,8 @@ type ProfileRow = {
   username?: string | null;
   email?: string | null;
   created_at?: string | null;
+  bio?: string | null;
+  occupation?: string | null;
 };
 
 const buildAccountFromUser = (user: User): UserAccount => {
@@ -64,6 +66,8 @@ const buildAccountFromProfile = (
       buildDefaultUsername(fallbackUser.email?.split("@")[0] ?? "OnTrack User"),
     profile.email ?? fallbackUser.email ?? "",
   );
+  const bio = profile.bio?.trim() || undefined;
+  const occupation = profile.occupation?.trim() || undefined;
 
   return {
     id: profile.id,
@@ -73,6 +77,8 @@ const buildAccountFromProfile = (
     createdAt: profile.created_at
       ? new Date(profile.created_at).getTime()
       : Date.now(),
+    ...(bio ? { bio } : {}),
+    ...(occupation ? { occupation } : {}),
   };
 };
 
@@ -234,7 +240,7 @@ export const ensureProfileForUser = async (
       },
       { onConflict: "id" },
     )
-    .select("id, email, display_name, username, created_at")
+    .select("id, email, display_name, username, created_at, bio, occupation")
     .single();
 
   if (error) {

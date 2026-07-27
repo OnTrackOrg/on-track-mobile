@@ -48,6 +48,8 @@ export interface FriendProfile {
   username: string;
   displayName: string;
   avatarUri?: string; // data URI synced from profiles.avatar_uri
+  bio?: string;
+  occupation?: string;
 }
 
 export interface FriendRequest {
@@ -63,4 +65,6 @@ export interface UserAccount {
   username: string;
   email: string;
   createdAt: number;
+  bio?: string;
+  occupation?: string;
 }

@@ -13,6 +13,8 @@ type PublicProfileRow = {
   username: string | null;
   display_name: string | null;
   avatar_uri?: string | null;
+  bio?: string | null;
+  occupation?: string | null;
 };
 
 type FriendshipRow = {
@@ -23,12 +25,19 @@ type FriendshipRow = {
   created_at: string;
 };
 
-const toFriendProfile = (row: PublicProfileRow): FriendProfile => ({
-  userId: row.id,
-  username: row.username ?? "",
-  displayName: row.display_name ?? "Member",
-  avatarUri: row.avatar_uri ?? undefined,
-});
+const toFriendProfile = (row: PublicProfileRow): FriendProfile => {
+  const bio = row.bio?.trim() || undefined;
+  const occupation = row.occupation?.trim() || undefined;
+
+  return {
+    userId: row.id,
+    username: row.username ?? "",
+    displayName: row.display_name ?? "Member",
+    avatarUri: row.avatar_uri ?? undefined,
+    ...(bio ? { bio } : {}),
+    ...(occupation ? { occupation } : {}),
+  };
+};
 
 const fallbackProfile = (userId: string): FriendProfile => ({
   userId,
@@ -85,7 +94,7 @@ export const fetchSocialGraph = async (
   if (profileIds.length > 0) {
     const { data: profileRows, error: profilesError } = await supabase
       .from("public_profiles")
-      .select("id, username, display_name, avatar_uri")
+      .select("id, username, display_name, avatar_uri, bio, occupation")
       .in("id", profileIds);
     if (profilesError) throw profilesError;
     for (const row of (profileRows ?? []) as PublicProfileRow[]) {
