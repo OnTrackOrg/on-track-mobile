@@ -28,6 +28,7 @@ describe("buildMcpConnectPrompt", () => {
   it("names the exposed tools", () => {
     for (const tool of [
       "list_goals",
+      "create_goal",
       "get_goal",
       "log_task_completion",
       "undo_task_completion",

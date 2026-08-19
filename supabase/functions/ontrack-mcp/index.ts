@@ -290,6 +290,173 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
     },
   });
 
+  mcp.tool("create_goal", {
+    description:
+      "Create a new goal owned by the signed-in user, optionally with " +
+      "recurring tasks. Use this to draft goals on their behalf — e.g. " +
+      "turning 'get ready for a 10k' into a goal with a training cadence. " +
+      "Set is_draft when they want to review it before it starts counting.",
+    inputSchema: z.object({
+      title: z.string().min(1).max(80).describe("Goal title."),
+      target: z
+        .string()
+        .min(1)
+        .max(80)
+        .optional()
+        .describe("Optional measurable target, e.g. '10k under an hour'."),
+      is_draft: z
+        .boolean()
+        .default(false)
+        .describe("Park the goal as a draft instead of starting it."),
+      start_day: z
+        .string()
+        .optional()
+        .describe(
+          "First day tasks are due (yyyy-MM-dd). Omit to start right away; " +
+            "ignored for drafts.",
+        ),
+      due_day: z
+        .string()
+        .optional()
+        .describe("Day to reach the goal by (yyyy-MM-dd)."),
+      tasks: z
+        .array(
+          z.object({
+            title: z.string().min(1).max(80),
+            frequency: z
+              .enum(["once", "daily", "weekly", "custom"])
+              .default("daily"),
+            custom_type: z
+              .enum(["weekly", "monthly"])
+              .optional()
+              .describe(
+                "Required with frequency 'custom' unless custom_weekdays is set.",
+              ),
+            custom_target: z
+              .number()
+              .int()
+              .min(1)
+              .max(31)
+              .optional()
+              .describe("Times per custom period, e.g. 3 per week."),
+            custom_weekdays: z
+              .array(z.number().int().min(0).max(6))
+              .min(1)
+              .max(7)
+              .optional()
+              .describe(
+                "Pin the task to explicit weekdays (0=Sunday..6=Saturday); " +
+                  "implies a custom weekly schedule.",
+              ),
+          }),
+        )
+        .max(10)
+        .default([])
+        .describe("Recurring tasks to create with the goal."),
+    }),
+    handler: async (args: {
+      title: string;
+      target?: string;
+      is_draft?: boolean;
+      start_day?: string;
+      due_day?: string;
+      tasks?: Array<{
+        title: string;
+        frequency?: "once" | "daily" | "weekly" | "custom";
+        custom_type?: "weekly" | "monthly";
+        custom_target?: number;
+        custom_weekdays?: number[];
+      }>;
+    }) => {
+      for (const day of [args.start_day, args.due_day]) {
+        if (day !== undefined && !isDayKey(day)) {
+          throw new Error("start_day and due_day must be formatted yyyy-MM-dd");
+        }
+      }
+      if (args.start_day && args.due_day && args.due_day < args.start_day) {
+        throw new Error("due_day cannot be before start_day");
+      }
+
+      // Validate every task before touching the database so a bad task list
+      // never leaves a half-created goal behind.
+      const taskRows = (args.tasks ?? []).map((task, index) => {
+        const title = task.title.trim();
+        if (!title) throw new Error("Task titles cannot be empty");
+        const weekdays = task.custom_weekdays
+          ? [...new Set(task.custom_weekdays)].sort((a, b) => a - b)
+          : null;
+        if (weekdays) {
+          // Weekday-pinned tasks are stored as custom weekly schedules whose
+          // target always equals the number of pinned days.
+          return {
+            title,
+            frequency: "custom",
+            custom_type: "weekly",
+            custom_target: weekdays.length,
+            custom_weekdays: weekdays,
+            position: index,
+          };
+        }
+        const frequency = task.frequency ?? "daily";
+        if (frequency === "custom") {
+          if (!task.custom_type || !task.custom_target) {
+            throw new Error(
+              `Task "${title}": frequency 'custom' needs custom_type and ` +
+                "custom_target (or custom_weekdays)",
+            );
+          }
+          return {
+            title,
+            frequency,
+            custom_type: task.custom_type,
+            custom_target: Math.min(
+              task.custom_target,
+              task.custom_type === "weekly" ? 7 : 31,
+            ),
+            custom_weekdays: null,
+            position: index,
+          };
+        }
+        return {
+          title,
+          frequency,
+          custom_type: null,
+          custom_target: null,
+          custom_weekdays: null,
+          position: index,
+        };
+      });
+
+      const { data: goal, error } = await db
+        .from("goals")
+        .insert({
+          owner_user_id: user.id,
+          title: args.title.trim(),
+          target: args.target?.trim() || null,
+          is_draft: args.is_draft ?? false,
+          start_day: (args.is_draft ? null : args.start_day) ?? null,
+          due_day: args.due_day ?? null,
+        })
+        .select("id")
+        .single();
+      if (error) throw new Error(`Could not create the goal: ${error.message}`);
+
+      if (taskRows.length > 0) {
+        const { error: tasksError } = await db
+          .from("tasks")
+          .insert(taskRows.map((row) => ({ ...row, goal_id: goal.id })));
+        if (tasksError) {
+          throw new Error(
+            `The goal was created but its tasks failed: ${tasksError.message}`,
+          );
+        }
+      }
+
+      const detail = await loadGoalDetail(db, user, goal.id);
+      return structuredResult(detail);
+    },
+  });
+
   mcp.tool("list_friends", {
     description:
       "List the user's accepted friends (people whose shared goals they can " +
