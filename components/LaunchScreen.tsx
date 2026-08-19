@@ -14,6 +14,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useTheme } from "../contexts/ThemeContext";
 import { withAlpha } from "../utils/color";
+import { haptics } from "../utils/haptics";
 import { setLaunchScreenVisible } from "../lib/launchVisibility";
 import { Quote, fetchRandomQuote, getFallbackQuote } from "../lib/quotes";
 
@@ -27,8 +28,12 @@ const GAP = 4;
 const WAVE_STEP_MS = 90;
 const WAVE_DURATION_MS = 1500;
 const QUOTE_DELAY_MS = 1800;
-const HOLD_MS = 4300;
-const REDUCED_HOLD_MS = 2600;
+// Issue #166: the quote fades in at QUOTE_DELAY_MS, so the hold controls how
+// long it can actually be read (~6s). One constant covers both cold starts
+// and foreground replays, keeping the timing consistent; tapping anywhere
+// still skips ahead immediately.
+const HOLD_MS = 8000;
+const REDUCED_HOLD_MS = 5200;
 const FADE_OUT_MS = 450;
 // A fresh open after this long in the background replays the launch screen.
 const RESHOW_AFTER_BACKGROUND_MS = 5 * 60 * 1000;
@@ -114,7 +119,10 @@ function LaunchScreenView({
       ]}
     >
       <Pressable
-        onPress={dismiss}
+        onPress={() => {
+          void haptics.tap();
+          dismiss();
+        }}
         style={{
           flex: 1,
           backgroundColor: theme.background,
@@ -169,6 +177,16 @@ function LaunchScreenView({
             }}
           >
             ONTRACK
+          </Text>
+          <Text
+            style={{
+              marginTop: 8,
+              fontSize: 12,
+              textAlign: "center",
+              color: withAlpha(theme.textSecondary, 0.75),
+            }}
+          >
+            Tap anywhere to continue
           </Text>
         </Animated.View>
       </Pressable>

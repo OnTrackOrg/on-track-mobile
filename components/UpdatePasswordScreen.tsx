@@ -12,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { getAccountDraftErrors } from "../account";
 import { useTheme } from "../contexts/ThemeContext";
+import { haptics } from "../utils/haptics";
 import LabeledTextField from "./LabeledTextField";
 
 type UpdatePasswordScreenProps = {
@@ -161,9 +162,11 @@ export default function UpdatePasswordScreen({
               onPress={() => {
                 setAttemptedSubmit(true);
                 if (!isValid || isSubmitting) {
+                  void haptics.error();
                   return;
                 }
 
+                void haptics.press();
                 onSubmit(password);
               }}
               style={{

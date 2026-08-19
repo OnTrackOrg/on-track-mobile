@@ -24,7 +24,14 @@ import Animated, {
 import ReanimatedSwipeable, {
   SwipeableMethods,
 } from "react-native-gesture-handler/ReanimatedSwipeable";
-import { canPostponeTask, getTodayItems, useStore, TodayItem } from "../store";
+import {
+  canPostponeTask,
+  getTaskWeekdays,
+  getTodayItems,
+  useStore,
+  TodayItem,
+} from "../store";
+import { describeTaskSchedule } from "../lib/taskSchedule";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
 import { goalColor } from "../utils/goalColors";
@@ -41,17 +48,14 @@ import { Task } from "../types";
 
 type TodayProps = BottomTabScreenProps<TabParamList, "Today">;
 
-const frequencyLabel = (task: Task): string => {
-  if (task.frequency === "custom" && task.customFrequency) {
-    const period = task.customFrequency.type === "weekly" ? "week" : "month";
-    return `${task.customFrequency.target} times per ${period}`;
-  }
-  return task.frequency;
-};
+const frequencyLabel = (task: Task): string => describeTaskSchedule(task);
 
 const postponeBlockReason = (task: Task): string => {
   if (task.frequency === "daily") {
     return "Daily tasks are due every day — skipping one breaks the goal.";
+  }
+  if (getTaskWeekdays(task)) {
+    return "This task is scheduled for specific days — it's due today.";
   }
   if (task.frequency === "once") {
     return "The goal is due today — this one-off can't be pushed past it.";
@@ -322,10 +326,12 @@ export default function TodayScreen({ navigation }: TodayProps) {
   const toggleItem = (item: TodayItem, completing: boolean) => {
     const completesDay = completing && todo.length === 1;
     if (completesDay) {
-      void haptics.success();
+      // Rising haptic burst timed with the confetti.
+      void haptics.celebrate();
       celebrate();
     } else {
-      void (completing ? haptics.toggle() : haptics.tap());
+      // Completing lands harder than un-checking.
+      void (completing ? haptics.press() : haptics.tap());
     }
     if (item.isShared) {
       toggleSharedTaskCompletion(item.goal.id, item.task.id, selectedDate);
@@ -419,17 +425,17 @@ export default function TodayScreen({ navigation }: TodayProps) {
                     </Animated.View>
                   ) : null}
                 </View>
-                <Text
-                  style={{
-                    color: theme.textSecondary,
-                    marginTop: 2,
-                    fontSize: 14,
-                  }}
-                >
-                  {allDone
-                    ? "Every goal touched today — see you tomorrow"
-                    : `${totals.done} of ${totals.total} tasks across ${totals.goalCount} goal${totals.goalCount === 1 ? "" : "s"}`}
-                </Text>
+                {allDone ? (
+                  <Text
+                    style={{
+                      color: theme.textSecondary,
+                      marginTop: 2,
+                      fontSize: 14,
+                    }}
+                  >
+                    Every goal touched today — see you tomorrow
+                  </Text>
+                ) : null}
               </View>
             </Animated.View>
           </TourAnchor>

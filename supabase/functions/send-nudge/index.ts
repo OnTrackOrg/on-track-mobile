@@ -45,7 +45,11 @@ Deno.serve(async (request) => {
     return json({ error: "Invalid or expired session" }, 401);
   }
 
-  let payload: { recipientUserId?: unknown; goalId?: unknown };
+  let payload: {
+    recipientUserId?: unknown;
+    goalId?: unknown;
+    message?: unknown;
+  };
   try {
     payload = await request.json();
   } catch {
@@ -54,6 +58,12 @@ Deno.serve(async (request) => {
   if (!isUuid(payload.recipientUserId) || !isUuid(payload.goalId)) {
     return json({ error: "A valid recipient and goal are required" }, 400);
   }
+  // Optional supportive message chosen by the sender; kept short so the
+  // push body stays readable.
+  const message =
+    typeof payload.message === "string"
+      ? payload.message.trim().slice(0, 200)
+      : "";
   if (payload.recipientUserId === user.id) {
     return json({ error: "You cannot nudge yourself" }, 400);
   }
@@ -132,7 +142,9 @@ Deno.serve(async (request) => {
         to: token,
         sound: "default",
         title: `${senderName} sent a nudge`,
-        body: `${senderName} is nudging you to do ${goal.title}.`,
+        body: message
+          ? `"${message}" — about ${goal.title}.`
+          : `${senderName} is nudging you to do ${goal.title}.`,
         data: {
           goalId: goal.id,
           senderUserId: user.id,

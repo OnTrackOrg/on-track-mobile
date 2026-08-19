@@ -18,7 +18,6 @@ import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import LaunchScreen from "./components/LaunchScreen";
 import TodayScreen from "./components/TodayScreen";
 import GoalsScreen from "./components/GoalsScreen";
-import SearchScreen from "./components/SearchScreen";
 import ProfileScreen from "./components/ProfileScreen";
 import FriendScreen from "./components/FriendScreen";
 import GoalScreen from "./components/GoalScreen";
@@ -34,6 +33,7 @@ import AccountDeletedScreen from "./components/AccountDeletedScreen";
 import { RootStackParamList, TabParamList } from "./navigation";
 import { APP_TOUR_STORAGE_KEY, shouldShowAppTour } from "./onboarding";
 import { useStore } from "./store";
+import { haptics } from "./utils/haptics";
 import {
   AuthMode,
   exchangeAuthCodeForSession,
@@ -86,6 +86,12 @@ function MainTabs() {
 
   return (
     <Tab.Navigator
+      // Every tab switch gets a selection tick.
+      screenListeners={{
+        tabPress: () => {
+          void haptics.navigate();
+        },
+      }}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: theme.primary,
@@ -108,7 +114,8 @@ function MainTabs() {
     >
       <Tab.Screen name="Today" component={TodayScreen} />
       <Tab.Screen name="Goals" component={GoalsScreen} />
-      <Tab.Screen name="Search" component={SearchScreen} />
+      {/* Search (people/goal discovery) is hidden until there are public
+          goals worth discovering; SearchScreen stays in the codebase. */}
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );

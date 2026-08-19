@@ -23,6 +23,7 @@ type TaskRow = {
   frequency: Task["frequency"];
   custom_type?: "weekly" | "monthly" | null;
   custom_target?: number | null;
+  custom_weekdays?: number[] | null;
   position?: number | null;
   created_at?: string | null;
 };
@@ -173,6 +174,12 @@ const buildTasks = (
         ? {
             type: task.custom_type,
             target: task.custom_target,
+            weekdays:
+              task.custom_type === "weekly" &&
+              task.custom_weekdays &&
+              task.custom_weekdays.length > 0
+                ? task.custom_weekdays
+                : undefined,
           }
         : undefined,
     completions: myCompletionsByTaskId.get(task.id) ?? [],
@@ -325,7 +332,7 @@ export const fetchAccessibleGoals = async (
     const { data: taskRows, error: tasksError } = await supabase
       .from("tasks")
       .select(
-        "id, goal_id, title, frequency, custom_type, custom_target, position, created_at",
+        "id, goal_id, title, frequency, custom_type, custom_target, custom_weekdays, position, created_at",
       )
       .in("goal_id", chunk)
       .order("position", { ascending: true })
@@ -477,6 +484,7 @@ export const replaceRemoteGoalsForUser = async (
       frequency: task.frequency,
       custom_type: task.customFrequency?.type ?? null,
       custom_target: task.customFrequency?.target ?? null,
+      custom_weekdays: task.customFrequency?.weekdays ?? null,
       position: index,
     })),
   );

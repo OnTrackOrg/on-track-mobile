@@ -40,7 +40,9 @@ import {
 } from "../lib/social";
 import { importLocalDataToCloud } from "../lib/importLocal";
 import { uploadAvatarToProfile } from "../lib/avatar";
-import { supabase } from "../lib/supabase";
+import { supabase, supabaseBaseUrl } from "../lib/supabase";
+import { buildMcpConnectPrompt } from "../lib/mcpPrompt";
+import * as Clipboard from "expo-clipboard";
 import {
   APP_TOUR_STORAGE_KEY,
   LEGACY_ONBOARDING_STORAGE_KEY,
@@ -71,6 +73,8 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
   const setAccount = useStore((s) => s.setAccount);
   const setCloudSyncEnabled = useStore((s) => s.setCloudSyncEnabled);
   const { theme, isDark, toggleTheme, themeId, setThemeId } = useTheme();
+  // "Copied" feedback for the AI-assistant setup prompt.
+  const [copiedMcpPrompt, setCopiedMcpPrompt] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
@@ -738,24 +742,89 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
             </View>
           )}
 
-          <Pressable
-            onPress={() => {
-              void haptics.navigate();
-              navigation.navigate("Search");
-            }}
+          {/* "Find people" is parked with the hidden Search tab; restore
+              both together when discovery comes back. */}
+
+          <Text
             style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 6,
-              padding: 12,
+              ...SECTION_HEADER,
+              color: theme.textSecondary,
+              marginTop: 8,
             }}
           >
-            <Ionicons name="search" size={16} color={theme.primary} />
-            <Text style={{ color: theme.primary, fontWeight: "700" }}>
-              Find people
-            </Text>
-          </Pressable>
+            AI ASSISTANT
+          </Text>
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: theme.border,
+              borderRadius: 12,
+              padding: 14,
+              backgroundColor: theme.surface,
+              gap: 12,
+            }}
+          >
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Ionicons name="sparkles" size={18} color={theme.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: theme.text, fontWeight: "700" }}>
+                  Use OnTrack from your AI assistant
+                </Text>
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontSize: 13,
+                    lineHeight: 19,
+                    marginTop: 3,
+                  }}
+                >
+                  Claude, ChatGPT, and other MCP clients can read your goals,
+                  log completions, and nudge friends for you. Copy the setup
+                  prompt and paste it to your assistant — it walks the agent
+                  through connecting and signing in as you.
+                </Text>
+              </View>
+            </View>
+            <Pressable
+              onPress={() => {
+                void (async () => {
+                  await Clipboard.setStringAsync(
+                    buildMcpConnectPrompt(supabaseBaseUrl),
+                  );
+                  void haptics.success();
+                  setCopiedMcpPrompt(true);
+                  setTimeout(() => setCopiedMcpPrompt(false), 2500);
+                })();
+              }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                paddingVertical: 11,
+                borderRadius: 10,
+                backgroundColor: copiedMcpPrompt
+                  ? withAlpha(theme.success, 0.15)
+                  : theme.primary,
+              }}
+            >
+              <Ionicons
+                name={copiedMcpPrompt ? "checkmark" : "copy-outline"}
+                size={15}
+                color={copiedMcpPrompt ? theme.success : "#ffffff"}
+              />
+              <Text
+                style={{
+                  color: copiedMcpPrompt ? theme.success : "#ffffff",
+                  fontWeight: "700",
+                }}
+              >
+                {copiedMcpPrompt
+                  ? "Copied — paste it to your assistant"
+                  : "Copy setup prompt"}
+              </Text>
+            </Pressable>
+          </View>
 
           <View style={{ height: 20 }} />
         </View>

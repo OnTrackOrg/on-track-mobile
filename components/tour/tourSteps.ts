@@ -73,15 +73,8 @@ export const TOUR_STEPS: TourStep[] = [
     spotlightPadding: 6,
     spotlightRadius: 20,
   },
-  {
-    key: "search",
-    title: "Better together",
-    text: "Search finds your friends — add them to share goals and keep each other on track.",
-    tab: "Search",
-    anchors: ["tab-search"],
-    spotlightPadding: 18,
-    spotlightRadius: 999,
-  },
+  // The "search" step is parked with the hidden Search tab; restore both
+  // together when public-goal discovery ships.
   {
     key: "profile",
     title: "Make it yours",

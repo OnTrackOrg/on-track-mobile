@@ -217,6 +217,7 @@ export const inviteFriendToGoal = async (
         frequency: task.frequency,
         custom_type: task.customFrequency?.type ?? null,
         custom_target: task.customFrequency?.target ?? null,
+        custom_weekdays: task.customFrequency?.weekdays ?? null,
         position: index,
       })),
       { onConflict: "id" },

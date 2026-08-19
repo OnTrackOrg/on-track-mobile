@@ -1,17 +1,17 @@
 import React from "react";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import {
+  ActivityIndicator,
   Text,
   View,
   Pressable,
   TextInput,
-  Modal,
   Alert,
   ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { format } from "date-fns";
+import { addDays, format } from "date-fns";
 import { useStore } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
@@ -20,9 +20,12 @@ import { RootStackParamList } from "../navigation";
 import LabeledTextField from "./LabeledTextField";
 import Avatar from "./Avatar";
 import DatePickerModal from "./DatePickerModal";
+import TaskEditorModal, { TaskEditorValue } from "./TaskEditorModal";
 import { CustomFrequency, Frequency } from "../types";
 import { addMemberToGoal, inviteFriendToGoal } from "../lib/social";
 import { getPersistedSession } from "../lib/auth";
+import { describeTaskSchedule } from "../lib/taskSchedule";
+import { generateGoalDraft } from "../lib/goalDraft";
 
 type NewGoalProps = NativeStackScreenProps<RootStackParamList, "NewGoal">;
 
@@ -32,9 +35,6 @@ type DraftTask = {
   frequency: Frequency;
   customFrequency?: CustomFrequency;
 };
-
-const MAX_WEEKLY_CUSTOM_TARGET = 7;
-const MAX_MONTHLY_CUSTOM_TARGET = 31;
 
 export default function NewGoalScreen({ navigation }: NewGoalProps) {
   const addGoal = useStore((s) => s.addGoal);
@@ -51,12 +51,15 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
     [],
   );
   const [isAddingTask, setIsAddingTask] = React.useState(false);
-  const [taskTitle, setTaskTitle] = React.useState("");
-  const [frequency, setFrequency] = React.useState<Frequency>("daily");
-  const [customFrequency, setCustomFrequency] = React.useState<CustomFrequency>(
-    { type: "weekly", target: 3 },
-  );
   const [isCreating, setIsCreating] = React.useState(false);
+
+  // AI-assisted drafting (issue #161): describe an outcome, get an editable
+  // pre-filled form. Nothing is saved until the user taps Create/Save.
+  const [aiDescription, setAiDescription] = React.useState("");
+  const [isDrafting, setIsDrafting] = React.useState(false);
+  const [draftSource, setDraftSource] = React.useState<"ai" | "offline" | null>(
+    null,
+  );
 
   // Goal lifecycle: start immediately, on a chosen day, or park as a draft.
   const [startMode, setStartMode] = React.useState<
@@ -71,68 +74,57 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
   const canCreate = title.trim().length > 0 && !isCreating;
   const showFriendPicker = Boolean(account) && friends.length > 0;
 
-  const getMaxCustomTarget = (type: CustomFrequency["type"]) =>
-    type === "weekly" ? MAX_WEEKLY_CUSTOM_TARGET : MAX_MONTHLY_CUSTOM_TARGET;
-
-  const normalizeCustomTarget = (
-    targetValue: number,
-    type: CustomFrequency["type"],
-  ) => Math.min(getMaxCustomTarget(type), Math.max(1, targetValue));
-
-  const adjustCustomTarget = (delta: number) => {
-    const nextTarget = normalizeCustomTarget(
-      customFrequency.target + delta,
-      customFrequency.type,
-    );
-
-    if (nextTarget === customFrequency.target) {
-      void haptics.warning();
-      return;
-    }
-
-    void haptics.toggle();
-    setCustomFrequency((prev) => ({ ...prev, target: nextTarget }));
-  };
-
-  const resetTaskEditor = () => {
-    setTaskTitle("");
-    setFrequency("daily");
-    setCustomFrequency({ type: "weekly", target: 3 });
-    setIsAddingTask(false);
-  };
-
-  const submitTaskEditor = () => {
-    const trimmed = taskTitle.trim();
-    if (!trimmed) {
-      void haptics.error();
-      return;
-    }
-
+  const submitTaskEditor = (value: TaskEditorValue) => {
     setDraftTasks((prev) => [
       ...prev,
-      {
-        key: `${Date.now()}-${prev.length}`,
-        title: trimmed,
-        frequency,
-        customFrequency:
-          frequency === "custom"
-            ? {
-                ...customFrequency,
-                target: normalizeCustomTarget(
-                  customFrequency.target,
-                  customFrequency.type,
-                ),
-              }
-            : undefined,
-      },
+      { key: `${Date.now()}-${prev.length}`, ...value },
     ]);
     void haptics.success();
-    resetTaskEditor();
+    setIsAddingTask(false);
   };
 
   const removeDraftTask = (key: string) => {
     void haptics.destructive();
     setDraftTasks((prev) => prev.filter((task) => task.key !== key));
+  };
+
+  const generateDraft = async () => {
+    const description = aiDescription.trim();
+    if (description.length < 3 || isDrafting) {
+      void haptics.error();
+      return;
+    }
+
+    setIsDrafting(true);
+    try {
+      const draft = await generateGoalDraft(description);
+      setTitle(draft.title);
+      setTarget(draft.target ?? "");
+      if (draft.durationDays) {
+        setDueDay(
+          format(addDays(new Date(), draft.durationDays), "yyyy-MM-dd"),
+        );
+      }
+      setDraftTasks(
+        draft.tasks.map((task, index) => ({
+          key: `ai-${Date.now()}-${index}`,
+          ...task,
+        })),
+      );
+      setDraftSource(draft.source);
+      void haptics.success();
+    } finally {
+      setIsDrafting(false);
+    }
+  };
+
+  const discardDraft = () => {
+    void haptics.destructive();
+    setTitle("");
+    setTarget("");
+    setDueDay(null);
+    setDraftTasks([]);
+    setDraftSource(null);
   };
 
   const toggleFriend = (userId: string) => {
@@ -144,10 +136,7 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
     );
   };
 
-  const frequencyLabel = (task: DraftTask) =>
-    task.frequency === "custom" && task.customFrequency
-      ? `${task.customFrequency.target}× per ${task.customFrequency.type === "weekly" ? "week" : "month"}`
-      : task.frequency;
+  const frequencyLabel = (task: DraftTask) => describeTaskSchedule(task);
 
   const inviteSelectedFriends = async (createdGoalId: string) => {
     const session = await getPersistedSession();
@@ -248,6 +237,98 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
         contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
       >
+        {/* AI drafting (issue #161): optional — the manual form below works
+            exactly as before without it. */}
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: withAlpha(theme.primary, 0.35),
+            borderRadius: 12,
+            backgroundColor: withAlpha(theme.primary, 0.06),
+            padding: 12,
+            gap: 10,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Ionicons name="sparkles" size={15} color={theme.primary} />
+            <Text style={{ fontWeight: "700", color: theme.text }}>
+              Draft it for me
+            </Text>
+          </View>
+          <TextInput
+            placeholder="Describe what you want to achieve, e.g. 'get ready for a 10k in October'"
+            placeholderTextColor={theme.textSecondary}
+            value={aiDescription}
+            onChangeText={setAiDescription}
+            multiline
+            style={{
+              borderWidth: 1,
+              borderColor: theme.border,
+              borderRadius: 10,
+              padding: 10,
+              minHeight: 56,
+              textAlignVertical: "top",
+              backgroundColor: theme.surface,
+              color: theme.text,
+            }}
+          />
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Pressable
+              onPress={() => void generateDraft()}
+              disabled={isDrafting || aiDescription.trim().length < 3}
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                backgroundColor: theme.primary,
+                paddingVertical: 10,
+                borderRadius: 10,
+                opacity:
+                  isDrafting || aiDescription.trim().length < 3 ? 0.5 : 1,
+              }}
+            >
+              {isDrafting ? (
+                <ActivityIndicator color="#ffffff" size="small" />
+              ) : (
+                <Ionicons name="sparkles-outline" size={14} color="#ffffff" />
+              )}
+              <Text style={{ color: "#ffffff", fontWeight: "700" }}>
+                {isDrafting
+                  ? "Drafting…"
+                  : draftSource
+                    ? "Draft again"
+                    : "Generate draft"}
+              </Text>
+            </Pressable>
+            {draftSource ? (
+              <Pressable
+                onPress={discardDraft}
+                style={{
+                  paddingHorizontal: 14,
+                  justifyContent: "center",
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  backgroundColor: theme.surface,
+                }}
+              >
+                <Text style={{ color: theme.textSecondary, fontWeight: "700" }}>
+                  Discard
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+          {draftSource ? (
+            <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+              {draftSource === "ai"
+                ? "Draft ready — everything below is editable before you save."
+                : "You're offline, so this draft came from a built-in template. Everything below is editable."}
+            </Text>
+          ) : null}
+        </View>
+
         <LabeledTextField
           label="Goal Title"
           placeholder="e.g., Run a half marathon"
@@ -582,276 +663,16 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
         }}
       />
 
-      {/* Draft task editor (same pattern as GoalScreen's task modal) */}
-      <Modal
-        animationType="fade"
-        transparent={true}
+      <TaskEditorModal
         visible={isAddingTask}
-        onRequestClose={() => {
+        heading="New Task"
+        submitLabel="Add"
+        onSubmit={submitTaskEditor}
+        onClose={() => {
           void haptics.tap();
-          resetTaskEditor();
+          setIsAddingTask(false);
         }}
-      >
-        <View
-          style={{
-            flex: 1,
-            justifyContent: "center",
-            padding: 24,
-            backgroundColor: "rgba(15, 23, 42, 0.35)",
-          }}
-        >
-          <Pressable
-            onPress={() => {
-              void haptics.tap();
-              resetTaskEditor();
-            }}
-            style={{
-              position: "absolute",
-              top: 0,
-              right: 0,
-              bottom: 0,
-              left: 0,
-            }}
-          />
-          <View
-            style={{
-              borderWidth: 1,
-              borderColor: theme.border,
-              borderRadius: 16,
-              padding: 16,
-              gap: 10,
-              backgroundColor: theme.surface,
-            }}
-          >
-            <Text
-              style={{ fontWeight: "700", fontSize: 18, color: theme.text }}
-            >
-              New Task
-            </Text>
-            <TextInput
-              placeholder="e.g., Take creatine"
-              value={taskTitle}
-              onChangeText={setTaskTitle}
-              style={{
-                borderWidth: 1,
-                borderColor: theme.border,
-                borderRadius: 8,
-                padding: 10,
-                backgroundColor: theme.background,
-                color: theme.text,
-              }}
-              placeholderTextColor={theme.textSecondary}
-              autoFocus={true}
-            />
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-              {(["once", "daily", "weekly", "custom"] as Frequency[]).map(
-                (f) => (
-                  <Pressable
-                    key={f}
-                    onPress={() => {
-                      void haptics.toggle();
-                      setFrequency(f);
-                    }}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor:
-                        frequency === f ? theme.primary : theme.border,
-                      backgroundColor:
-                        frequency === f ? theme.primary + "20" : "transparent",
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontWeight: "600",
-                        color: frequency === f ? theme.primary : theme.text,
-                      }}
-                    >
-                      {f}
-                    </Text>
-                  </Pressable>
-                ),
-              )}
-            </View>
-
-            {frequency === "custom" && (
-              <View style={{ gap: 8 }}>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    gap: 8,
-                    alignItems: "center",
-                  }}
-                >
-                  <Pressable
-                    onPress={() => {
-                      adjustCustomTarget(-1);
-                    }}
-                    style={{
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                      borderRadius: 8,
-                      padding: 8,
-                      backgroundColor: theme.background,
-                      width: 44,
-                      height: 44,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Ionicons name="remove" size={18} color={theme.text} />
-                  </Pressable>
-                  <View
-                    style={{
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                      borderRadius: 8,
-                      paddingHorizontal: 16,
-                      paddingVertical: 10,
-                      backgroundColor: theme.background,
-                      minWidth: 84,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: theme.text,
-                        fontWeight: "700",
-                        fontSize: 16,
-                      }}
-                    >
-                      {customFrequency.target}
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={() => {
-                      adjustCustomTarget(1);
-                    }}
-                    style={{
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                      borderRadius: 8,
-                      padding: 8,
-                      backgroundColor: theme.background,
-                      width: 44,
-                      height: 44,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Ionicons name="add" size={18} color={theme.text} />
-                  </Pressable>
-                  <Text style={{ color: theme.text, alignSelf: "center" }}>
-                    times per
-                  </Text>
-                </View>
-
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  {(["weekly", "monthly"] as const).map((type) => (
-                    <Pressable
-                      key={type}
-                      onPress={() => {
-                        void haptics.toggle();
-                        const normalizedTarget = normalizeCustomTarget(
-                          customFrequency.target,
-                          type,
-                        );
-                        setCustomFrequency((prev) => ({
-                          ...prev,
-                          type,
-                          target: normalizedTarget,
-                        }));
-                      }}
-                      style={{
-                        paddingHorizontal: 12,
-                        paddingVertical: 6,
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        borderColor:
-                          customFrequency.type === type
-                            ? theme.primary
-                            : theme.border,
-                        backgroundColor:
-                          customFrequency.type === type
-                            ? theme.primary + "20"
-                            : "transparent",
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontWeight: "600",
-                          color:
-                            customFrequency.type === type
-                              ? theme.primary
-                              : theme.text,
-                        }}
-                      >
-                        {type}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            <View style={{ flexDirection: "row", gap: 8, marginTop: 4 }}>
-              <Pressable
-                onPress={() => {
-                  void haptics.tap();
-                  resetTaskEditor();
-                }}
-                style={{
-                  flex: 1,
-                  backgroundColor: theme.background,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  padding: 10,
-                  borderRadius: 8,
-                }}
-              >
-                <Text
-                  style={{
-                    color: theme.textSecondary,
-                    textAlign: "center",
-                    fontWeight: "600",
-                  }}
-                >
-                  Cancel
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={submitTaskEditor}
-                style={{
-                  flex: 1,
-                  backgroundColor: theme.primary,
-                  padding: 10,
-                  borderRadius: 8,
-                }}
-              >
-                <Text
-                  style={{
-                    color: "white",
-                    textAlign: "center",
-                    fontWeight: "700",
-                  }}
-                >
-                  Add
-                </Text>
-              </Pressable>
-            </View>
-            {frequency === "custom" ? (
-              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-                {customFrequency.type === "weekly"
-                  ? `Choose from 1 to ${MAX_WEEKLY_CUSTOM_TARGET} times per week.`
-                  : `Choose from 1 to ${MAX_MONTHLY_CUSTOM_TARGET} times per month.`}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-      </Modal>
+      />
     </SafeAreaView>
   );
 }
