@@ -1,21 +1,20 @@
 import React from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../contexts/ThemeContext";
-import { getNudgeCandidates, NudgeCandidate, sendNudge } from "../lib/nudges";
+import {
+  getNudgeCandidates,
+  NudgeCandidate,
+  wasRecentlyNudged,
+} from "../lib/nudges";
 import { RootStackParamList } from "../navigation";
 import { useStore } from "../store";
 import { haptics } from "../utils/haptics";
+import { withAlpha } from "../utils/color";
 import Avatar from "./Avatar";
+import NudgeModal from "./NudgeModal";
 import { card } from "./ui";
 
 type FriendScreenProps = NativeStackScreenProps<RootStackParamList, "Friend">;
@@ -27,49 +26,13 @@ export default function FriendScreen({ route }: FriendScreenProps) {
   const goals = useStore((s) => s.goals);
   const sharedGoals = useStore((s) => s.sharedGoals);
   const { theme, isDark } = useTheme();
-  const [sendingGoalId, setSendingGoalId] = React.useState<string | null>(null);
+  // Candidate whose NudgeModal is open (issue #165).
+  const [nudging, setNudging] = React.useState<NudgeCandidate | null>(null);
 
   const candidates = React.useMemo(
     () => getNudgeCandidates([...goals, ...sharedGoals], friend.userId),
     [friend.userId, goals, sharedGoals],
   );
-
-  const sendGoalNudge = async (candidate: NudgeCandidate) => {
-    setSendingGoalId(candidate.goal.id);
-    try {
-      await sendNudge(friend.userId, candidate.goal.id);
-      void haptics.success();
-      Alert.alert(
-        "Nudge sent",
-        `${friend.displayName} will receive a reminder about ${candidate.goal.title}.`,
-      );
-    } catch (error) {
-      void haptics.error();
-      Alert.alert(
-        "Couldn't send nudge",
-        error instanceof Error
-          ? error.message
-          : "Check your connection and try again.",
-      );
-    } finally {
-      setSendingGoalId(null);
-    }
-  };
-
-  const confirmNudge = (candidate: NudgeCandidate) => {
-    void haptics.tap();
-    Alert.alert(
-      `Nudge ${friend.displayName}?`,
-      `Send a push notification about “${candidate.goal.title}”?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Send nudge",
-          onPress: () => void sendGoalNudge(candidate),
-        },
-      ],
-    );
-  };
 
   const panel = { ...card(theme, isDark), padding: 16 };
 
@@ -129,7 +92,10 @@ export default function FriendScreen({ route }: FriendScreenProps) {
           {candidates.length > 0 ? (
             <View style={{ gap: 10, marginTop: 16 }}>
               {candidates.map((candidate) => {
-                const isSending = sendingGoalId === candidate.goal.id;
+                const nudgedRecently = wasRecentlyNudged(
+                  friend.userId,
+                  candidate.goal.id,
+                );
                 return (
                   <View
                     key={candidate.goal.id}
@@ -163,11 +129,16 @@ export default function FriendScreen({ route }: FriendScreenProps) {
                       </View>
                       <Pressable
                         accessibilityLabel={`Nudge ${friend.displayName} about ${candidate.goal.title}`}
-                        disabled={isSending}
-                        onPress={() => confirmNudge(candidate)}
+                        disabled={nudgedRecently}
+                        onPress={() => {
+                          void haptics.tap();
+                          setNudging(candidate);
+                        }}
                         style={{
                           alignItems: "center",
-                          backgroundColor: theme.primary,
+                          backgroundColor: nudgedRecently
+                            ? withAlpha(theme.success, 0.15)
+                            : theme.primary,
                           borderRadius: 9999,
                           flexDirection: "row",
                           gap: 6,
@@ -175,20 +146,20 @@ export default function FriendScreen({ route }: FriendScreenProps) {
                           minWidth: 100,
                           paddingHorizontal: 12,
                           paddingVertical: 9,
-                          opacity: isSending ? 0.7 : 1,
                         }}
                       >
-                        {isSending ? (
-                          <ActivityIndicator color="#ffffff" size="small" />
-                        ) : (
-                          <Ionicons
-                            name="megaphone"
-                            size={15}
-                            color="#ffffff"
-                          />
-                        )}
-                        <Text style={{ color: "#ffffff", fontWeight: "700" }}>
-                          Nudge
+                        <Ionicons
+                          name={nudgedRecently ? "checkmark" : "megaphone"}
+                          size={15}
+                          color={nudgedRecently ? theme.success : "#ffffff"}
+                        />
+                        <Text
+                          style={{
+                            color: nudgedRecently ? theme.success : "#ffffff",
+                            fontWeight: "700",
+                          }}
+                        >
+                          {nudgedRecently ? "Nudged" : "Nudge"}
                         </Text>
                       </Pressable>
                     </View>
@@ -232,6 +203,15 @@ export default function FriendScreen({ route }: FriendScreenProps) {
           )}
         </View>
       </ScrollView>
+      {nudging ? (
+        <NudgeModal
+          visible
+          recipient={friend}
+          goal={nudging.goal}
+          adherence={nudging.adherence}
+          onClose={() => setNudging(null)}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }

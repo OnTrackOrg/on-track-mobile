@@ -24,7 +24,14 @@ import Animated, {
 import ReanimatedSwipeable, {
   SwipeableMethods,
 } from "react-native-gesture-handler/ReanimatedSwipeable";
-import { canPostponeTask, getTodayItems, useStore, TodayItem } from "../store";
+import {
+  canPostponeTask,
+  getTaskWeekdays,
+  getTodayItems,
+  useStore,
+  TodayItem,
+} from "../store";
+import { describeTaskSchedule } from "../lib/taskSchedule";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
 import { goalColor } from "../utils/goalColors";
@@ -41,17 +48,14 @@ import { Task } from "../types";
 
 type TodayProps = BottomTabScreenProps<TabParamList, "Today">;
 
-const frequencyLabel = (task: Task): string => {
-  if (task.frequency === "custom" && task.customFrequency) {
-    const period = task.customFrequency.type === "weekly" ? "week" : "month";
-    return `${task.customFrequency.target} times per ${period}`;
-  }
-  return task.frequency;
-};
+const frequencyLabel = (task: Task): string => describeTaskSchedule(task);
 
 const postponeBlockReason = (task: Task): string => {
   if (task.frequency === "daily") {
     return "Daily tasks are due every day — skipping one breaks the goal.";
+  }
+  if (getTaskWeekdays(task)) {
+    return "This task is scheduled for specific days — it's due today.";
   }
   if (task.frequency === "once") {
     return "The goal is due today — this one-off can't be pushed past it.";

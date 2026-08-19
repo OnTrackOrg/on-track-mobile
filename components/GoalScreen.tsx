@@ -15,25 +15,17 @@ import {
   useStore,
   getCustomFrequencyProgress,
   getGoalLifecycleStatus,
-  getGoalProgress,
   getGoalStartDate,
   getGoalStreak,
   getMemberAdherence,
+  getTaskBucketsForDate,
+  getTaskWeekdays,
+  goalAsSeenBy,
 } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
-import {
-  addDays,
-  differenceInCalendarDays,
-  format,
-  startOfWeek,
-} from "date-fns";
-import {
-  CustomFrequency,
-  FriendProfile,
-  Frequency,
-  GoalMember,
-  Task,
-} from "../types";
+import { differenceInCalendarDays, format } from "date-fns";
+import { FriendProfile, GoalMember, Task } from "../types";
+import { describeTaskSchedule } from "../lib/taskSchedule";
 import { haptics } from "../utils/haptics";
 import { goalColor } from "../utils/goalColors";
 import { mix, withAlpha } from "../utils/color";
@@ -42,6 +34,8 @@ import TrackingDateControls from "./TrackingDateControls";
 import Avatar from "./Avatar";
 import DatePickerModal from "./DatePickerModal";
 import Heatmap from "./Heatmap";
+import NudgeModal from "./NudgeModal";
+import TaskEditorModal, { TaskEditorValue } from "./TaskEditorModal";
 import { card } from "./ui";
 import {
   addMemberToGoal,
@@ -54,8 +48,6 @@ import { getPersistedSession } from "../lib/auth";
 type GoalProps = NativeStackScreenProps<RootStackParamList, "Goal">;
 
 export default function GoalScreen({ navigation, route }: GoalProps) {
-  const MAX_WEEKLY_CUSTOM_TARGET = 7;
-  const MAX_MONTHLY_CUSTOM_TARGET = 31;
   const { goalId } = route.params;
   const ownedGoal = useStore((s) => s.goals.find((g) => g.id === goalId));
   const sharedGoal = useStore((s) =>
@@ -70,6 +62,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const updateGoal = useStore((s) => s.updateGoal);
   const completeGoal = useStore((s) => s.completeGoal);
   const reactivateGoal = useStore((s) => s.reactivateGoal);
+  const startGoal = useStore((s) => s.startGoal);
   const deleteTask = useStore((s) => s.deleteTask);
   const deleteGoal = useStore((s) => s.deleteGoal);
   const setGoals = useStore((s) => s.setGoals);
@@ -79,11 +72,9 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const isOwner =
     Boolean(ownedGoal) || (Boolean(goal) && account?.id === goal?.ownerUserId);
 
-  const [taskTitle, setTaskTitle] = React.useState("");
-  const [frequency, setFrequency] = React.useState<Frequency>("daily");
-  const [customFrequency, setCustomFrequency] = React.useState<CustomFrequency>(
-    { type: "weekly", target: 3 },
-  );
+  // Generic edit mode (issue #167): goal/task management actions stay hidden
+  // until the owner opens it.
+  const [isManaging, setIsManaging] = React.useState(false);
   const [isEditing, setIsEditing] = React.useState(false);
   const [editingTaskId, setEditingTaskId] = React.useState<string | null>(null);
   const [isEditingGoalDetails, setIsEditingGoalDetails] = React.useState(false);
@@ -98,6 +89,16 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     null,
   );
   const [isDuePickerOpen, setIsDuePickerOpen] = React.useState(false);
+  // Draft/scheduled goals can be started right from this page (issue #163).
+  const [isStartPickerOpen, setIsStartPickerOpen] = React.useState(false);
+  // Member whose day-by-day progress is expanded (issue #164).
+  const [expandedMemberId, setExpandedMemberId] = React.useState<string | null>(
+    null,
+  );
+  // Member a nudge is being composed for (issue #165).
+  const [nudgingMember, setNudgingMember] = React.useState<GoalMember | null>(
+    null,
+  );
 
   React.useEffect(() => {
     if (goal && !isEditingGoalDetails) {
@@ -109,24 +110,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   if (!goal) return <Text>Not found</Text>;
 
   const color = goalColor(goal.id);
-
-  // Stat cards (redesign): best task streak, days fully done this week,
-  // and 8-week adherence for the current user.
-  const maxStreak = goal.tasks.reduce(
-    (best, task) => Math.max(best, getGoalStreak(task)),
-    0,
-  );
-  const now = new Date();
-  const statWeekStart = startOfWeek(now, { weekStartsOn: 0 });
-  let weekCompleteDays = 0;
-  for (let i = 0; i < 7; i++) {
-    const day = addDays(statWeekStart, i);
-    if (day > now) break;
-    if (getGoalProgress(goal, day).isComplete) weekCompleteDays++;
-  }
-  const adherencePct = Math.round(
-    getMemberAdherence(goal, account?.id ?? "") * 100,
-  );
 
   const isGoalCompleted = goal.completedAt !== undefined;
   const completedAtLabel = goal.completedAt
@@ -359,9 +342,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     }
   };
 
-  const getMaxCustomTarget = (type: CustomFrequency["type"]) =>
-    type === "weekly" ? MAX_WEEKLY_CUSTOM_TARGET : MAX_MONTHLY_CUSTOM_TARGET;
-
   // 32px visual + hitSlop 6 = 44px effective targets; the gap keeps the
   // edit/delete slop rects from overlapping so taps can't hit the wrong one.
   const taskActionButtonStyle = {
@@ -371,30 +351,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     paddingVertical: 8,
   };
 
-  const normalizeCustomTarget = (
-    target: number,
-    type: CustomFrequency["type"],
-  ) => Math.min(getMaxCustomTarget(type), Math.max(1, target));
-
-  const adjustCustomTarget = (delta: number) => {
-    const nextTarget = normalizeCustomTarget(
-      customFrequency.target + delta,
-      customFrequency.type,
-    );
-
-    if (nextTarget === customFrequency.target) {
-      void haptics.warning();
-      return;
-    }
-
-    void haptics.toggle();
-    setCustomFrequency((prev) => ({ ...prev, target: nextTarget }));
-  };
-
   const resetTaskEditor = () => {
-    setTaskTitle("");
-    setFrequency("daily");
-    setCustomFrequency({ type: "weekly", target: 3 });
     setEditingTaskId(null);
     setIsEditing(false);
   };
@@ -407,41 +364,27 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
       return;
     }
 
-    setTaskTitle(task.title);
-    setFrequency(task.frequency);
-    setCustomFrequency(task.customFrequency ?? { type: "weekly", target: 3 });
     setEditingTaskId(task.id);
     setIsEditing(true);
     void haptics.tap();
   };
 
-  const submitTaskEditor = () => {
-    const trimmedTitle = taskTitle.trim();
+  const editingTask = editingTaskId
+    ? goal.tasks.find((item) => item.id === editingTaskId)
+    : undefined;
+  const editorInitial: TaskEditorValue | undefined = editingTask
+    ? {
+        title: editingTask.title,
+        frequency: editingTask.frequency,
+        customFrequency: editingTask.customFrequency,
+      }
+    : undefined;
 
-    if (!trimmedTitle) {
-      void haptics.error();
-      return;
-    }
-
-    const normalizedCustomFrequency =
-      frequency === "custom"
-        ? {
-            ...customFrequency,
-            target: normalizeCustomTarget(
-              customFrequency.target,
-              customFrequency.type,
-            ),
-          }
-        : undefined;
-
+  const submitTaskEditor = (value: TaskEditorValue) => {
     if (editingTaskId) {
-      updateTask(goalId, editingTaskId, {
-        title: trimmedTitle,
-        frequency,
-        customFrequency: normalizedCustomFrequency,
-      });
+      updateTask(goalId, editingTaskId, value);
     } else {
-      addTask(goalId, trimmedTitle, frequency, normalizedCustomFrequency);
+      addTask(goalId, value.title, value.frequency, value.customFrequency);
     }
 
     void haptics.success();
@@ -493,10 +436,13 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     }
     return values;
   };
-  const goalHeatmapValues = (): Record<string, number> => {
-    if (recurringTasks.length === 0) return {};
+  // Ratio-of-tasks-done per day for any task list; also powers the member
+  // detail heatmaps (via goalAsSeenBy views) in "Doing this together".
+  const ratioHeatmapValues = (tasks: Task[]): Record<string, number> => {
+    const recurring = tasks.filter((t) => t.frequency !== "once");
+    if (recurring.length === 0) return {};
     const tasksByDate: Record<string, Set<string>> = {};
-    for (const task of recurringTasks) {
+    for (const task of recurring) {
       for (const date of task.completions) {
         const key = format(date, "yyyy-MM-dd");
         (tasksByDate[key] ??= new Set()).add(task.id);
@@ -505,10 +451,12 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     return Object.fromEntries(
       Object.entries(tasksByDate).map(([key, done]) => [
         key,
-        done.size / recurringTasks.length,
+        done.size / recurring.length,
       ]),
     );
   };
+  const goalHeatmapValues = (): Record<string, number> =>
+    ratioHeatmapValues(goal.tasks);
 
   const pillStyle = (active: boolean) => ({
     ...card(theme, isDark),
@@ -555,16 +503,22 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   // Compact frequency line for the redesign task rows; completion state now
   // lives on the Today tab only.
   const taskSubtitle = (task: Task): string => {
-    if (task.frequency === "custom" && task.customFrequency) {
+    const base = describeTaskSchedule(task);
+    if (
+      task.frequency === "custom" &&
+      task.customFrequency &&
+      !getTaskWeekdays(task)
+    ) {
       const progress = getCustomFrequencyProgress(task, selectedDate);
       const period = task.customFrequency.type === "weekly" ? "week" : "month";
-      return `${task.customFrequency.target} times per ${period} · ${progress.completed}/${progress.target} this ${period}`;
+      return `${base} · ${progress.completed}/${progress.target} this ${period}`;
     }
-    return task.frequency;
+    return base;
   };
 
+  // Task management is tucked behind the generic Edit control (issue #167).
   const renderTaskActionButtons = (item: Task) =>
-    isOwner ? (
+    isOwner && isManaging ? (
       <Pressable
         onPress={() => startEditingTask(item.id)}
         hitSlop={6}
@@ -584,23 +538,24 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
         contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Action pill row: Invite + Complete (owner) or Leave (member) */}
+        {/* Action pill row: Edit + Complete (owner) or Leave (member).
+            Invite lives in the "Doing this together" widget (issue #167). */}
         <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-          {isOwner && account ? (
+          {isOwner ? (
             <Pressable
               onPress={() => {
-                void haptics.tap();
-                setIsInviteOpen(true);
+                void haptics.toggle();
+                setIsManaging((managing) => !managing);
               }}
-              style={pillStyle(false)}
+              style={pillStyle(isManaging)}
             >
               <Ionicons
-                name="person-add-outline"
+                name="create-outline"
                 size={16}
-                color={theme.primary}
+                color={isManaging ? theme.primary : theme.textSecondary}
               />
               <Text style={{ color: theme.text, fontWeight: "700" }}>
-                Invite
+                {isManaging ? "Done" : "Edit"}
               </Text>
             </Pressable>
           ) : null}
@@ -721,7 +676,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
               >
                 {goal.title}
               </Text>
-              {isOwner ? (
+              {isOwner && isManaging ? (
                 <Pressable
                   onPress={() => {
                     void haptics.tap();
@@ -849,9 +804,33 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
               size={18}
               color={theme.textSecondary}
             />
-            <Text style={{ color: theme.text, fontWeight: "700" }}>
-              Draft — start it from the Goals tab
+            <Text style={{ flex: 1, color: theme.text, fontWeight: "700" }}>
+              Draft — not started yet
             </Text>
+            {isOwner ? (
+              <Pressable
+                onPress={() => {
+                  void haptics.tap();
+                  setIsStartPickerOpen(true);
+                }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  paddingHorizontal: 12,
+                  paddingVertical: 7,
+                  borderRadius: 9999,
+                  backgroundColor: theme.primary,
+                }}
+              >
+                <Ionicons name="play" size={12} color="#ffffff" />
+                <Text
+                  style={{ color: "#ffffff", fontWeight: "700", fontSize: 13 }}
+                >
+                  Start
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
         {lifecycleStatus === "scheduled" && goal.startDay ? (
@@ -868,9 +847,22 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             }}
           >
             <Ionicons name="calendar-outline" size={18} color={theme.primary} />
-            <Text style={{ color: theme.text, fontWeight: "700" }}>
+            <Text style={{ flex: 1, color: theme.text, fontWeight: "700" }}>
               Starts {format(goalStartDate, "MMM d, yyyy")}
             </Text>
+            {isOwner ? (
+              <Pressable
+                onPress={() => {
+                  void haptics.tap();
+                  setIsStartPickerOpen(true);
+                }}
+                hitSlop={6}
+              >
+                <Text style={{ color: theme.primary, fontWeight: "700" }}>
+                  Change
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
@@ -890,6 +882,18 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           }}
           onClear={() => updateGoal(goalId, { dueDay: null })}
           onClose={() => setIsDuePickerOpen(false)}
+        />
+        <DatePickerModal
+          visible={isStartPickerOpen}
+          title="Start this goal on…"
+          initialDay={format(new Date(), "yyyy-MM-dd")}
+          minDay={format(new Date(), "yyyy-MM-dd")}
+          maxDay={goal.dueDay}
+          onSelect={(day) => {
+            startGoal(goalId, day);
+            void haptics.success();
+          }}
+          onClose={() => setIsStartPickerOpen(false)}
         />
         {isGoalCompleted ? (
           <View
@@ -911,87 +915,9 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           </View>
         ) : null}
 
-        {/* Stat cards (redesign) */}
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          <View
-            style={{
-              ...card(theme, isDark),
-              flex: 1,
-              padding: 12,
-              alignItems: "center",
-            }}
-          >
-            <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
-            >
-              <Ionicons name="flash" size={14} color={theme.streak} />
-              <Text
-                style={{ fontSize: 20, fontWeight: "800", color: theme.text }}
-              >
-                {maxStreak}
-              </Text>
-            </View>
-            <Text
-              style={{
-                fontSize: 11,
-                color: theme.textSecondary,
-                marginTop: 2,
-              }}
-            >
-              Streak
-            </Text>
-          </View>
-          <View
-            style={{
-              ...card(theme, isDark),
-              flex: 1,
-              padding: 12,
-              alignItems: "center",
-            }}
-          >
-            <Text
-              style={{ fontSize: 20, fontWeight: "800", color: theme.text }}
-            >
-              {weekCompleteDays}/7
-            </Text>
-            <Text
-              style={{
-                fontSize: 11,
-                color: theme.textSecondary,
-                marginTop: 2,
-              }}
-            >
-              This week
-            </Text>
-          </View>
-          <View
-            style={{
-              ...card(theme, isDark),
-              flex: 1,
-              padding: 12,
-              alignItems: "center",
-            }}
-          >
-            <Text
-              style={{ fontSize: 20, fontWeight: "800", color: theme.text }}
-            >
-              {lifecycleStatus === "draft" || lifecycleStatus === "scheduled"
-                ? "—"
-                : `${adherencePct}%`}
-            </Text>
-            <Text
-              style={{
-                fontSize: 11,
-                color: theme.textSecondary,
-                marginTop: 2,
-              }}
-            >
-              Adherence
-            </Text>
-          </View>
-        </View>
-
-        {/* Full history since the goal started (scroll back in the grid) */}
+        {/* Full history since the goal started (scroll back in the grid).
+            The old streak / this-week / adherence stat cards were dropped
+            from the primary view (issue #167). */}
         <View
           style={{
             flexDirection: "row",
@@ -1044,80 +970,262 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           </View>
         )}
 
-        {/* Doing this together */}
-        {members.length > 1 ? (
+        {/* Doing this together: member progress (tap a friend for their
+            day-by-day detail, issue #164), nudges (issue #165), and Invite
+            (moved here from the top of the page, issue #167). */}
+        {members.length > 1 || (isOwner && account && !isGoalCompleted) ? (
           <View style={{ ...card(theme, isDark), gap: 12 }}>
             <Text style={{ fontWeight: "700", color: theme.text }}>
               Doing this together
             </Text>
-            {orderedMembers.map((member) => {
-              const isMe = member.userId === account?.id;
-              const percent = Math.round(
-                getMemberAdherence(goal, member.userId) * 100,
-              );
-              const canRemove = isOwner && !isMe;
-              return (
-                <Pressable
-                  key={member.userId}
-                  // ponytail: member removal is long-press only; a row menu
-                  // can come later if this proves undiscoverable.
-                  onLongPress={
-                    canRemove ? () => confirmRemoveMember(member) : undefined
-                  }
-                  delayLongPress={400}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 10,
-                  }}
-                >
-                  <Avatar
-                    userId={member.userId}
-                    displayName={member.displayName}
-                    avatarUri={member.avatarUri}
-                    size="md"
-                  />
-                  <View style={{ flex: 1, gap: 5 }}>
-                    <Text style={{ fontWeight: "600", color: theme.text }}>
-                      {isMe ? "You" : member.displayName}
-                      {member.isOwner ? (
-                        <Text
-                          style={{ color: theme.textSecondary, fontSize: 12 }}
-                        >
-                          {"  "}owner
-                        </Text>
-                      ) : null}
-                    </Text>
-                    <View
-                      style={{
-                        height: 6,
-                        borderRadius: 3,
-                        backgroundColor: theme.border,
-                        overflow: "hidden",
-                      }}
-                    >
-                      <View
+            {members.length <= 1 ? (
+              <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
+                Goals are easier together — invite a friend and keep each other
+                on track.
+              </Text>
+            ) : null}
+            {members.length > 1
+              ? orderedMembers.map((member) => {
+                  const isMe = member.userId === account?.id;
+                  const percent = Math.round(
+                    getMemberAdherence(goal, member.userId) * 100,
+                  );
+                  const canRemove = isOwner && !isMe;
+                  const memberView = goalAsSeenBy(goal, member.userId);
+                  // goalAsSeenBy returns the goal unchanged when this user
+                  // has no shared completion data to show.
+                  const detailAvailable = !isMe && memberView !== goal;
+                  const expanded = expandedMemberId === member.userId;
+                  const canNudge =
+                    !isMe && !isGoalCompleted && lifecycleStatus === "active";
+                  const completedTaskIds = expanded
+                    ? new Set(
+                        getTaskBucketsForDate(
+                          memberView,
+                          new Date(),
+                        ).completed.map((task) => task.id),
+                      )
+                    : null;
+                  return (
+                    <View key={member.userId} style={{ gap: 10 }}>
+                      <Pressable
+                        onPress={
+                          isMe
+                            ? undefined
+                            : () => {
+                                void haptics.toggle();
+                                setExpandedMemberId(
+                                  expanded ? null : member.userId,
+                                );
+                              }
+                        }
+                        // ponytail: member removal is long-press only; a row
+                        // menu can come later if this proves undiscoverable.
+                        onLongPress={
+                          canRemove
+                            ? () => confirmRemoveMember(member)
+                            : undefined
+                        }
+                        delayLongPress={400}
                         style={{
-                          width: `${percent}%`,
-                          height: 6,
-                          borderRadius: 3,
-                          backgroundColor: theme.primary,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 10,
                         }}
-                      />
+                      >
+                        <Avatar
+                          userId={member.userId}
+                          displayName={member.displayName}
+                          avatarUri={member.avatarUri}
+                          size="md"
+                        />
+                        <View style={{ flex: 1, gap: 5 }}>
+                          <Text
+                            style={{ fontWeight: "600", color: theme.text }}
+                          >
+                            {isMe ? "You" : member.displayName}
+                            {member.isOwner ? (
+                              <Text
+                                style={{
+                                  color: theme.textSecondary,
+                                  fontSize: 12,
+                                }}
+                              >
+                                {"  "}owner
+                              </Text>
+                            ) : null}
+                          </Text>
+                          <View
+                            style={{
+                              height: 6,
+                              borderRadius: 3,
+                              backgroundColor: theme.border,
+                              overflow: "hidden",
+                            }}
+                          >
+                            <View
+                              style={{
+                                width: `${percent}%`,
+                                height: 6,
+                                borderRadius: 3,
+                                backgroundColor: theme.primary,
+                              }}
+                            />
+                          </View>
+                        </View>
+                        <Text
+                          style={{
+                            color: theme.textSecondary,
+                            fontWeight: "700",
+                            fontVariant: ["tabular-nums"],
+                          }}
+                        >
+                          {percent}%
+                        </Text>
+                        {canNudge ? (
+                          <Pressable
+                            accessibilityLabel={`Nudge ${member.displayName}`}
+                            onPress={() => {
+                              void haptics.tap();
+                              setNudgingMember(member);
+                            }}
+                            hitSlop={6}
+                            style={{
+                              width: 30,
+                              height: 30,
+                              borderRadius: 15,
+                              alignItems: "center",
+                              justifyContent: "center",
+                              backgroundColor: withAlpha(theme.primary, 0.12),
+                            }}
+                          >
+                            <Ionicons
+                              name="megaphone-outline"
+                              size={15}
+                              color={theme.primary}
+                            />
+                          </Pressable>
+                        ) : null}
+                        {!isMe ? (
+                          <Ionicons
+                            name={expanded ? "chevron-up" : "chevron-down"}
+                            size={14}
+                            color={theme.textSecondary}
+                          />
+                        ) : null}
+                      </Pressable>
+
+                      {expanded ? (
+                        detailAvailable ? (
+                          <View style={{ gap: 8 }}>
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                fontWeight: "700",
+                                color: theme.textSecondary,
+                              }}
+                            >
+                              {`${member.displayName}’s progress`}
+                            </Text>
+                            <Heatmap
+                              startOffsetDays={56}
+                              historyStartDay={goalStartDayKey}
+                              values={ratioHeatmapValues(memberView.tasks)}
+                              valueMode="ratio"
+                              color={color}
+                              referenceDate={selectedDate}
+                            />
+                            {memberView.tasks.map((task) => {
+                              const doneNow = completedTaskIds?.has(task.id);
+                              return (
+                                <View
+                                  key={task.id}
+                                  style={{
+                                    flexDirection: "row",
+                                    alignItems: "center",
+                                    gap: 8,
+                                  }}
+                                >
+                                  <Ionicons
+                                    name={
+                                      doneNow
+                                        ? "checkmark-circle"
+                                        : "ellipse-outline"
+                                    }
+                                    size={16}
+                                    color={
+                                      doneNow
+                                        ? theme.success
+                                        : theme.textSecondary
+                                    }
+                                  />
+                                  <Text
+                                    style={{
+                                      flex: 1,
+                                      color: theme.text,
+                                      fontSize: 13,
+                                    }}
+                                    numberOfLines={1}
+                                  >
+                                    {task.title}
+                                  </Text>
+                                  <Text
+                                    style={{
+                                      color: theme.textSecondary,
+                                      fontSize: 12,
+                                    }}
+                                  >
+                                    {doneNow ? "Done" : "Not yet"} ·{" "}
+                                    {task.completions.length} total
+                                  </Text>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ) : (
+                          <Text
+                            style={{
+                              color: theme.textSecondary,
+                              fontSize: 12,
+                            }}
+                          >
+                            Detailed progress isn’t available for{" "}
+                            {member.displayName} yet.
+                          </Text>
+                        )
+                      ) : null}
                     </View>
-                  </View>
-                  <Text
-                    style={{
-                      color: theme.textSecondary,
-                      fontWeight: "700",
-                      fontVariant: ["tabular-nums"],
-                    }}
-                  >
-                    {percent}%
-                  </Text>
-                </Pressable>
-              );
-            })}
+                  );
+                })
+              : null}
+            {isOwner && account ? (
+              <Pressable
+                onPress={() => {
+                  void haptics.tap();
+                  setIsInviteOpen(true);
+                }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  paddingVertical: 10,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderStyle: "dashed",
+                  borderColor: withAlpha(theme.primary, 0.5),
+                }}
+              >
+                <Ionicons
+                  name="person-add-outline"
+                  size={15}
+                  color={theme.primary}
+                />
+                <Text style={{ color: theme.primary, fontWeight: "700" }}>
+                  Invite a friend
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
@@ -1222,7 +1330,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           );
         })}
 
-        {isOwner ? (
+        {isOwner && isManaging ? (
           <Pressable
             onPress={() => {
               void haptics.tap();
@@ -1230,9 +1338,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 resetTaskEditor();
               } else {
                 setEditingTaskId(null);
-                setTaskTitle("");
-                setFrequency("daily");
-                setCustomFrequency({ type: "weekly", target: 3 });
                 setIsEditing(true);
               }
             }}
@@ -1250,7 +1355,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           </Pressable>
         ) : null}
 
-        {isOwner ? (
+        {isOwner && isManaging ? (
           <Pressable
             onPress={confirmDeleteGoal}
             style={{
@@ -1374,298 +1479,36 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           </View>
         </Modal>
 
-        {/* Task editor modal */}
-        <Modal
-          animationType="fade"
-          transparent={true}
+        <TaskEditorModal
           visible={isEditing}
-          onRequestClose={() => {
+          heading={editingTaskId ? "Edit Task" : "New Task"}
+          submitLabel={editingTaskId ? "Save" : "Add"}
+          initial={editorInitial}
+          onSubmit={submitTaskEditor}
+          onClose={() => {
             void haptics.tap();
             resetTaskEditor();
           }}
-        >
-          <View
-            style={{
-              flex: 1,
-              justifyContent: "center",
-              padding: 24,
-              backgroundColor: "rgba(15, 23, 42, 0.35)",
-            }}
-          >
-            <Pressable
-              onPress={() => {
-                void haptics.tap();
-                resetTaskEditor();
-              }}
-              style={{
-                position: "absolute",
-                top: 0,
-                right: 0,
-                bottom: 0,
-                left: 0,
-              }}
-            />
-            <View
-              style={{
-                borderWidth: 1,
-                borderColor: theme.border,
-                borderRadius: 16,
-                padding: 16,
-                gap: 10,
-                backgroundColor: theme.surface,
-              }}
-            >
-              <Text
-                style={{ fontWeight: "700", fontSize: 18, color: theme.text }}
-              >
-                {editingTaskId ? "Edit Task" : "New Task"}
-              </Text>
-              <TextInput
-                placeholder="e.g., Take creatine"
-                value={taskTitle}
-                onChangeText={setTaskTitle}
-                style={{
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  borderRadius: 8,
-                  padding: 10,
-                  backgroundColor: theme.background,
-                  color: theme.text,
-                }}
-                placeholderTextColor={theme.textSecondary}
-                autoFocus={true}
-              />
-              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                {(["once", "daily", "weekly", "custom"] as Frequency[]).map(
-                  (f) => (
-                    <Pressable
-                      key={f}
-                      onPress={() => {
-                        void haptics.toggle();
-                        setFrequency(f);
-                      }}
-                      style={{
-                        paddingHorizontal: 10,
-                        paddingVertical: 6,
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        borderColor:
-                          frequency === f ? theme.primary : theme.border,
-                        backgroundColor:
-                          frequency === f
-                            ? theme.primary + "20"
-                            : "transparent",
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontWeight: "600",
-                          color: frequency === f ? theme.primary : theme.text,
-                        }}
-                      >
-                        {f}
-                      </Text>
-                    </Pressable>
-                  ),
-                )}
-              </View>
+          onDelete={
+            editingTaskId
+              ? () => {
+                  const task = goal.tasks.find((t) => t.id === editingTaskId);
+                  resetTaskEditor();
+                  if (task) confirmDeleteTask(task.id, task.title);
+                }
+              : undefined
+          }
+        />
 
-              {frequency === "custom" && (
-                <View style={{ gap: 8 }}>
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      gap: 8,
-                      alignItems: "center",
-                    }}
-                  >
-                    <Pressable
-                      onPress={() => {
-                        adjustCustomTarget(-1);
-                      }}
-                      style={{
-                        borderWidth: 1,
-                        borderColor: theme.border,
-                        borderRadius: 8,
-                        padding: 8,
-                        backgroundColor: theme.background,
-                        width: 44,
-                        height: 44,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Ionicons name="remove" size={18} color={theme.text} />
-                    </Pressable>
-                    <View
-                      style={{
-                        borderWidth: 1,
-                        borderColor: theme.border,
-                        borderRadius: 8,
-                        paddingHorizontal: 16,
-                        paddingVertical: 10,
-                        backgroundColor: theme.background,
-                        minWidth: 84,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Text
-                        style={{
-                          color: theme.text,
-                          fontWeight: "700",
-                          fontSize: 16,
-                        }}
-                      >
-                        {customFrequency.target}
-                      </Text>
-                    </View>
-                    <Pressable
-                      onPress={() => {
-                        adjustCustomTarget(1);
-                      }}
-                      style={{
-                        borderWidth: 1,
-                        borderColor: theme.border,
-                        borderRadius: 8,
-                        padding: 8,
-                        backgroundColor: theme.background,
-                        width: 44,
-                        height: 44,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Ionicons name="add" size={18} color={theme.text} />
-                    </Pressable>
-                    <Text style={{ color: theme.text, alignSelf: "center" }}>
-                      times per
-                    </Text>
-                  </View>
-
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    {(["weekly", "monthly"] as const).map((type) => (
-                      <Pressable
-                        key={type}
-                        onPress={() => {
-                          void haptics.toggle();
-                          const normalizedTarget = normalizeCustomTarget(
-                            customFrequency.target,
-                            type,
-                          );
-                          setCustomFrequency((prev) => ({
-                            ...prev,
-                            type,
-                            target: normalizedTarget,
-                          }));
-                        }}
-                        style={{
-                          paddingHorizontal: 12,
-                          paddingVertical: 6,
-                          borderRadius: 8,
-                          borderWidth: 1,
-                          borderColor:
-                            customFrequency.type === type
-                              ? theme.primary
-                              : theme.border,
-                          backgroundColor:
-                            customFrequency.type === type
-                              ? theme.primary + "20"
-                              : "transparent",
-                        }}
-                      >
-                        <Text
-                          style={{
-                            fontWeight: "600",
-                            color:
-                              customFrequency.type === type
-                                ? theme.primary
-                                : theme.text,
-                          }}
-                        >
-                          {type}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              <View style={{ flexDirection: "row", gap: 8, marginTop: 4 }}>
-                <Pressable
-                  onPress={() => {
-                    void haptics.tap();
-                    resetTaskEditor();
-                  }}
-                  style={{
-                    flex: 1,
-                    backgroundColor: theme.background,
-                    borderWidth: 1,
-                    borderColor: theme.border,
-                    padding: 10,
-                    borderRadius: 8,
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: theme.textSecondary,
-                      textAlign: "center",
-                      fontWeight: "600",
-                    }}
-                  >
-                    Cancel
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={submitTaskEditor}
-                  style={{
-                    flex: 1,
-                    backgroundColor: theme.primary,
-                    padding: 10,
-                    borderRadius: 8,
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: "white",
-                      textAlign: "center",
-                      fontWeight: "700",
-                    }}
-                  >
-                    {editingTaskId ? "Save" : "Add"}
-                  </Text>
-                </Pressable>
-              </View>
-              {frequency === "custom" ? (
-                <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-                  {customFrequency.type === "weekly"
-                    ? `Choose from 1 to ${MAX_WEEKLY_CUSTOM_TARGET} times per week.`
-                    : `Choose from 1 to ${MAX_MONTHLY_CUSTOM_TARGET} times per month.`}
-                </Text>
-              ) : null}
-              {editingTaskId ? (
-                <Pressable
-                  onPress={() => {
-                    const task = goal.tasks.find((t) => t.id === editingTaskId);
-                    resetTaskEditor();
-                    if (task) confirmDeleteTask(task.id, task.title);
-                  }}
-                  style={{ paddingVertical: 8 }}
-                >
-                  <Text
-                    style={{
-                      color: theme.danger,
-                      textAlign: "center",
-                      fontWeight: "600",
-                    }}
-                  >
-                    Delete task
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-        </Modal>
+        {nudgingMember ? (
+          <NudgeModal
+            visible
+            recipient={nudgingMember}
+            goal={goal}
+            adherence={getMemberAdherence(goal, nudgingMember.userId)}
+            onClose={() => setNudgingMember(null)}
+          />
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );

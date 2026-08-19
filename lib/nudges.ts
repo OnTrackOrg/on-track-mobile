@@ -36,12 +36,46 @@ export const getNudgeCandidates = (
         a.adherence - b.adherence || a.goal.title.localeCompare(b.goal.title),
     );
 
+/**
+ * Duplicate-send guard (issue #165): one nudge per friend+goal per cooldown
+ * window, tracked in-memory for the session. Deliberately not persisted —
+ * it exists to stop double-taps and same-sitting repeats, not to police
+ * long-term behavior.
+ */
+export const NUDGE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const sentNudgesAt = new Map<string, number>();
+
+const nudgeKey = (recipientUserId: string, goalId: string) =>
+  `${recipientUserId}:${goalId}`;
+
+export const wasRecentlyNudged = (
+  recipientUserId: string,
+  goalId: string,
+  now: number = Date.now(),
+): boolean => {
+  const sentAt = sentNudgesAt.get(nudgeKey(recipientUserId, goalId));
+  return sentAt !== undefined && now - sentAt < NUDGE_COOLDOWN_MS;
+};
+
+export const markNudgeSent = (
+  recipientUserId: string,
+  goalId: string,
+  now: number = Date.now(),
+): void => {
+  sentNudgesAt.set(nudgeKey(recipientUserId, goalId), now);
+};
+
+export const resetNudgeHistory = (): void => {
+  sentNudgesAt.clear();
+};
+
 export const sendNudge = async (
   recipientUserId: string,
   goalId: string,
+  message?: string,
 ): Promise<number> => {
   const { data, error } = await supabase.functions.invoke("send-nudge", {
-    body: { recipientUserId, goalId },
+    body: { recipientUserId, goalId, message: message?.trim() || undefined },
   });
   if (error) throw error;
 
@@ -49,5 +83,6 @@ export const sendNudge = async (
   if (!result?.delivered) {
     throw new Error("This friend has not enabled push notifications yet.");
   }
+  markNudgeSent(recipientUserId, goalId);
   return result.delivered;
 };

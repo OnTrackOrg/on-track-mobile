@@ -3,6 +3,10 @@ export type Frequency = "once" | "daily" | "weekly" | "custom";
 export interface CustomFrequency {
   type: "weekly" | "monthly";
   target: number; // e.g., 3 times per week, 5 times per month
+  // Explicit weekdays (0 = Sunday … 6 = Saturday) the task is due on. Only
+  // valid with type "weekly"; when set, `target` always equals its length and
+  // the task behaves like "daily, but only on these days".
+  weekdays?: number[];
 }
 
 export interface Task {

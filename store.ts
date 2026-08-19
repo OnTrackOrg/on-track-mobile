@@ -105,6 +105,29 @@ export const getGoalStartDate = (goal: Goal): Date => {
   return normalizeDate(new Date(goal.createdAt));
 };
 
+// Weekday-pinned schedules (issue #162) ------------------------------------
+
+/**
+ * The explicit weekdays (0 = Sunday … 6 = Saturday) a task is pinned to, or
+ * null for every other schedule. Such a task behaves like "daily, but only
+ * on these days": due on each selected weekday, never on the others.
+ */
+export const getTaskWeekdays = (
+  task: Pick<Task, "frequency" | "customFrequency">,
+): number[] | null =>
+  task.frequency === "custom" &&
+  task.customFrequency?.type === "weekly" &&
+  task.customFrequency.weekdays &&
+  task.customFrequency.weekdays.length > 0
+    ? task.customFrequency.weekdays
+    : null;
+
+/** False only for weekday-pinned tasks on a day outside their weekdays. */
+export const isTaskScheduledOnDate = (task: Task, date: Date): boolean => {
+  const weekdays = getTaskWeekdays(task);
+  return weekdays === null || weekdays.includes(date.getDay());
+};
+
 // Helper functions for custom frequency calculations
 export const getCustomFrequencyProgress = (
   task: Task,
@@ -147,6 +170,9 @@ export const shouldShowCustomTask = (
   const completedToday = task.completions.some((date) =>
     isSameDay(date, referenceDate),
   );
+  if (getTaskWeekdays(task)) {
+    return isTaskScheduledOnDate(task, referenceDate) && !completedToday;
+  }
   const { achieved } = getCustomFrequencyProgress(task, referenceDate);
   return !completedToday && !achieved;
 };
@@ -166,13 +192,15 @@ export const getGoalProgress = (
   goal: Goal,
   referenceDate: Date = new Date(),
 ) => {
-  const relevantTasks = goal.tasks;
+  const normalizedReferenceDate = normalizeDate(referenceDate);
+  // Weekday-pinned tasks don't count for or against days they aren't due on.
+  const relevantTasks = goal.tasks.filter((task) =>
+    isTaskScheduledOnDate(task, normalizedReferenceDate),
+  );
 
   if (relevantTasks.length === 0) {
     return { completed: 0, total: 0, percent: 0, isComplete: false };
   }
-
-  const normalizedReferenceDate = normalizeDate(referenceDate);
   const selectedWeekStart = startOfWeek(normalizedReferenceDate, {
     weekStartsOn: 0,
   });
@@ -211,6 +239,10 @@ export const getGoalProgress = (
       const completedToday = task.completions.some((date) =>
         isSameDay(date, normalizedReferenceDate),
       );
+      // Weekday-pinned tasks behave like daily on their scheduled days.
+      if (getTaskWeekdays(task)) {
+        return count + (completedToday ? 1 : 0);
+      }
       const { achieved } = getCustomFrequencyProgress(
         task,
         normalizedReferenceDate,
@@ -263,6 +295,7 @@ export const getTaskBucketsForDate = (
 
   const completed = goal.tasks.filter((task) => {
     if (task.frequency === "custom") {
+      if (getTaskWeekdays(task)) return doneOnDate(task);
       return (
         doneOnDate(task) || getCustomFrequencyProgress(task, date).achieved
       );
@@ -300,7 +333,8 @@ export const canPostponeTask = (
   const day = normalizeDate(date);
   const dayKey = dateToKey(day);
 
-  if (task.frequency === "daily") return false;
+  // Weekday-pinned tasks are due on their exact days, like daily tasks.
+  if (task.frequency === "daily" || getTaskWeekdays(task)) return false;
 
   if (task.frequency === "once") {
     return !goal.dueDay || dayKey < goal.dueDay;
@@ -432,10 +466,16 @@ export const getMemberAdherence = (
   const days = Math.max(1, Math.min(windowDays, ageDays));
 
   let sum = 0;
+  let countedDays = 0;
   for (let i = 0; i < days; i++) {
-    sum += getGoalProgress(view, addDays(end, -i)).percent;
+    const progress = getGoalProgress(view, addDays(end, -i));
+    // Days with nothing due (weekday-pinned off-days) don't count against
+    // adherence.
+    if (progress.total === 0) continue;
+    sum += progress.percent;
+    countedDays++;
   }
-  return sum / days;
+  return countedDays === 0 ? 0 : sum / countedDays;
 };
 
 export const getCustomFrequencyAlert = (
@@ -443,6 +483,12 @@ export const getCustomFrequencyAlert = (
   referenceDate: Date = new Date(),
 ) => {
   if (task.frequency !== "custom" || !task.customFrequency) {
+    return null;
+  }
+
+  // Weekday-pinned tasks are due on explicit days; the catch-up-pressure
+  // messaging for floating targets doesn't apply.
+  if (getTaskWeekdays(task)) {
     return null;
   }
 
@@ -488,6 +534,26 @@ export const getCustomFrequencyAlert = (
 export const getGoalStreak = (task: Task): number => {
   let streak = 0;
   const currentDate = new Date();
+
+  const weekdays = getTaskWeekdays(task);
+  if (weekdays) {
+    // Weekday-pinned: consecutive scheduled days completed, mirroring daily
+    // semantics (an incomplete current scheduled day ends the streak).
+    let daysChecked = 0;
+    while (daysChecked <= 365) {
+      if (weekdays.includes(currentDate.getDay())) {
+        const dateStr = format(currentDate, "yyyy-MM-dd");
+        const hasCompletion = task.completions.some(
+          (date) => format(date, "yyyy-MM-dd") === dateStr,
+        );
+        if (!hasCompletion) break;
+        streak++;
+      }
+      currentDate.setDate(currentDate.getDate() - 1);
+      daysChecked++;
+    }
+    return streak;
+  }
 
   if (task.frequency === "custom" && task.customFrequency) {
     // For custom frequencies, count consecutive achieved periods

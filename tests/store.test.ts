@@ -1173,3 +1173,67 @@ describe("postponeTask store actions", () => {
     expect(useStore.getState().postponedTasks["2020-01-01"]).toBeUndefined();
   });
 });
+
+describe("weekday-pinned schedules (issue #162)", () => {
+  const weekdayTask = (weekdays: number[], completions: Date[] = []): Task => ({
+    id: "weekday-task",
+    title: "Tue/Thu task",
+    frequency: "custom",
+    customFrequency: { type: "weekly", target: weekdays.length, weekdays },
+    completions,
+  });
+
+  const goalWith = (tasks: Task[]): Goal => ({
+    id: "goal-weekdays",
+    title: "Weekday goal",
+    createdAt: new Date(2026, 6, 1).getTime(),
+    tasks,
+  });
+
+  // 2026-07-21 is a Tuesday, 2026-07-22 a Wednesday.
+  const tuesday = new Date(2026, 6, 21, 12);
+  const wednesday = new Date(2026, 6, 22, 12);
+
+  it("is due only on its selected weekdays", () => {
+    const goal = goalWith([weekdayTask([2, 4])]);
+    const onTuesday = getTaskBucketsForDate(goal, tuesday);
+    expect(onTuesday.pending).toHaveLength(1);
+
+    const onWednesday = getTaskBucketsForDate(goal, wednesday);
+    expect(onWednesday.pending).toHaveLength(0);
+    expect(onWednesday.completed).toHaveLength(0);
+  });
+
+  it("counts progress like a daily task on scheduled days", () => {
+    const goal = goalWith([weekdayTask([2, 4], [new Date(2026, 6, 21)])]);
+    expect(getGoalProgress(goal, tuesday).isComplete).toBe(true);
+    // Off-days have no due tasks at all.
+    expect(getGoalProgress(goal, wednesday).total).toBe(0);
+  });
+
+  it("does not appear in Today's list on off-days", () => {
+    const goal = goalWith([weekdayTask([2, 4])]);
+    const onWednesday = getTodayItems([goal], [], wednesday);
+    expect(onWednesday.todo).toHaveLength(0);
+    const onTuesday = getTodayItems([goal], [], tuesday);
+    expect(onTuesday.todo).toHaveLength(1);
+  });
+
+  it("cannot be postponed", () => {
+    const goal = goalWith([weekdayTask([2, 4])]);
+    expect(canPostponeTask(goal, goal.tasks[0], tuesday)).toBe(false);
+  });
+
+  it("leaves floating custom tasks unchanged", () => {
+    const floating: Task = {
+      id: "floating",
+      title: "3x a week",
+      frequency: "custom",
+      customFrequency: { type: "weekly", target: 3 },
+      completions: [],
+    };
+    const goal = goalWith([floating]);
+    expect(getTaskBucketsForDate(goal, wednesday).pending).toHaveLength(1);
+    expect(canPostponeTask(goal, floating, tuesday)).toBe(true);
+  });
+});

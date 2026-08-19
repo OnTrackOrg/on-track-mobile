@@ -7,7 +7,13 @@ jest.mock("./supabase", () => ({
 }));
 
 import { Goal } from "../types";
-import { getNudgeCandidates } from "./nudges";
+import {
+  getNudgeCandidates,
+  markNudgeSent,
+  wasRecentlyNudged,
+  resetNudgeHistory,
+  NUDGE_COOLDOWN_MS,
+} from "./nudges";
 
 const FRIEND_ID = "00000000-0000-4000-8000-000000000002";
 const REFERENCE_DATE = new Date(2026, 6, 23);
@@ -101,5 +107,27 @@ describe("getNudgeCandidates", () => {
       "No progress",
       "Some progress",
     ]);
+  });
+});
+
+describe("nudge cooldown", () => {
+  beforeEach(() => resetNudgeHistory());
+
+  it("reports a recent nudge for the same friend and goal", () => {
+    markNudgeSent("friend-1", "goal-1", 1_000);
+    expect(wasRecentlyNudged("friend-1", "goal-1", 2_000)).toBe(true);
+  });
+
+  it("does not block other goals or friends", () => {
+    markNudgeSent("friend-1", "goal-1", 1_000);
+    expect(wasRecentlyNudged("friend-1", "goal-2", 2_000)).toBe(false);
+    expect(wasRecentlyNudged("friend-2", "goal-1", 2_000)).toBe(false);
+  });
+
+  it("expires after the cooldown window", () => {
+    markNudgeSent("friend-1", "goal-1", 1_000);
+    expect(
+      wasRecentlyNudged("friend-1", "goal-1", 1_000 + NUDGE_COOLDOWN_MS + 1),
+    ).toBe(false);
   });
 });
