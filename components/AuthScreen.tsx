@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
+import { haptics } from "../utils/haptics";
 import LabeledTextField from "./LabeledTextField";
 import {
   buildDefaultUsername,
@@ -172,9 +173,10 @@ export default function AuthScreen({
                 </Text>
                 {onResendVerification ? (
                   <Pressable
-                    onPress={() =>
-                      onResendVerification(pendingVerificationEmail)
-                    }
+                    onPress={() => {
+                      void haptics.tap();
+                      onResendVerification(pendingVerificationEmail);
+                    }}
                   >
                     <Text style={{ color: theme.primary, fontWeight: "700" }}>
                       Resend verification email
@@ -234,7 +236,10 @@ export default function AuthScreen({
                 return (
                   <Pressable
                     key={option.key}
-                    onPress={() => onModeChange(option.key)}
+                    onPress={() => {
+                      void haptics.toggle();
+                      onModeChange(option.key);
+                    }}
                     style={{
                       flex: 1,
                       paddingVertical: 10,
@@ -386,9 +391,11 @@ export default function AuthScreen({
                 onPress={() => {
                   setAttemptedSubmit(true);
                   if (!isValidEmail(email) || isSubmitting) {
+                    void haptics.error();
                     return;
                   }
 
+                  void haptics.tap();
                   onPasswordResetRequest(email);
                 }}
                 disabled={isSubmitting}
@@ -408,9 +415,11 @@ export default function AuthScreen({
               onPress={() => {
                 setAttemptedSubmit(true);
                 if (!isValid || isSubmitting) {
+                  void haptics.error();
                   return;
                 }
 
+                void haptics.press();
                 onSubmit({ displayName, username, email, password });
               }}
               style={{

@@ -2,6 +2,7 @@ import React from "react";
 import { Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
+import { haptics } from "../utils/haptics";
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -28,7 +29,10 @@ export default function IconButton({
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => {
+        void haptics.tap();
+        onPress();
+      }}
       disabled={disabled}
       hitSlop={hitSlop}
       style={{

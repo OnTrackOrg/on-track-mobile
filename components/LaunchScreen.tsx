@@ -14,6 +14,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useTheme } from "../contexts/ThemeContext";
 import { withAlpha } from "../utils/color";
+import { haptics } from "../utils/haptics";
 import { setLaunchScreenVisible } from "../lib/launchVisibility";
 import { Quote, fetchRandomQuote, getFallbackQuote } from "../lib/quotes";
 
@@ -118,7 +119,10 @@ function LaunchScreenView({
       ]}
     >
       <Pressable
-        onPress={dismiss}
+        onPress={() => {
+          void haptics.tap();
+          dismiss();
+        }}
         style={{
           flex: 1,
           backgroundColor: theme.background,

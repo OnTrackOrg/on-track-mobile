@@ -9,6 +9,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
+import { haptics } from "../utils/haptics";
 
 type ImportLocalDataScreenProps = {
   goalCount: number;
@@ -120,7 +121,10 @@ export default function ImportLocalDataScreen({
           ) : null}
 
           <Pressable
-            onPress={onImport}
+            onPress={() => {
+              void haptics.press();
+              onImport();
+            }}
             disabled={isImporting}
             style={{
               backgroundColor: isImporting ? theme.border : theme.primary,
@@ -148,7 +152,10 @@ export default function ImportLocalDataScreen({
           </Pressable>
 
           <Pressable
-            onPress={onSkip}
+            onPress={() => {
+              void haptics.tap();
+              onSkip();
+            }}
             disabled={isImporting}
             style={{
               borderRadius: 999,

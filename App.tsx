@@ -33,6 +33,7 @@ import AccountDeletedScreen from "./components/AccountDeletedScreen";
 import { RootStackParamList, TabParamList } from "./navigation";
 import { APP_TOUR_STORAGE_KEY, shouldShowAppTour } from "./onboarding";
 import { useStore } from "./store";
+import { haptics } from "./utils/haptics";
 import {
   AuthMode,
   exchangeAuthCodeForSession,
@@ -85,6 +86,12 @@ function MainTabs() {
 
   return (
     <Tab.Navigator
+      // Every tab switch gets a selection tick.
+      screenListeners={{
+        tabPress: () => {
+          void haptics.navigate();
+        },
+      }}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: theme.primary,

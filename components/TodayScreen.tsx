@@ -326,10 +326,12 @@ export default function TodayScreen({ navigation }: TodayProps) {
   const toggleItem = (item: TodayItem, completing: boolean) => {
     const completesDay = completing && todo.length === 1;
     if (completesDay) {
-      void haptics.success();
+      // Rising haptic burst timed with the confetti.
+      void haptics.celebrate();
       celebrate();
     } else {
-      void (completing ? haptics.toggle() : haptics.tap());
+      // Completing lands harder than un-checking.
+      void (completing ? haptics.press() : haptics.tap());
     }
     if (item.isShared) {
       toggleSharedTaskCompletion(item.goal.id, item.task.id, selectedDate);
@@ -423,17 +425,17 @@ export default function TodayScreen({ navigation }: TodayProps) {
                     </Animated.View>
                   ) : null}
                 </View>
-                <Text
-                  style={{
-                    color: theme.textSecondary,
-                    marginTop: 2,
-                    fontSize: 14,
-                  }}
-                >
-                  {allDone
-                    ? "Every goal touched today — see you tomorrow"
-                    : `${totals.done} of ${totals.total} tasks across ${totals.goalCount} goal${totals.goalCount === 1 ? "" : "s"}`}
-                </Text>
+                {allDone ? (
+                  <Text
+                    style={{
+                      color: theme.textSecondary,
+                      marginTop: 2,
+                      fontSize: 14,
+                    }}
+                  >
+                    Every goal touched today — see you tomorrow
+                  </Text>
+                ) : null}
               </View>
             </Animated.View>
           </TourAnchor>
