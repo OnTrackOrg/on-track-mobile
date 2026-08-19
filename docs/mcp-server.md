@@ -29,6 +29,7 @@ friends.
 | --- | --- |
 | `list_goals` | Own + friends' shared goals, with tasks and lifecycle status |
 | `get_goal` | One goal in detail: tasks, members, last-30-day completions |
+| `create_goal` | Create a goal (optionally with tasks, drafts, weekday schedules) |
 | `log_task_completion` | Log a task done for a day (own completions only) |
 | `undo_task_completion` | Remove a previously logged completion |
 | `list_friends` | Accepted friends |

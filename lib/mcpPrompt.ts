@@ -18,7 +18,7 @@ export const buildMcpConnectPrompt = (supabaseUrl: string): string => {
     `- URL: ${endpoint}`,
     "- Auth: OAuth 2.1. The server advertises its authorization server via the standard /.well-known/oauth-protected-resource metadata. Use dynamic client registration and open the sign-in page when prompted so I can log in and approve access.",
     "",
-    "Once connected you'll have these tools: list_goals, get_goal, log_task_completion, undo_task_completion, list_friends, and nudge_friend. Everything runs as my account, so you'll only see data I can already see.",
+    "Once connected you'll have these tools: list_goals, get_goal, create_goal, log_task_completion, undo_task_completion, list_friends, and nudge_friend. Everything runs as my account, so you'll only see data I can already see. When I describe something I want to achieve, you can draft it yourself and save it with create_goal (use is_draft when I should review it first).",
     "",
     "To confirm it works, connect and then list my goals.",
   ].join("\n");
