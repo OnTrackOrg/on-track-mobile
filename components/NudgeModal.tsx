@@ -91,7 +91,9 @@ export default function NudgeModal({
 
   const adherenceLine =
     adherence !== undefined
-      ? `${recipient.displayName} is at ${Math.round(adherence * 100)}% on this goal over the last 8 weeks — a friendly boost could help.`
+      ? adherence >= 0.7
+        ? `${recipient.displayName} is at ${Math.round(adherence * 100)}% on this goal over the last 8 weeks — cheer them on to keep it rolling.`
+        : `${recipient.displayName} is at ${Math.round(adherence * 100)}% on this goal over the last 8 weeks — a friendly boost could help.`
       : "A friendly boost could help them keep going.";
 
   return (

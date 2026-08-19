@@ -54,7 +54,7 @@ const sharedGoal = (
 });
 
 describe("getNudgeCandidates", () => {
-  it("returns active shared goals where the friend needs encouragement", () => {
+  it("returns active shared goals", () => {
     const result = getNudgeCandidates(
       [sharedGoal("1", "Drink water")],
       FRIEND_ID,
@@ -68,7 +68,7 @@ describe("getNudgeCandidates", () => {
     });
   });
 
-  it("excludes completed, private, and consistently completed goals", () => {
+  it("excludes completed and private goals but keeps consistent ones", () => {
     const completed = {
       ...sharedGoal("1", "Completed"),
       completedAt: new Date(2026, 6, 22).getTime(),
@@ -77,6 +77,7 @@ describe("getNudgeCandidates", () => {
       ...sharedGoal("2", "Private"),
       members: undefined,
     };
+    // High adherence no longer hides a goal — friends can always be nudged.
     const consistent = sharedGoal("3", "Consistent", [
       "2026-07-20",
       "2026-07-21",
@@ -84,13 +85,13 @@ describe("getNudgeCandidates", () => {
       "2026-07-23",
     ]);
 
-    expect(
-      getNudgeCandidates(
-        [completed, privateGoal, consistent],
-        FRIEND_ID,
-        REFERENCE_DATE,
-      ),
-    ).toEqual([]);
+    const result = getNudgeCandidates(
+      [completed, privateGoal, consistent],
+      FRIEND_ID,
+      REFERENCE_DATE,
+    );
+    expect(result.map(({ goal }) => goal.title)).toEqual(["Consistent"]);
+    expect(result[0].adherence).toBe(1);
   });
 
   it("puts the least-adherent shared goal first", () => {

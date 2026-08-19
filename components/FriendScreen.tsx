@@ -84,7 +84,7 @@ export default function FriendScreen({ route }: FriendScreenProps) {
                   marginTop: 4,
                 }}
               >
-                Encourage progress on a shared goal that could use a boost.
+                Send some encouragement on any goal you share.
               </Text>
             </View>
           </View>
@@ -176,7 +176,7 @@ export default function FriendScreen({ route }: FriendScreenProps) {
               }}
             >
               <Ionicons
-                name="checkmark-circle-outline"
+                name="people-outline"
                 size={30}
                 color={theme.textSecondary}
               />
@@ -187,7 +187,7 @@ export default function FriendScreen({ route }: FriendScreenProps) {
                   marginTop: 8,
                 }}
               >
-                Nothing needs a nudge
+                No shared goals yet
               </Text>
               <Text
                 style={{
@@ -197,7 +197,8 @@ export default function FriendScreen({ route }: FriendScreenProps) {
                   textAlign: "center",
                 }}
               >
-                Shared goals that fall below 70% recent adherence appear here.
+                Invite {friend.displayName} to one of your goals and you can
+                nudge each other from here.
               </Text>
             </View>
           )}

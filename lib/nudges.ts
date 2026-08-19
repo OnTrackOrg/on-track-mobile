@@ -2,16 +2,15 @@ import { Goal } from "../types";
 import { getMemberAdherence, hasGoalStarted } from "../store";
 import { supabase } from "./supabase";
 
-const NUDGE_ADHERENCE_THRESHOLD = 0.7;
-
 export type NudgeCandidate = {
   goal: Goal;
   adherence: number;
 };
 
 /**
- * A nudge must be about a goal both people share, and only appears when the
- * friend's recent progress shows that the goal needs encouragement.
+ * Every active goal both people share is nudgeable — encouragement isn't
+ * reserved for friends who are behind. The list is sorted so the goals that
+ * could use a boost most come first.
  */
 export const getNudgeCandidates = (
   goals: Goal[],
@@ -30,7 +29,6 @@ export const getNudgeCandidates = (
       goal,
       adherence: getMemberAdherence(goal, friendUserId, referenceDate),
     }))
-    .filter(({ adherence }) => adherence < NUDGE_ADHERENCE_THRESHOLD)
     .sort(
       (a, b) =>
         a.adherence - b.adherence || a.goal.title.localeCompare(b.goal.title),

@@ -1054,8 +1054,8 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                   // has no shared completion data to show.
                   const detailAvailable = !isMe && memberView !== goal;
                   const expanded = expandedMemberId === member.userId;
-                  const canNudge =
-                    !isMe && !isGoalCompleted && lifecycleStatus === "active";
+                  // Friends are always nudgeable on a live shared goal.
+                  const canNudge = !isMe && !isGoalCompleted;
                   const completedTaskIds = expanded
                     ? new Set(
                         getTaskBucketsForDate(
