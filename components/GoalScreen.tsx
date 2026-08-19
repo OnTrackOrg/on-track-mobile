@@ -975,9 +975,41 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             (moved here from the top of the page, issue #167). */}
         {members.length > 1 || (isOwner && account && !isGoalCompleted) ? (
           <View style={{ ...card(theme, isDark), gap: 12 }}>
-            <Text style={{ fontWeight: "700", color: theme.text }}>
-              Doing this together
-            </Text>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <Text style={{ fontWeight: "700", color: theme.text }}>
+                Doing this together
+              </Text>
+              {isOwner && account ? (
+                <Pressable
+                  accessibilityLabel="Invite a friend"
+                  onPress={() => {
+                    void haptics.tap();
+                    setIsInviteOpen(true);
+                  }}
+                  hitSlop={6}
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 15,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: withAlpha(theme.primary, 0.12),
+                  }}
+                >
+                  <Ionicons
+                    name="person-add-outline"
+                    size={15}
+                    color={theme.primary}
+                  />
+                </Pressable>
+              ) : null}
+            </View>
             {members.length <= 1 ? (
               <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
                 Goals are easier together — invite a friend and keep each other
@@ -1198,34 +1230,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                   );
                 })
               : null}
-            {isOwner && account ? (
-              <Pressable
-                onPress={() => {
-                  void haptics.tap();
-                  setIsInviteOpen(true);
-                }}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                  paddingVertical: 10,
-                  borderRadius: 10,
-                  borderWidth: 1,
-                  borderStyle: "dashed",
-                  borderColor: withAlpha(theme.primary, 0.5),
-                }}
-              >
-                <Ionicons
-                  name="person-add-outline"
-                  size={15}
-                  color={theme.primary}
-                />
-                <Text style={{ color: theme.primary, fontWeight: "700" }}>
-                  Invite a friend
-                </Text>
-              </Pressable>
-            ) : null}
           </View>
         ) : null}
 
