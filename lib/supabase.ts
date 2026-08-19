@@ -41,6 +41,10 @@ if (!supabaseUrl || !supabasePublishableKey) {
  * Zustand still owns the live UI state, but Supabase auth needs its own durable
  * session storage so a user does not have to sign in every time the app opens.
  */
+// The project's public base URL, for building sibling endpoints (e.g. the
+// ontrack-mcp function) without re-deriving config.
+export const supabaseBaseUrl = supabaseUrl;
+
 export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
   auth: {
     storage: AsyncStorage,
