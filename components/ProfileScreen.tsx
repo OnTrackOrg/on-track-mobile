@@ -738,24 +738,8 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
             </View>
           )}
 
-          <Pressable
-            onPress={() => {
-              void haptics.navigate();
-              navigation.navigate("Search");
-            }}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 6,
-              padding: 12,
-            }}
-          >
-            <Ionicons name="search" size={16} color={theme.primary} />
-            <Text style={{ color: theme.primary, fontWeight: "700" }}>
-              Find people
-            </Text>
-          </Pressable>
+          {/* "Find people" is parked with the hidden Search tab; restore
+              both together when discovery comes back. */}
 
           <View style={{ height: 20 }} />
         </View>
