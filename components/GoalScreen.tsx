@@ -9,7 +9,10 @@ import {
   Alert,
   ScrollView,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   useStore,
@@ -68,6 +71,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const setGoals = useStore((s) => s.setGoals);
   const setSharedGoals = useStore((s) => s.setSharedGoals);
   const { theme, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const isOwner =
     Boolean(ownedGoal) || (Boolean(goal) && account?.id === goal?.ownerUserId);
@@ -75,6 +79,8 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   // Generic edit mode (issue #167): goal/task management actions stay hidden
   // until the owner opens it.
   const [isManaging, setIsManaging] = React.useState(false);
+  // The ⋯ actions menu holding Edit / Complete / Delete (or Leave).
+  const [isMenuOpen, setIsMenuOpen] = React.useState(false);
   const [isEditing, setIsEditing] = React.useState(false);
   const [editingTaskId, setEditingTaskId] = React.useState<string | null>(null);
   const [isEditingGoalDetails, setIsEditingGoalDetails] = React.useState(false);
@@ -458,22 +464,39 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const goalHeatmapValues = (): Record<string, number> =>
     ratioHeatmapValues(goal.tasks);
 
-  const pillStyle = (active: boolean) => ({
-    ...card(theme, isDark),
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 9999,
-    ...(active
-      ? {
-          borderWidth: 1,
-          borderColor: theme.primary,
-          backgroundColor: theme.primary + "20",
-        }
-      : {}),
-  });
+  // ⋯ menu rows: close the menu first so confirm alerts don't stack on it.
+  const renderMenuItem = (
+    icon: React.ReactNode,
+    label: string,
+    onPress: () => void,
+    danger = false,
+  ) => (
+    <Pressable
+      key={label}
+      onPress={() => {
+        setIsMenuOpen(false);
+        onPress();
+      }}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+      }}
+    >
+      {icon}
+      <Text
+        style={{
+          color: danger ? theme.danger : theme.text,
+          fontWeight: "600",
+          fontSize: 14,
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
 
   const renderStreakChip = (task: Task) => {
     if (task.frequency === "once") return null;
@@ -538,72 +561,9 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
         contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Action pill row: Edit + Complete (owner) or Leave (member).
-            Invite lives in the "Doing this together" widget (issue #167). */}
-        <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-          {isOwner ? (
-            <Pressable
-              onPress={() => {
-                void haptics.toggle();
-                setIsManaging((managing) => !managing);
-              }}
-              style={pillStyle(isManaging)}
-            >
-              <Ionicons
-                name="create-outline"
-                size={16}
-                color={isManaging ? theme.primary : theme.textSecondary}
-              />
-              <Text style={{ color: theme.text, fontWeight: "700" }}>
-                {isManaging ? "Done" : "Edit"}
-              </Text>
-            </Pressable>
-          ) : null}
-          {isOwner ? (
-            <Pressable
-              onPress={
-                isGoalCompleted ? confirmReactivateGoal : confirmCompleteGoal
-              }
-              style={{
-                ...pillStyle(false),
-                borderColor: isGoalCompleted
-                  ? theme.border
-                  : theme.success + "55",
-              }}
-            >
-              {isGoalCompleted ? (
-                <Ionicons
-                  name="refresh-outline"
-                  size={16}
-                  color={theme.textSecondary}
-                />
-              ) : (
-                <MaterialCommunityIcons
-                  name="flag-checkered"
-                  size={16}
-                  color={theme.success}
-                />
-              )}
-              <Text style={{ color: theme.text, fontWeight: "700" }}>
-                {isGoalCompleted ? "Move Back" : "Complete"}
-              </Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={confirmLeaveGoal}
-              style={{
-                ...pillStyle(false),
-                borderColor: theme.danger + "55",
-              }}
-            >
-              <Ionicons name="exit-outline" size={16} color={theme.danger} />
-              <Text style={{ color: theme.text, fontWeight: "700" }}>
-                Leave
-              </Text>
-            </Pressable>
-          )}
-        </View>
-
+        {/* Header row: title + one compact actions entry point. Edit,
+            Complete, and Delete/Leave live in the ⋯ menu so the page opens
+            with content, not controls. */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           {isEditingGoalDetails ? (
             <>
@@ -703,6 +663,58 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                   />
                 </Pressable>
               ) : null}
+              {isManaging ? (
+                <Pressable
+                  onPress={() => {
+                    void haptics.toggle();
+                    setIsManaging(false);
+                  }}
+                  hitSlop={8}
+                  style={{
+                    height: 34,
+                    paddingHorizontal: 14,
+                    borderRadius: 17,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: theme.primary,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: "#ffffff",
+                      fontWeight: "700",
+                      fontSize: 13,
+                    }}
+                  >
+                    Done
+                  </Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  accessibilityLabel="Goal actions"
+                  onPress={() => {
+                    void haptics.tap();
+                    setIsMenuOpen(true);
+                  }}
+                  hitSlop={8}
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 17,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: theme.surface,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                  }}
+                >
+                  <Ionicons
+                    name="ellipsis-horizontal"
+                    size={16}
+                    color={theme.textSecondary}
+                  />
+                </Pressable>
+              )}
             </>
           )}
         </View>
@@ -730,18 +742,32 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
               Leave blank to clear the target.
             </Text>
           </View>
-        ) : goal.target ? (
-          <Text style={{ color: theme.textSecondary }}>
-            Target: {goal.target}
+        ) : goal.target || (!isGoalCompleted && dueLabel) ? (
+          /* One quiet meta line: target and due date together, instead of a
+             text row plus a chip row. */
+          <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
+            {goal.target ? `Target: ${goal.target}` : null}
+            {goal.target && !isGoalCompleted && dueLabel ? "  ·  " : null}
+            {!isGoalCompleted && dueLabel ? (
+              <Text
+                style={{
+                  color:
+                    daysUntilDue !== null && daysUntilDue < 0
+                      ? theme.danger
+                      : theme.textSecondary,
+                }}
+              >
+                {dueLabel}
+              </Text>
+            ) : null}
           </Text>
         ) : null}
 
-        {/* Due date chip: owners tap to set/change/clear (achieved goals
-            keep their history without an overdue warning) */}
-        {!isGoalCompleted && (dueLabel || isOwner) ? (
+        {/* Due date chip: editing-only affordance (achieved goals keep
+            their history without an overdue warning) */}
+        {!isGoalCompleted && isOwner && isManaging ? (
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             <Pressable
-              disabled={!isOwner}
               onPress={() => {
                 void haptics.tap();
                 setIsDuePickerOpen(true);
@@ -1243,7 +1269,36 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           }}
         >
           <Text style={{ fontWeight: "700", color: theme.text }}>Tasks</Text>
-          {recurringTasks.length > 1 ? (
+          {isOwner && isManaging ? (
+            <Pressable
+              onPress={() => {
+                void haptics.tap();
+                setEditingTaskId(null);
+                setIsEditing(true);
+              }}
+              hitSlop={6}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 3,
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: 9999,
+                backgroundColor: withAlpha(theme.primary, 0.12),
+              }}
+            >
+              <Ionicons name="add" size={14} color={theme.primary} />
+              <Text
+                style={{
+                  color: theme.primary,
+                  fontWeight: "700",
+                  fontSize: 12,
+                }}
+              >
+                Add task
+              </Text>
+            </Pressable>
+          ) : recurringTasks.length > 1 ? (
             <Text style={{ color: theme.textSecondary, fontSize: 11 }}>
               Tap a task to filter the heatmap
             </Text>
@@ -1334,54 +1389,101 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           );
         })}
 
-        {isOwner && isManaging ? (
+        {/* Goal actions menu (⋯): everything rare or destructive lives here
+            instead of taking permanent space on the page. */}
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={isMenuOpen}
+          onRequestClose={() => setIsMenuOpen(false)}
+        >
           <Pressable
-            onPress={() => {
-              void haptics.tap();
-              if (isEditing) {
-                resetTaskEditor();
-              } else {
-                setEditingTaskId(null);
-                setIsEditing(true);
-              }
-            }}
-            style={{ ...card(theme, isDark), padding: 12, marginTop: 8 }}
+            style={{ flex: 1, backgroundColor: "rgba(15, 23, 42, 0.2)" }}
+            onPress={() => setIsMenuOpen(false)}
           >
-            <Text
+            <View
               style={{
-                color: theme.textSecondary,
-                textAlign: "center",
-                fontWeight: "600",
+                position: "absolute",
+                top: insets.top + 56,
+                right: 16,
+                minWidth: 220,
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: theme.border,
+                backgroundColor: theme.surface,
+                paddingVertical: 4,
+                shadowColor: "#0f172a",
+                shadowOpacity: 0.15,
+                shadowRadius: 16,
+                shadowOffset: { width: 0, height: 6 },
+                elevation: 6,
               }}
             >
-              + New Task
-            </Text>
+              {isOwner
+                ? [
+                    renderMenuItem(
+                      <Ionicons
+                        name="create-outline"
+                        size={17}
+                        color={theme.textSecondary}
+                      />,
+                      "Edit goal & tasks",
+                      () => {
+                        void haptics.toggle();
+                        setIsManaging(true);
+                      },
+                    ),
+                    renderMenuItem(
+                      isGoalCompleted ? (
+                        <Ionicons
+                          name="refresh-outline"
+                          size={17}
+                          color={theme.textSecondary}
+                        />
+                      ) : (
+                        <MaterialCommunityIcons
+                          name="flag-checkered"
+                          size={17}
+                          color={theme.success}
+                        />
+                      ),
+                      isGoalCompleted ? "Move back to active" : "Complete goal",
+                      isGoalCompleted
+                        ? confirmReactivateGoal
+                        : confirmCompleteGoal,
+                    ),
+                    <View
+                      key="divider"
+                      style={{
+                        height: 1,
+                        backgroundColor: theme.border,
+                        marginVertical: 4,
+                      }}
+                    />,
+                    renderMenuItem(
+                      <Ionicons
+                        name="trash-outline"
+                        size={17}
+                        color={theme.danger}
+                      />,
+                      "Delete goal",
+                      confirmDeleteGoal,
+                      true,
+                    ),
+                  ]
+                : renderMenuItem(
+                    <Ionicons
+                      name="exit-outline"
+                      size={17}
+                      color={theme.danger}
+                    />,
+                    "Leave goal",
+                    confirmLeaveGoal,
+                    true,
+                  )}
+            </View>
           </Pressable>
-        ) : null}
-
-        {isOwner && isManaging ? (
-          <Pressable
-            onPress={confirmDeleteGoal}
-            style={{
-              marginTop: 16,
-              padding: 12,
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: theme.danger + "55",
-              backgroundColor: theme.surface,
-            }}
-          >
-            <Text
-              style={{
-                color: theme.danger,
-                textAlign: "center",
-                fontWeight: "600",
-              }}
-            >
-              Delete goal
-            </Text>
-          </Pressable>
-        ) : null}
+        </Modal>
 
         {/* Invite friends modal */}
         <Modal
