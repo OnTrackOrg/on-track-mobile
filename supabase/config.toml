@@ -364,12 +364,22 @@ enabled = false
 
 # OAuth server configuration
 [auth.oauth_server]
-# Enable OAuth server functionality
-enabled = false
-# Path for OAuth consent flow UI
+# Enable OAuth server functionality. MCP clients (ChatGPT, Claude, ...) sign
+# users in through this; see docs/mcp-server.md.
+enabled = true
+# Path for OAuth consent flow UI, appended to auth.site_url. In production the
+# consent page is served by the ontrack-mcp edge function instead; the hosted
+# authorization path must point at /functions/v1/ontrack-mcp/consent.
 authorization_url_path = "/oauth/consent"
-# Allow dynamic client registration
-allow_dynamic_registration = false
+# Allow dynamic client registration; ChatGPT registers itself as an OAuth
+# client this way when a user adds the connector.
+allow_dynamic_registration = true
+
+# The MCP server does its own bearer-token validation (Supabase user JWTs via
+# auth.getUser) and must serve unauthenticated OAuth discovery + consent
+# routes, so the gateway's JWT check is disabled for it.
+[functions.ontrack-mcp]
+verify_jwt = false
 
 [edge_runtime]
 enabled = true
