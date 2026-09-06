@@ -18,7 +18,6 @@ Lightweight backlog for ideas that are not yet tracked as GitHub issues.
 - Add procrastination-prevention notifications
 - Support quiet hours
 - Add weekly task targets and progress bars
-- Add iOS widgets
 - Add analytics for completion trends
 - Add task archiving instead of hard delete
 - Push notifications for friend requests and shared-goal invites

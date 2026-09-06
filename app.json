@@ -17,7 +17,12 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
-      "usesAppleSignIn": true
+      "usesAppleSignIn": true,
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.adamlincodesexpo.ontrack"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -46,7 +51,8 @@
       ],
       "expo-notifications",
       "expo-web-browser",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      "@bacons/apple-targets"
     ]
   }
 }
