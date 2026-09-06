@@ -161,6 +161,48 @@ export const getCustomFrequencyProgress = (
   return { completed, target, achieved, periodStart, periodEnd };
 };
 
+/**
+ * Progress inside the current period for tasks that count per week or per
+ * month ("3 times per week", plain weekly). Null for daily, once, and
+ * weekday-pinned tasks, which are judged per day. `completed` can exceed
+ * `target`: hitting the target never blocks logging more.
+ */
+export const getTaskPeriodProgress = (
+  task: Task,
+  referenceDate: Date = new Date(),
+): {
+  completed: number;
+  target: number;
+  period: "week" | "month";
+  doneOnDate: boolean;
+} | null => {
+  const doneOnDate = task.completions.some((date) =>
+    isSameDay(date, referenceDate),
+  );
+  if (task.frequency === "weekly") {
+    const start = startOfWeek(referenceDate, { weekStartsOn: 0 });
+    const end = endOfWeek(referenceDate, { weekStartsOn: 0 });
+    const completed = task.completions.filter((date) =>
+      isWithinInterval(date, { start, end }),
+    ).length;
+    return { completed, target: 1, period: "week", doneOnDate };
+  }
+  if (task.frequency === "custom" && task.customFrequency) {
+    if (getTaskWeekdays(task)) return null;
+    const { completed, target } = getCustomFrequencyProgress(
+      task,
+      referenceDate,
+    );
+    return {
+      completed,
+      target,
+      period: task.customFrequency.type === "weekly" ? "week" : "month",
+      doneOnDate,
+    };
+  }
+  return null;
+};
+
 export const shouldShowCustomTask = (
   task: Task,
   referenceDate: Date = new Date(),
