@@ -12,6 +12,7 @@ import {
   isOnceTaskCompletedOnDate,
   upgradeLegacyIds,
   useStore,
+  getTaskPeriodProgress,
 } from "../store";
 import { Goal, Task } from "../types";
 import { format } from "date-fns";
@@ -64,6 +65,89 @@ describe("getCustomFrequencyProgress", () => {
     expect(progress.completed).toBe(4);
     expect(progress.target).toBe(5);
     expect(progress.achieved).toBe(false);
+  });
+});
+
+describe("logging beyond a period target", () => {
+  const weeklyTask = (completions: Date[]): Task => ({
+    id: "workout",
+    title: "Workout",
+    frequency: "custom",
+    customFrequency: { type: "weekly", target: 3 },
+    completions,
+  });
+
+  it("reports progress past the target instead of capping it", () => {
+    // Week of Sun Jul 19 2026: Mon, Tue, Wed done, viewing Thursday.
+    const task = weeklyTask([
+      new Date(2026, 6, 20),
+      new Date(2026, 6, 21),
+      new Date(2026, 6, 22),
+    ]);
+    const thursday = new Date(2026, 6, 23);
+    expect(getTaskPeriodProgress(task, thursday)).toEqual({
+      completed: 3,
+      target: 3,
+      period: "week",
+      doneOnDate: false,
+    });
+
+    const extra = weeklyTask([...task.completions, thursday]);
+    expect(getTaskPeriodProgress(extra, thursday)).toMatchObject({
+      completed: 4,
+      target: 3,
+      doneOnDate: true,
+    });
+  });
+
+  it("keeps an achieved task in Done so an extra day can still be logged", () => {
+    const goal: Goal = {
+      id: "g",
+      title: "Lock In",
+      createdAt: new Date(2026, 6, 1).getTime(),
+      tasks: [
+        weeklyTask([
+          new Date(2026, 6, 20),
+          new Date(2026, 6, 21),
+          new Date(2026, 6, 22),
+        ]),
+      ],
+    };
+    const thursday = new Date(2026, 6, 23);
+    const buckets = getTaskBucketsForDate(goal, thursday);
+    expect(buckets.completed.map((t) => t.id)).toEqual(["workout"]);
+    expect(buckets.pending).toEqual([]);
+
+    // Tapping that Done row on Thursday adds a fourth completion.
+    useStore.setState({ goals: [goal] });
+    useStore.getState().toggleTaskCompletion("g", "workout", thursday);
+    const after = useStore.getState().goals[0].tasks[0];
+    expect(after.completions).toHaveLength(4);
+    expect(getGoalProgress({ ...goal, tasks: [after] }, thursday).percent).toBe(
+      1,
+    );
+  });
+
+  it("is null for daily, once, and weekday-pinned tasks", () => {
+    const day = new Date(2026, 6, 23);
+    expect(
+      getTaskPeriodProgress(
+        { id: "d", title: "Daily", frequency: "daily", completions: [] },
+        day,
+      ),
+    ).toBeNull();
+    expect(
+      getTaskPeriodProgress(
+        {
+          id: "p",
+          title: "Pinned",
+          frequency: "custom",
+          customFrequency: { type: "weekly", target: 2, weekdays: [1, 4] },
+          completions: [],
+        },
+        day,
+      ),
+    ).toBeNull();
   });
 });
 

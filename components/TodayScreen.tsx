@@ -26,6 +26,7 @@ import ReanimatedSwipeable, {
 } from "react-native-gesture-handler/ReanimatedSwipeable";
 import {
   canPostponeTask,
+  getTaskPeriodProgress,
   getTaskWeekdays,
   getTodayItems,
   useStore,
@@ -66,6 +67,7 @@ const postponeBlockReason = (task: Task): string => {
 type TaskRowProps = {
   item: TodayItem;
   isDone: boolean;
+  date: Date;
   entering?: ReturnType<typeof FadeInDown.duration>;
   isTourTask?: boolean;
   swipeable: boolean;
@@ -77,6 +79,7 @@ type TaskRowProps = {
 function TaskRow({
   item,
   isDone,
+  date,
   entering,
   isTourTask,
   swipeable,
@@ -87,6 +90,11 @@ function TaskRow({
   const { theme, isDark } = useTheme();
   const swipeRef = React.useRef<SwipeableMethods>(null);
   const color = getGoalColor(item.goal);
+  // Per-week / per-month tasks: once the target is met on other days the
+  // row stays in Done but its check becomes a "+" — tap to log one more.
+  const period = getTaskPeriodProgress(item.task, date);
+  const canLogExtra = isDone && period !== null && !period.doneOnDate;
+  const beyondTarget = period !== null && period.completed > period.target;
 
   const handleSwipeOpen = () => {
     if (!postponeAllowed) {
@@ -136,7 +144,11 @@ function TaskRow({
             justifyContent: "center",
           }}
         >
-          <Ionicons name="checkmark" size={16} color="#ffffff" />
+          <Ionicons
+            name={canLogExtra ? "add" : "checkmark"}
+            size={canLogExtra ? 18 : 16}
+            color="#ffffff"
+          />
         </View>
       ) : (
         <View
@@ -164,7 +176,22 @@ function TaskRow({
           style={{ color: theme.textSecondary, fontSize: 12, marginTop: 1 }}
         >
           <Text style={{ color, fontWeight: "600" }}>{item.goal.title}</Text> ·{" "}
-          {frequencyLabel(item.task)}
+          {period ? (
+            <>
+              <Text
+                style={
+                  beyondTarget
+                    ? { color: theme.streak, fontWeight: "700" }
+                    : undefined
+                }
+              >
+                {period.completed}/{period.target}
+              </Text>
+              {` this ${period.period}`}
+            </>
+          ) : (
+            frequencyLabel(item.task)
+          )}
         </Text>
       </View>
       {item.isShared && item.goal.members && item.goal.members.length > 1 ? (
@@ -325,10 +352,16 @@ export default function TodayScreen({ navigation }: TodayProps) {
 
   const toggleItem = (item: TodayItem, completing: boolean) => {
     const completesDay = completing && todo.length === 1;
+    const period = getTaskPeriodProgress(item.task, selectedDate);
+    // A Done row whose target was met on other days logs an extra for this
+    // day instead of un-checking anything.
+    const loggingExtra = !completing && period !== null && !period.doneOnDate;
     if (completesDay) {
       // Rising haptic burst timed with the confetti.
       void haptics.celebrate();
       celebrate();
+    } else if (loggingExtra) {
+      void haptics.success();
     } else {
       // Completing lands harder than un-checking.
       void (completing ? haptics.press() : haptics.tap());
@@ -515,6 +548,7 @@ export default function TodayScreen({ navigation }: TodayProps) {
                   item.task,
                   selectedDate,
                 )}
+                date={selectedDate}
                 onToggle={() => toggleItem(item, true)}
                 onPostpone={() => postponeTask(item.task.id, selectedDate)}
               />
@@ -540,6 +574,7 @@ export default function TodayScreen({ navigation }: TodayProps) {
                 key={`${item.goal.id}:${item.task.id}`}
                 item={item}
                 isDone
+                date={selectedDate}
                 entering={entering(todo.length + index + 1)}
                 swipeable={false}
                 postponeAllowed={false}
