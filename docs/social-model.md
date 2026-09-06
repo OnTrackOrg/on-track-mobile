@@ -15,6 +15,21 @@ the single-owner model described in `account-sync-foundation.md`.
   invite/accept handshake). Members complete tasks; only the owner edits the
   goal/tasks or completes/deletes the goal. Members can leave; owners can
   remove members.
+- **Public goal**: `goals.visibility = 'public'`. A public goal (its tasks
+  and every member's completions) is readable by all accepted friends of
+  the owner, who can follow it on the owner's friend page and nudge them
+  without being a member. Goals default to private; the owner toggles this
+  at creation or from the goal's ⋯ menu. On the client it is `Goal.isPublic`
+  and the flush writes `visibility` ('public' / 'private'). The store keeps
+  friends' public goals I am not a member of in `friendGoals` (read-only,
+  replaced on every fetch).
+- **Goal color**: `goals.color` is an optional owner-chosen accent
+  (`#rrggbb`); NULL keeps the id-derived color (`utils/goalColors.ts`).
+- **Nudge**: a push saying "<name> nudged you" with the goal title, nothing
+  else. Allowed between members of a goal, and from any friend of the owner
+  on a public goal. The `send-nudge` function logs each delivery in `nudges`
+  and enforces one nudge per sender + recipient + goal per hour (429 with
+  `retryAfterMinutes`); the client only surfaces the wait when it is hit.
 - **Public goal template**: a curated row in `goal_templates` (title,
   tagline, author, jsonb task snapshots). Not a goal row: browsing templates
   can never expose anyone's activity, and templates never enter a device's
@@ -56,7 +71,8 @@ The store keeps two slices:
 1. **The flush only writes what I own, plus my own completion rows.**
    `replaceRemoteGoalsForUser` upserts/deletes goals and tasks **owned by
    me** only. My completions are flushed (delete+reinsert of _my_ rows) for
-   my tasks and shared-goal tasks. `visibility` is never written by sync.
+   my tasks and shared-goal tasks. `visibility` and `color` are written by
+   the flush like any other owned-goal column.
 2. **Pre-insert accessibility filter.** Before the completions
    delete+reinsert, one `tasks.select('id').in(taskIds)` drops rows for tasks
    I can no longer see (owner deleted the task, or I was removed from the
@@ -99,6 +115,19 @@ A member's bar is their **8-week adherence**: the mean of
 days (clamped to the goal's age, minimum 1 day). It matches the goal detail
 heatmap's window and reuses the exact frequency semantics of the rest of the
 app.
+
+## Sign-in methods
+
+Sign in with Apple (native `signInWithIdToken`, nonce-checked) and Google
+(Supabase OAuth in the system browser, PKCE, redirect
+`ontrack://auth/callback` or `exp://…/--/auth/callback` in Expo Go) sit
+above email + password. Email sign-up asks for nothing but email and
+password; display name and username are derived from the email and edited
+from Profile. Supabase links a provider sign-in to an existing account
+automatically when the verified email matches; Profile → Account also lists
+sign-in methods with Link buttons (`linkIdentity`, manual linking enabled
+in the auth config) so an email-and-password user can add Apple or Google
+without creating a second account.
 
 ## No local-only mode
 

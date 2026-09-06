@@ -45,6 +45,11 @@ export interface Goal {
   dueDay?: string; // "yyyy-MM-dd"; target date to reach the goal by
   ownerUserId?: string;
   members?: GoalMember[]; // includes the owner, isOwner flagged
+  // Accent override chosen by the owner; falls back to a hash of the id.
+  color?: string;
+  // Public goals are visible (and nudgeable) to all accepted friends, not
+  // just members. Goals default to private.
+  isPublic?: boolean;
 }
 
 export interface FriendProfile {

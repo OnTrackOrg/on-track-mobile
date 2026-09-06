@@ -1011,6 +1011,8 @@ export const getCurrentMode = () => CURRENT_MODE;
 interface State {
   goals: Goal[];
   sharedGoals: Goal[];
+  // Friends' public goals I'm not a member of (read-only, server-authoritative).
+  friendGoals: Goal[];
   friends: FriendProfile[];
   friendRequests: FriendRequest[];
   // Outgoing pending friend requests (addressee user ids), so Search keeps
@@ -1028,6 +1030,7 @@ interface State {
   postponedTasks: Record<string, string[]>;
   setGoals: (goals: Goal[]) => void;
   setSharedGoals: (sharedGoals: Goal[]) => void;
+  setFriendGoals: (friendGoals: Goal[]) => void;
   setSocialGraph: (
     friends: FriendProfile[],
     friendRequests: FriendRequest[],
@@ -1044,7 +1047,13 @@ interface State {
   addGoal: (
     title: string,
     target?: string,
-    lifecycle?: { isDraft?: boolean; startDay?: string; dueDay?: string },
+    lifecycle?: {
+      isDraft?: boolean;
+      startDay?: string;
+      dueDay?: string;
+      color?: string;
+      isPublic?: boolean;
+    },
   ) => void;
   startGoal: (goalId: string, startDay: string) => void;
   setSelectedDate: (date: Date) => void;
@@ -1055,6 +1064,8 @@ interface State {
       target?: string | null;
       dueDay?: string | null;
       startDay?: string | null;
+      color?: string | null;
+      isPublic?: boolean;
     },
   ) => void;
   completeGoal: (goalId: string, completedAt?: number) => void;
@@ -1159,6 +1170,7 @@ export const useStore = create<State>()(
     (set, get) => ({
       goals: getInitialGoals(), // Dynamic initialization based on store mode
       sharedGoals: [],
+      friendGoals: [],
       friends: [],
       friendRequests: [],
       sentFriendRequestUserIds: [],
@@ -1181,6 +1193,7 @@ export const useStore = create<State>()(
       // Server-authoritative slice: replaced wholesale by fetches, mutated
       // locally only through toggleSharedTaskCompletion.
       setSharedGoals: (sharedGoals) => set({ sharedGoals }),
+      setFriendGoals: (friendGoals) => set({ friendGoals }),
 
       // Omitting sentFriendRequestUserIds keeps the current list (local
       // accept/decline updates don't know about outgoing requests).
@@ -1206,6 +1219,7 @@ export const useStore = create<State>()(
                 dataOwnerUserId: userId,
                 goals: [],
                 sharedGoals: [],
+                friendGoals: [],
                 friends: [],
                 friendRequests: [],
                 sentFriendRequestUserIds: [],
@@ -1268,6 +1282,8 @@ export const useStore = create<State>()(
                 isDraft: lifecycle?.isDraft || undefined,
                 startDay: lifecycle?.isDraft ? undefined : lifecycle?.startDay,
                 dueDay: lifecycle?.dueDay,
+                color: lifecycle?.color,
+                isPublic: lifecycle?.isPublic || undefined,
               },
             ],
             s.syncRevision,
@@ -1313,6 +1329,16 @@ export const useStore = create<State>()(
                         : updates.startDay !== undefined
                           ? updates.startDay
                           : g.startDay,
+                    color:
+                      updates.color === null
+                        ? undefined
+                        : updates.color !== undefined
+                          ? updates.color
+                          : g.color,
+                    isPublic:
+                      updates.isPublic === undefined
+                        ? g.isPublic
+                        : updates.isPublic || undefined,
                   }
                 : g,
             ),
@@ -1556,6 +1582,14 @@ export const useStore = create<State>()(
             state.sharedGoals = state.sharedGoals.map((goal) =>
               normalizeGoal(goal as PersistedGoal),
             );
+          }
+
+          if (state?.friendGoals) {
+            state.friendGoals = state.friendGoals.map((goal) =>
+              normalizeGoal(goal as PersistedGoal),
+            );
+          } else if (state) {
+            state.friendGoals = [];
           }
 
           if (state?.selectedDate) {

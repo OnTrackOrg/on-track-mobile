@@ -13,6 +13,8 @@ export type RootStackParamList = {
   Goal: { goalId: string };
   NewGoal: undefined;
   Friend: { friend: FriendProfile };
+  GoalMembers: { goalId: string };
+  FindPeople: undefined;
   Privacy: undefined;
   Instructions: undefined;
 };

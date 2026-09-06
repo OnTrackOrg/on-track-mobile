@@ -10,10 +10,14 @@ import { Goal } from "../types";
 import {
   getNudgeCandidates,
   markNudgeSent,
+  nudgeRetryMinutes,
   wasRecentlyNudged,
   resetNudgeHistory,
   NUDGE_COOLDOWN_MS,
 } from "./nudges";
+
+const OWNER_ID = "00000000-0000-4000-8000-000000000001";
+const ME_ID = "00000000-0000-4000-8000-000000000009";
 
 const FRIEND_ID = "00000000-0000-4000-8000-000000000002";
 const REFERENCE_DATE = new Date(2026, 6, 23);
@@ -94,6 +98,54 @@ describe("getNudgeCandidates", () => {
     expect(result[0].adherence).toBe(1);
   });
 
+  it("includes a friend's public goal I am not a member of, flagged public-only", () => {
+    const publicGoal: Goal = {
+      id: "4",
+      title: "Public run",
+      createdAt: new Date(2026, 6, 20).getTime(),
+      ownerUserId: FRIEND_ID,
+      isPublic: true,
+      members: [
+        {
+          userId: FRIEND_ID,
+          username: "friend",
+          displayName: "Friend",
+          isOwner: true,
+        },
+      ],
+      tasks: [
+        {
+          id: "4-task",
+          title: "Run",
+          frequency: "daily",
+          completions: [],
+          memberCompletions: { [FRIEND_ID]: ["2026-07-23"] },
+        },
+      ],
+    };
+
+    const result = getNudgeCandidates(
+      [publicGoal, sharedGoal("1", "Shared")],
+      FRIEND_ID,
+      REFERENCE_DATE,
+      ME_ID,
+    );
+
+    expect(result.map(({ goal }) => goal.id)).toEqual(["1", "4"]);
+    expect(result.find(({ goal }) => goal.id === "4")?.isPublicOnly).toBe(true);
+    expect(result.find(({ goal }) => goal.id === "1")?.isPublicOnly).toBe(true);
+  });
+
+  it("marks goals I am part of as not public-only", () => {
+    const result = getNudgeCandidates(
+      [sharedGoal("1", "Shared")],
+      FRIEND_ID,
+      REFERENCE_DATE,
+      OWNER_ID,
+    );
+    expect(result[0].isPublicOnly).toBe(false);
+  });
+
   it("puts the least-adherent shared goal first", () => {
     const result = getNudgeCandidates(
       [
@@ -123,6 +175,14 @@ describe("nudge cooldown", () => {
     markNudgeSent("friend-1", "goal-1", 1_000);
     expect(wasRecentlyNudged("friend-1", "goal-2", 2_000)).toBe(false);
     expect(wasRecentlyNudged("friend-2", "goal-1", 2_000)).toBe(false);
+  });
+
+  it("is a one-hour window and reports minutes left", () => {
+    expect(NUDGE_COOLDOWN_MS).toBe(60 * 60 * 1000);
+    markNudgeSent("friend-1", "goal-1", 0);
+    expect(nudgeRetryMinutes("friend-1", "goal-1", 20 * 60_000)).toBe(40);
+    expect(nudgeRetryMinutes("friend-1", "goal-1", NUDGE_COOLDOWN_MS)).toBe(0);
+    expect(nudgeRetryMinutes("friend-2", "goal-1", 0)).toBe(0);
   });
 
   it("expires after the cooldown window", () => {

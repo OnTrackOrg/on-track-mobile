@@ -486,23 +486,16 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   mcp.tool("nudge_friend", {
     description:
       "Send a push-notification nudge to an accepted friend about a goal you " +
-      "share with them. Optionally include a short supportive message.",
+      "share with them or one of their public goals. The notification just " +
+      "says who nudged them and which goal; one nudge per friend and goal " +
+      "per hour.",
     inputSchema: z.object({
       recipient_user_id: z
         .string()
         .describe("The friend's user id (uuid) from list_friends."),
-      goal_id: z.string().describe("The shared goal's id (uuid)."),
-      message: z
-        .string()
-        .max(200)
-        .optional()
-        .describe("Optional short message shown in the notification."),
+      goal_id: z.string().describe("The goal's id (uuid)."),
     }),
-    handler: async (args: {
-      recipient_user_id: string;
-      goal_id: string;
-      message?: string;
-    }) => {
+    handler: async (args: { recipient_user_id: string; goal_id: string }) => {
       if (!isUuid(args.recipient_user_id) || !isUuid(args.goal_id)) {
         throw new Error("recipient_user_id and goal_id must be uuids");
       }
@@ -516,7 +509,6 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
         body: JSON.stringify({
           recipientUserId: args.recipient_user_id,
           goalId: args.goal_id,
-          message: args.message,
         }),
       });
       const body = await response.json().catch(() => ({}));

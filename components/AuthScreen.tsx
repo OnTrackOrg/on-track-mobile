@@ -10,80 +10,75 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import * as AppleAuthentication from "expo-apple-authentication";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
 import LabeledTextField from "./LabeledTextField";
-import {
-  buildDefaultUsername,
-  getAccountDraftErrors,
-  isValidEmail,
-  sanitizeUsernameInput,
-} from "../account";
-import { AuthMode } from "../lib/auth";
+import BrandMark from "./BrandMark";
+import { isValidEmail, isValidPassword } from "../account";
+import { AuthMode, SsoProvider } from "../lib/auth";
 
 type AuthScreenProps = {
   mode: AuthMode;
-  pendingVerificationEmail?: string | null;
-  hasExistingData: boolean;
   isSubmitting?: boolean;
   errorMessage?: string | null;
   infoMessage?: string | null;
+  appleAvailable: boolean;
   onModeChange: (mode: AuthMode) => void;
-  onSubmit: (input: {
-    displayName: string;
-    username: string;
-    email: string;
-    password: string;
-  }) => void;
-  onResendVerification?: (email: string) => void;
+  onSubmit: (input: { email: string; password: string }) => void;
+  onSso: (provider: SsoProvider) => void;
   onPasswordResetRequest?: (email: string) => void;
 };
 
+/**
+ * Sign-in is provider-first: Apple and Google take one tap and need no
+ * form. Email + password stays as the fallback below the divider. Names
+ * and usernames are derived and editable later from Profile, so nothing
+ * here asks for them.
+ */
 export default function AuthScreen({
   mode,
-  pendingVerificationEmail,
-  hasExistingData,
   isSubmitting = false,
   errorMessage,
   infoMessage,
+  appleAvailable,
   onModeChange,
   onSubmit,
-  onResendVerification,
+  onSso,
   onPasswordResetRequest,
 }: AuthScreenProps) {
-  const { theme } = useTheme();
-  const [displayName, setDisplayName] = React.useState("");
-  const [username, setUsername] = React.useState("");
+  const { theme, isDark } = useTheme();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [confirmPassword, setConfirmPassword] = React.useState("");
   const [showPassword, setShowPassword] = React.useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [attemptedSubmit, setAttemptedSubmit] = React.useState(false);
 
   const isSignUp = mode === "sign-up";
-  const passwordFieldTextContentType =
-    Platform.OS === "ios" && showPassword
-      ? "oneTimeCode"
-      : isSignUp
-        ? "newPassword"
-        : "password";
-  const confirmPasswordTextContentType =
-    Platform.OS === "ios" && showConfirmPassword ? "oneTimeCode" : "password";
-  const signUpErrors = getAccountDraftErrors(
-    displayName,
-    username,
-    email,
-    password,
-    confirmPassword,
-  );
-  const signInEmailError = isValidEmail(email)
-    ? ""
-    : "Enter a valid email address.";
-  const signInPasswordError = password.length > 0 ? "" : "Enter your password.";
-  const isSignUpValid = Object.values(signUpErrors).every((error) => !error);
-  const isSignInValid = isValidEmail(email) && password.length > 0;
-  const isValid = isSignUp ? isSignUpValid : isSignInValid;
+  const emailError = isValidEmail(email) ? "" : "Enter a valid email address.";
+  const passwordError = isSignUp
+    ? isValidPassword(password)
+      ? ""
+      : "At least 10 characters with a letter and a number."
+    : password.length > 0
+      ? ""
+      : "Enter your password.";
+  const isValid = !emailError && !passwordError;
+
+  const submit = () => {
+    setAttemptedSubmit(true);
+    if (!isValid || isSubmitting) {
+      void haptics.error();
+      return;
+    }
+    void haptics.press();
+    onSubmit({ email, password });
+  };
+
+  const sso = (provider: SsoProvider) => {
+    if (isSubmitting) return;
+    void haptics.press();
+    onSso(provider);
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
@@ -94,345 +89,157 @@ export default function AuthScreen({
         <ScrollView
           contentContainerStyle={{
             flexGrow: 1,
-            padding: 24,
+            paddingHorizontal: 24,
+            paddingVertical: 32,
             justifyContent: "center",
           }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
         >
-          <View style={{ gap: 18 }}>
-            <View
+          <View style={{ alignItems: "center", gap: 12, marginBottom: 32 }}>
+            <BrandMark size={76} />
+            <Text
               style={{
-                width: 88,
-                height: 88,
-                borderRadius: 44,
+                color: theme.text,
+                fontSize: 15,
+                fontWeight: "800",
+                letterSpacing: 4,
+              }}
+            >
+              ONTRACK
+            </Text>
+          </View>
+
+          <View style={{ gap: 10 }}>
+            {appleAvailable ? (
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={
+                  AppleAuthentication.AppleAuthenticationButtonType.CONTINUE
+                }
+                buttonStyle={
+                  isDark
+                    ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
+                    : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+                }
+                cornerRadius={999}
+                style={{ height: 50, opacity: isSubmitting ? 0.6 : 1 }}
+                onPress={() => sso("apple")}
+              />
+            ) : null}
+            <Pressable
+              onPress={() => sso("google")}
+              disabled={isSubmitting}
+              style={{
+                height: 50,
+                borderRadius: 999,
+                flexDirection: "row",
                 alignItems: "center",
                 justifyContent: "center",
+                gap: 8,
                 backgroundColor: theme.surface,
                 borderWidth: 1,
                 borderColor: theme.border,
-                alignSelf: "center",
+                opacity: isSubmitting ? 0.6 : 1,
               }}
             >
-              <Ionicons
-                name="cloud-done-outline"
-                size={42}
-                color={theme.primary}
-              />
-            </View>
-
-            <View style={{ gap: 10 }}>
+              <Ionicons name="logo-google" size={18} color={theme.text} />
               <Text
-                style={{
-                  color: theme.text,
-                  fontSize: 28,
-                  fontWeight: "800",
-                  textAlign: "center",
-                }}
+                style={{ color: theme.text, fontWeight: "700", fontSize: 16 }}
               >
-                {isSignUp
-                  ? "Welcome! Let’s set up your account."
-                  : "Welcome back"}
+                Continue with Google
               </Text>
+            </Pressable>
+          </View>
+
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
+              marginVertical: 22,
+            }}
+          >
+            <View
+              style={{ flex: 1, height: 1, backgroundColor: theme.border }}
+            />
+            <Text style={{ color: theme.textSecondary, fontSize: 12 }}>or</Text>
+            <View
+              style={{ flex: 1, height: 1, backgroundColor: theme.border }}
+            />
+          </View>
+
+          <View style={{ gap: 12 }}>
+            <LabeledTextField
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="you@example.com"
+              textContentType="emailAddress"
+              autoComplete="email"
+              keyboardType="email-address"
+              returnKeyType="next"
+              editable={!isSubmitting}
+              errorText={attemptedSubmit ? emailError : undefined}
+            />
+            <LabeledTextField
+              label="Password"
+              value={password}
+              onChangeText={setPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder={isSignUp ? "Choose a password" : "Your password"}
+              textContentType={
+                Platform.OS === "ios" && showPassword
+                  ? "oneTimeCode"
+                  : isSignUp
+                    ? "newPassword"
+                    : "password"
+              }
+              autoComplete={isSignUp ? "new-password" : "password"}
+              passwordRules="minlength: 10; required: lower; required: upper; required: digit;"
+              secureTextEntry={!showPassword}
+              returnKeyType="done"
+              onSubmitEditing={submit}
+              selectTextOnFocus={Platform.OS === "ios"}
+              contextMenuHidden={false}
+              editable={!isSubmitting}
+              errorText={attemptedSubmit ? passwordError : undefined}
+              accessoryLabel={showPassword ? "Hide password" : "Show password"}
+              onAccessoryPress={() => setShowPassword((current) => !current)}
+            />
+
+            {errorMessage ? (
+              <Text
+                style={{ color: theme.danger, fontSize: 13, lineHeight: 18 }}
+              >
+                {errorMessage}
+              </Text>
+            ) : infoMessage ? (
               <Text
                 style={{
                   color: theme.textSecondary,
-                  fontSize: 15,
-                  lineHeight: 22,
-                  textAlign: "center",
+                  fontSize: 13,
+                  lineHeight: 18,
                 }}
               >
-                {isSignUp
-                  ? hasExistingData
-                    ? "Create your account first. We’ll ask before importing existing device data into the cloud."
-                    : "Create your account now so your OnTrack data can sync and back up across devices."
-                  : "Sign in to restore your synced OnTrack data on this device."}
+                {infoMessage}
               </Text>
-            </View>
-
-            {pendingVerificationEmail ? (
-              <View
-                style={{
-                  gap: 10,
-                  padding: 14,
-                  borderRadius: 10,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  backgroundColor: theme.surface,
-                }}
-              >
-                <Text
-                  style={{ color: theme.text, fontWeight: "700", fontSize: 16 }}
-                >
-                  Check your email to finish signup
-                </Text>
-                <Text style={{ color: theme.textSecondary, lineHeight: 20 }}>
-                  We created your account for {pendingVerificationEmail}.
-                  Supabase is set to require email verification before the first
-                  sign in.
-                </Text>
-                {onResendVerification ? (
-                  <Pressable
-                    onPress={() => {
-                      void haptics.tap();
-                      onResendVerification(pendingVerificationEmail);
-                    }}
-                  >
-                    <Text style={{ color: theme.primary, fontWeight: "700" }}>
-                      Resend verification email
-                    </Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            ) : null}
-
-            {errorMessage ? (
-              <View
-                style={{
-                  padding: 12,
-                  borderRadius: 10,
-                  backgroundColor: "#7f1d1d",
-                }}
-              >
-                <Text style={{ color: "#fecaca", lineHeight: 20 }}>
-                  {errorMessage}
-                </Text>
-              </View>
-            ) : null}
-
-            {infoMessage ? (
-              <View
-                style={{
-                  padding: 12,
-                  borderRadius: 10,
-                  backgroundColor: theme.surface,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                }}
-              >
-                <Text style={{ color: theme.textSecondary, lineHeight: 20 }}>
-                  {infoMessage}
-                </Text>
-              </View>
-            ) : null}
-
-            <View
-              style={{
-                flexDirection: "row",
-                backgroundColor: theme.surface,
-                borderRadius: 999,
-                padding: 4,
-                borderWidth: 1,
-                borderColor: theme.border,
-              }}
-            >
-              {(
-                [
-                  { key: "sign-up", label: "Sign up" },
-                  { key: "sign-in", label: "Sign in" },
-                ] as const
-              ).map((option) => {
-                const active = option.key === mode;
-                return (
-                  <Pressable
-                    key={option.key}
-                    onPress={() => {
-                      void haptics.toggle();
-                      onModeChange(option.key);
-                    }}
-                    style={{
-                      flex: 1,
-                      paddingVertical: 10,
-                      borderRadius: 999,
-                      backgroundColor: active ? theme.primary : "transparent",
-                      alignItems: "center",
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: active ? theme.background : theme.textSecondary,
-                        fontWeight: "700",
-                      }}
-                    >
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <View style={{ gap: 14 }}>
-              {isSignUp ? (
-                <>
-                  <LabeledTextField
-                    label="Display name"
-                    value={displayName}
-                    onChangeText={(text) => {
-                      setDisplayName(text);
-                      if (!username.trim()) {
-                        setUsername(buildDefaultUsername(text));
-                      }
-                    }}
-                    placeholder="Adam"
-                    autoCapitalize="words"
-                    textContentType="name"
-                    returnKeyType="next"
-                    editable={!isSubmitting}
-                    errorText={
-                      attemptedSubmit ? signUpErrors.displayName : undefined
-                    }
-                  />
-                  <LabeledTextField
-                    label="Username"
-                    value={username}
-                    onChangeText={(text) =>
-                      setUsername(sanitizeUsernameInput(text))
-                    }
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    placeholder="adam"
-                    textContentType="username"
-                    autoComplete="username"
-                    returnKeyType="next"
-                    editable={!isSubmitting}
-                    helpText="3-32 characters. Letters, numbers, periods, underscores, and hyphens are allowed."
-                    errorText={
-                      attemptedSubmit ? signUpErrors.username : undefined
-                    }
-                  />
-                </>
-              ) : null}
-
-              <LabeledTextField
-                label="Email"
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="adam@example.com"
-                textContentType="emailAddress"
-                autoComplete="email"
-                keyboardType="email-address"
-                returnKeyType="next"
-                editable={!isSubmitting}
-                errorText={
-                  attemptedSubmit
-                    ? isSignUp
-                      ? signUpErrors.email
-                      : signInEmailError
-                    : undefined
-                }
-              />
-              <LabeledTextField
-                label="Password"
-                value={password}
-                onChangeText={setPassword}
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder={
-                  isSignUp ? "Choose a password" : "Enter your password"
-                }
-                textContentType={passwordFieldTextContentType}
-                autoComplete={isSignUp ? "new-password" : "password"}
-                passwordRules="minlength: 10; required: lower; required: upper; required: digit;"
-                secureTextEntry={!showPassword}
-                returnKeyType={isSignUp ? "next" : "done"}
-                selectTextOnFocus={Platform.OS === "ios"}
-                contextMenuHidden={false}
-                editable={!isSubmitting}
-                helpText={
-                  isSignUp
-                    ? "Use at least 10 characters with at least one letter and one number."
-                    : undefined
-                }
-                errorText={
-                  attemptedSubmit
-                    ? isSignUp
-                      ? signUpErrors.password
-                      : signInPasswordError
-                    : undefined
-                }
-                accessoryLabel={
-                  showPassword ? "Hide password" : "Show password"
-                }
-                onAccessoryPress={() => setShowPassword((current) => !current)}
-              />
-
-              {isSignUp ? (
-                <LabeledTextField
-                  label="Confirm password"
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholder="Re-enter your password"
-                  textContentType={confirmPasswordTextContentType}
-                  autoComplete="off"
-                  secureTextEntry={!showConfirmPassword}
-                  returnKeyType="done"
-                  selectTextOnFocus={Platform.OS === "ios"}
-                  contextMenuHidden={false}
-                  editable={!isSubmitting}
-                  errorText={
-                    attemptedSubmit ? signUpErrors.confirmPassword : undefined
-                  }
-                  accessoryLabel={
-                    showConfirmPassword ? "Hide password" : "Show password"
-                  }
-                  onAccessoryPress={() =>
-                    setShowConfirmPassword((current) => !current)
-                  }
-                />
-              ) : null}
-            </View>
-
-            {!isSignUp && onPasswordResetRequest ? (
-              <Pressable
-                onPress={() => {
-                  setAttemptedSubmit(true);
-                  if (!isValidEmail(email) || isSubmitting) {
-                    void haptics.error();
-                    return;
-                  }
-
-                  void haptics.tap();
-                  onPasswordResetRequest(email);
-                }}
-                disabled={isSubmitting}
-                style={{
-                  alignSelf: "center",
-                  paddingHorizontal: 8,
-                  paddingVertical: 4,
-                }}
-              >
-                <Text style={{ color: theme.primary, fontWeight: "700" }}>
-                  Forgot password?
-                </Text>
-              </Pressable>
             ) : null}
 
             <Pressable
-              onPress={() => {
-                setAttemptedSubmit(true);
-                if (!isValid || isSubmitting) {
-                  void haptics.error();
-                  return;
-                }
-
-                void haptics.press();
-                onSubmit({ displayName, username, email, password });
-              }}
+              onPress={submit}
               style={{
+                height: 50,
+                borderRadius: 999,
                 backgroundColor:
                   isValid && !isSubmitting ? theme.primary : theme.border,
-                borderRadius: 999,
-                paddingHorizontal: 18,
-                paddingVertical: 14,
                 alignItems: "center",
-                marginTop: 8,
-                flexDirection: "row",
                 justifyContent: "center",
+                flexDirection: "row",
                 gap: 10,
+                marginTop: 4,
               }}
             >
               {isSubmitting ? (
@@ -448,6 +255,60 @@ export default function AuthScreen({
                 {isSignUp ? "Create account" : "Sign in"}
               </Text>
             </Pressable>
+
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "center",
+                alignItems: "center",
+                gap: 16,
+                marginTop: 6,
+              }}
+            >
+              <Pressable
+                onPress={() => {
+                  void haptics.toggle();
+                  setAttemptedSubmit(false);
+                  onModeChange(isSignUp ? "sign-in" : "sign-up");
+                }}
+                disabled={isSubmitting}
+                hitSlop={8}
+              >
+                <Text style={{ color: theme.primary, fontWeight: "700" }}>
+                  {isSignUp ? "I have an account" : "Create an account"}
+                </Text>
+              </Pressable>
+              {!isSignUp && onPasswordResetRequest ? (
+                <>
+                  <View
+                    style={{
+                      width: 1,
+                      height: 14,
+                      backgroundColor: theme.border,
+                    }}
+                  />
+                  <Pressable
+                    onPress={() => {
+                      if (!isValidEmail(email) || isSubmitting) {
+                        setAttemptedSubmit(true);
+                        void haptics.error();
+                        return;
+                      }
+                      void haptics.tap();
+                      onPasswordResetRequest(email);
+                    }}
+                    disabled={isSubmitting}
+                    hitSlop={8}
+                  >
+                    <Text
+                      style={{ color: theme.textSecondary, fontWeight: "600" }}
+                    >
+                      Forgot password?
+                    </Text>
+                  </Pressable>
+                </>
+              ) : null}
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

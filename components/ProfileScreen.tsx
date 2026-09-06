@@ -28,9 +28,17 @@ import { STORAGE_KEYS } from "../lib/persistence";
 import { RootStackParamList, TabParamList } from "../navigation";
 import {
   deleteCurrentAccount,
+  getLinkedProviders,
   getPersistedSession,
+  isAppleSignInAvailable,
+  linkAppleAccount,
+  linkGoogleAccount,
   signOut,
+  SsoCancelledError,
+  updateProfileNames,
 } from "../lib/auth";
+import LabeledTextField from "./LabeledTextField";
+import { sanitizeUsernameInput } from "../account";
 import { notifyAccountDeleted } from "../lib/accountDeleted";
 import {
   acceptFriendRequest,
@@ -76,6 +84,74 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
   // "Copied" feedback for the AI-assistant setup prompt.
   const [copiedMcpPrompt, setCopiedMcpPrompt] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
+  // Account card: rename + linked sign-in methods.
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [usernameDraft, setUsernameDraft] = useState("");
+  const [isSavingName, setIsSavingName] = useState(false);
+  const [linkedProviders, setLinkedProviders] = useState<string[] | null>(null);
+  const [appleAvailable, setAppleAvailable] = useState(false);
+  const [linkingProvider, setLinkingProvider] = useState<
+    "apple" | "google" | null
+  >(null);
+
+  React.useEffect(() => {
+    if (!settingsVisible || !account) return;
+    void isAppleSignInAvailable().then(setAppleAvailable);
+    getLinkedProviders()
+      .then(setLinkedProviders)
+      .catch(() => setLinkedProviders(null));
+  }, [settingsVisible, account]);
+
+  const saveNames = async () => {
+    if (!account || isSavingName) return;
+    setIsSavingName(true);
+    try {
+      const session = await getPersistedSession();
+      if (!session?.user) throw new Error("You need to be signed in.");
+      const updated = await updateProfileNames(
+        session.user,
+        nameDraft,
+        usernameDraft,
+      );
+      setAccount(updated);
+      void haptics.success();
+      setIsEditingName(false);
+    } catch (error) {
+      void haptics.error();
+      Alert.alert(
+        "Couldn't save",
+        error instanceof Error ? error.message : "Try again in a moment.",
+      );
+    } finally {
+      setIsSavingName(false);
+    }
+  };
+
+  const linkProvider = async (provider: "apple" | "google") => {
+    if (linkingProvider) return;
+    void haptics.press();
+    setLinkingProvider(provider);
+    try {
+      if (provider === "apple") {
+        await linkAppleAccount();
+      } else {
+        await linkGoogleAccount();
+      }
+      setLinkedProviders(await getLinkedProviders());
+      void haptics.success();
+    } catch (error) {
+      if (!(error instanceof SsoCancelledError)) {
+        void haptics.error();
+        Alert.alert(
+          "Couldn't link",
+          error instanceof Error ? error.message : "Try again in a moment.",
+        );
+      }
+    } finally {
+      setLinkingProvider(null);
+    }
+  };
   const [isImporting, setIsImporting] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
 
@@ -671,15 +747,46 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
             </>
           )}
 
-          <Text
+          <View
             style={{
-              ...SECTION_HEADER,
-              color: theme.textSecondary,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
               marginTop: 8,
             }}
           >
-            FRIENDS
-          </Text>
+            <Text style={{ ...SECTION_HEADER, color: theme.textSecondary }}>
+              FRIENDS
+            </Text>
+            <Pressable
+              accessibilityLabel="Find people"
+              onPress={() => {
+                void haptics.navigate();
+                navigation.navigate("FindPeople");
+              }}
+              hitSlop={6}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: 9999,
+                backgroundColor: withAlpha(theme.primary, 0.12),
+              }}
+            >
+              <Ionicons name="search" size={12} color={theme.primary} />
+              <Text
+                style={{
+                  color: theme.primary,
+                  fontWeight: "700",
+                  fontSize: 12,
+                }}
+              >
+                Find people
+              </Text>
+            </Pressable>
+          </View>
           {friends.length > 0 ? (
             friends.map((friend) => {
               const sharedCount = sharedGoalCountFor(friend.userId);
@@ -724,7 +831,11 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
               );
             })
           ) : (
-            <View
+            <Pressable
+              onPress={() => {
+                void haptics.navigate();
+                navigation.navigate("FindPeople");
+              }}
               style={{
                 borderWidth: 1,
                 borderColor: theme.border,
@@ -739,11 +850,8 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
               <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
                 Find people to share goals and keep each other on track.
               </Text>
-            </View>
+            </Pressable>
           )}
-
-          {/* "Find people" is parked with the hidden Search tab; restore
-              both together when discovery comes back. */}
 
           <Text
             style={{
@@ -1042,14 +1150,125 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                     color={theme.textSecondary}
                   />
                 </Pressable>
-                <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
-                  {account.displayName} @{account.username}
-                </Text>
-                {account.email ? (
-                  <Text style={{ color: theme.textSecondary, marginTop: 2 }}>
-                    {account.email}
+                <Pressable
+                  onPress={() => {
+                    void haptics.tap();
+                    setNameDraft(account.displayName);
+                    setUsernameDraft(account.username);
+                    setIsEditingName(true);
+                  }}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                    marginTop: 12,
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        color: theme.text,
+                        fontWeight: "600",
+                        fontSize: 14,
+                      }}
+                    >
+                      {account.displayName}
+                    </Text>
+                    <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                      @{account.username}
+                      {account.email ? ` · ${account.email}` : ""}
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name="create-outline"
+                    size={16}
+                    color={theme.textSecondary}
+                  />
+                </Pressable>
+
+                {/* Sign-in methods: link Apple / Google to this account so
+                    the same data opens with one tap next time. */}
+                <View style={{ marginTop: 12, gap: 6 }}>
+                  <Text
+                    style={{
+                      color: theme.textSecondary,
+                      fontSize: 11,
+                      fontWeight: "700",
+                      letterSpacing: 0.6,
+                    }}
+                  >
+                    SIGN-IN METHODS
                   </Text>
-                ) : null}
+                  {(
+                    [
+                      { key: "email", label: "Email", icon: "mail-outline" },
+                      { key: "apple", label: "Apple", icon: "logo-apple" },
+                      { key: "google", label: "Google", icon: "logo-google" },
+                    ] as const
+                  )
+                    .filter((m) => m.key !== "apple" || appleAvailable)
+                    .map((method) => {
+                      const linked =
+                        linkedProviders?.includes(method.key) ?? false;
+                      const canLink =
+                        method.key !== "email" && linkedProviders !== null;
+                      return (
+                        <View
+                          key={method.key}
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 10,
+                          }}
+                        >
+                          <Ionicons
+                            name={method.icon}
+                            size={16}
+                            color={theme.textSecondary}
+                          />
+                          <Text style={{ flex: 1, color: theme.text }}>
+                            {method.label}
+                          </Text>
+                          {linked ? (
+                            <Ionicons
+                              name="checkmark-circle"
+                              size={18}
+                              color={theme.success}
+                            />
+                          ) : canLink ? (
+                            <Pressable
+                              onPress={() =>
+                                void linkProvider(
+                                  method.key as "apple" | "google",
+                                )
+                              }
+                              disabled={linkingProvider !== null}
+                              hitSlop={6}
+                              style={{
+                                paddingHorizontal: 10,
+                                paddingVertical: 4,
+                                borderRadius: 9999,
+                                backgroundColor: withAlpha(theme.primary, 0.12),
+                                opacity: linkingProvider ? 0.5 : 1,
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: theme.primary,
+                                  fontWeight: "700",
+                                  fontSize: 12,
+                                }}
+                              >
+                                {linkingProvider === method.key
+                                  ? "Linking…"
+                                  : "Link"}
+                              </Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                </View>
                 <Pressable
                   onPress={handleSignOut}
                   style={{
@@ -1150,6 +1369,95 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                 </Text>
               </Pressable>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        animationType="fade"
+        transparent
+        visible={isEditingName}
+        onRequestClose={() => setIsEditingName(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            justifyContent: "center",
+            padding: 24,
+            backgroundColor: "rgba(15, 23, 42, 0.35)",
+          }}
+        >
+          <Pressable
+            onPress={() => setIsEditingName(false)}
+            style={{
+              position: "absolute",
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+            }}
+          />
+          <View style={{ ...card(theme, isDark), padding: 16, gap: 12 }}>
+            <Text
+              style={{ fontWeight: "700", fontSize: 18, color: theme.text }}
+            >
+              Your name
+            </Text>
+            <LabeledTextField
+              label="Display name"
+              value={nameDraft}
+              onChangeText={setNameDraft}
+              autoCapitalize="words"
+              placeholder="Adam"
+              editable={!isSavingName}
+            />
+            <LabeledTextField
+              label="Username"
+              value={usernameDraft}
+              onChangeText={(text) =>
+                setUsernameDraft(sanitizeUsernameInput(text))
+              }
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="adam"
+              editable={!isSavingName}
+            />
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <Pressable
+                onPress={() => {
+                  void haptics.tap();
+                  setIsEditingName(false);
+                }}
+                style={{
+                  flex: 1,
+                  padding: 12,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  alignItems: "center",
+                }}
+              >
+                <Text style={{ color: theme.textSecondary, fontWeight: "600" }}>
+                  Cancel
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void saveNames()}
+                disabled={isSavingName || nameDraft.trim().length === 0}
+                style={{
+                  flex: 1,
+                  padding: 12,
+                  borderRadius: 10,
+                  backgroundColor: theme.primary,
+                  alignItems: "center",
+                  opacity:
+                    isSavingName || nameDraft.trim().length === 0 ? 0.5 : 1,
+                }}
+              >
+                <Text style={{ color: "#ffffff", fontWeight: "700" }}>
+                  {isSavingName ? "Saving…" : "Save"}
+                </Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>

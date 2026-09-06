@@ -34,7 +34,7 @@ import {
 import { describeTaskSchedule } from "../lib/taskSchedule";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
-import { goalColor } from "../utils/goalColors";
+import { getGoalColor } from "../utils/goalColors";
 import { mix, withAlpha } from "../utils/color";
 import { shouldPlayEntrance } from "../utils/entrance";
 import { TabParamList } from "../navigation";
@@ -86,7 +86,7 @@ function TaskRow({
 }: TaskRowProps) {
   const { theme, isDark } = useTheme();
   const swipeRef = React.useRef<SwipeableMethods>(null);
-  const color = goalColor(item.goal.id);
+  const color = getGoalColor(item.goal);
 
   const handleSwipeOpen = () => {
     if (!postponeAllowed) {
