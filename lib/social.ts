@@ -203,6 +203,8 @@ export const inviteFriendToGoal = async (
       is_draft: goal.isDraft ?? false,
       start_day: goal.startDay ?? null,
       due_day: goal.dueDay ?? null,
+      color: goal.color ?? null,
+      visibility: goal.isPublic ? "public" : "private",
     },
     { onConflict: "id" },
   );

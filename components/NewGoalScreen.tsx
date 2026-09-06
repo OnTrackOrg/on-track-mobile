@@ -24,6 +24,8 @@ import TaskEditorModal, { TaskEditorValue } from "./TaskEditorModal";
 import { CustomFrequency, Frequency } from "../types";
 import { addMemberToGoal, inviteFriendToGoal } from "../lib/social";
 import { getPersistedSession } from "../lib/auth";
+import GoalColorPicker from "./GoalColorPicker";
+import { GOAL_PALETTE } from "../utils/goalColors";
 import { describeTaskSchedule } from "../lib/taskSchedule";
 import { generateGoalDraft } from "../lib/goalDraft";
 
@@ -66,6 +68,13 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
     "now" | "scheduled" | "draft"
   >("now");
   const [startDay, setStartDay] = React.useState<string | null>(null);
+  // Who can see it: private (default) or public to all friends.
+  const [isPublic, setIsPublic] = React.useState(false);
+  const [color, setColor] = React.useState<string | null>(null);
+  const [isColorPickerOpen, setIsColorPickerOpen] = React.useState(false);
+  // Before the goal exists there is no id to derive "auto" from; preview
+  // the auto swatch with the first palette color.
+  const autoColorPreview = GOAL_PALETTE[0];
   const [dueDay, setDueDay] = React.useState<string | null>(null);
   const [isStartPickerOpen, setIsStartPickerOpen] = React.useState(false);
   const [isDuePickerOpen, setIsDuePickerOpen] = React.useState(false);
@@ -199,6 +208,8 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
           ? startDay
           : undefined,
       dueDay: dueDay ?? undefined,
+      color: color ?? undefined,
+      isPublic,
     });
     const created = useStore.getState().goals.at(-1);
     if (!created) {
@@ -402,6 +413,98 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
             </Pressable>
           ) : null}
         </Pressable>
+
+        <Text
+          style={{
+            fontWeight: "700",
+            fontSize: 12,
+            letterSpacing: 0.6,
+            color: theme.textSecondary,
+            marginTop: 4,
+          }}
+        >
+          WHO CAN SEE IT
+        </Text>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          {(
+            [
+              { value: false, label: "Private", icon: "lock-closed-outline" },
+              { value: true, label: "Public", icon: "globe-outline" },
+            ] as const
+          ).map(({ value, label, icon }) => {
+            const active = isPublic === value;
+            return (
+              <Pressable
+                key={label}
+                onPress={() => {
+                  void haptics.toggle();
+                  setIsPublic(value);
+                }}
+                style={{
+                  flex: 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 5,
+                  paddingVertical: 10,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: active ? theme.primary : theme.border,
+                  backgroundColor: active
+                    ? withAlpha(theme.primary, 0.12)
+                    : theme.surface,
+                }}
+              >
+                <Ionicons
+                  name={icon}
+                  size={14}
+                  color={active ? theme.primary : theme.textSecondary}
+                />
+                <Text
+                  style={{
+                    fontWeight: "700",
+                    fontSize: 13,
+                    color: active ? theme.primary : theme.textSecondary,
+                  }}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            );
+          })}
+          <Pressable
+            accessibilityLabel="Goal color"
+            onPress={() => {
+              void haptics.tap();
+              setIsColorPickerOpen(true);
+            }}
+            style={{
+              width: 44,
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: theme.border,
+              backgroundColor: theme.surface,
+            }}
+          >
+            <View
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: 9,
+                backgroundColor: color ?? autoColorPreview,
+                borderWidth: color ? 0 : 2,
+                borderColor: theme.border,
+              }}
+            />
+          </Pressable>
+        </View>
+        {isPublic ? (
+          <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+            Friends can follow along and nudge you.
+          </Text>
+        ) : null}
 
         <Text
           style={{
@@ -661,6 +764,14 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
             return kept;
           });
         }}
+      />
+
+      <GoalColorPicker
+        visible={isColorPickerOpen}
+        selected={color ?? undefined}
+        autoColor={autoColorPreview}
+        onSelect={setColor}
+        onClose={() => setIsColorPickerOpen(false)}
       />
 
       <TaskEditorModal

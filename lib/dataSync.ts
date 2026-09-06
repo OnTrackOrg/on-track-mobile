@@ -14,6 +14,8 @@ type GoalRow = {
   is_draft?: boolean | null;
   start_day?: string | null;
   due_day?: string | null;
+  color?: string | null;
+  visibility?: string | null;
 };
 
 type TaskRow = {
@@ -60,7 +62,10 @@ export type ReplaceRemoteGoalsResult = {
 
 export type AccessibleGoals = {
   owned: Goal[];
+  // Goals I am a member of (I can complete tasks on these).
   shared: Goal[];
+  // Friends' public goals I am NOT a member of: read-only, follow + nudge.
+  friendsPublic: Goal[];
 };
 
 // ponytail: .in() id lists ride the request URL; 150 ids ≈ 6KB keeps every
@@ -253,6 +258,8 @@ const buildGoals = (
       isDraft: goal.is_draft ? true : undefined,
       startDay: goal.start_day ?? undefined,
       dueDay: goal.due_day ?? undefined,
+      color: goal.color ?? undefined,
+      isPublic: goal.visibility === "public" ? true : undefined,
       ownerUserId: goal.owner_user_id,
       members,
       tasks: buildTasks(
@@ -312,7 +319,7 @@ export const fetchAccessibleGoals = async (
   const { data: goalRows, error: goalsError } = await supabase
     .from("goals")
     .select(
-      "id, owner_user_id, title, target, position, created_at, completed_at, is_draft, start_day, due_day",
+      "id, owner_user_id, title, target, position, created_at, completed_at, is_draft, start_day, due_day, color, visibility",
     )
     .order("created_at", { ascending: true });
 
@@ -323,7 +330,7 @@ export const fetchAccessibleGoals = async (
   const typedGoalRows = (goalRows ?? []) as GoalRow[];
 
   if (typedGoalRows.length === 0) {
-    return { owned: [], shared: [] };
+    return { owned: [], shared: [], friendsPublic: [] };
   }
 
   const goalIds = typedGoalRows.map((goal) => goal.id);
@@ -402,9 +409,22 @@ export const fetchAccessibleGoals = async (
     typedProfileRows,
   );
 
+  const myMembershipGoalIds = new Set(
+    typedMembershipRows
+      .filter((membership) => membership.user_id === user.id)
+      .map((membership) => membership.goal_id),
+  );
+
   return {
     owned: allGoals.filter((goal) => goal.ownerUserId === user.id),
-    shared: allGoals.filter((goal) => goal.ownerUserId !== user.id),
+    shared: allGoals.filter(
+      (goal) =>
+        goal.ownerUserId !== user.id && myMembershipGoalIds.has(goal.id),
+    ),
+    friendsPublic: allGoals.filter(
+      (goal) =>
+        goal.ownerUserId !== user.id && !myMembershipGoalIds.has(goal.id),
+    ),
   };
 };
 
@@ -474,6 +494,8 @@ export const replaceRemoteGoalsForUser = async (
     is_draft: goal.isDraft ?? false,
     start_day: goal.startDay ?? null,
     due_day: goal.dueDay ?? null,
+    color: goal.color ?? null,
+    visibility: goal.isPublic ? "public" : "private",
   }));
 
   const taskPayload = goals.flatMap((goal) =>

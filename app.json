@@ -16,7 +16,8 @@
       "bundleIdentifier": "com.adamlincodesexpo.ontrack",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
@@ -43,7 +44,9 @@
           "photosPermission": "OnTrack uses your photo library to set your profile photo."
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      "expo-web-browser",
+      "expo-apple-authentication"
     ]
   }
 }

@@ -20,6 +20,8 @@ import TodayScreen from "./components/TodayScreen";
 import GoalsScreen from "./components/GoalsScreen";
 import ProfileScreen from "./components/ProfileScreen";
 import FriendScreen from "./components/FriendScreen";
+import GoalMembersScreen from "./components/GoalMembersScreen";
+import FindPeopleScreen from "./components/FindPeopleScreen";
 import GoalScreen from "./components/GoalScreen";
 import NewGoalScreen from "./components/NewGoalScreen";
 import PrivacyScreen from "./components/PrivacyScreen";
@@ -38,9 +40,13 @@ import {
   AuthMode,
   exchangeAuthCodeForSession,
   ensureProfileForUser,
+  isAppleSignInAvailable,
+  signInWithApple,
+  signInWithGoogle,
+  SsoCancelledError,
+  SsoProvider,
   getPersistedSession,
   requestPasswordReset,
-  resendSignupVerification,
   signInWithEmail,
   signOut,
   signUpWithEmail,
@@ -127,6 +133,7 @@ function ThemedNavigation() {
   const setAccount = useStore((s) => s.setAccount);
   const setGoals = useStore((s) => s.setGoals);
   const setSharedGoals = useStore((s) => s.setSharedGoals);
+  const setFriendGoals = useStore((s) => s.setFriendGoals);
   const setSocialGraph = useStore((s) => s.setSocialGraph);
   const claimLocalData = useStore((s) => s.claimLocalData);
   const cloudSyncEnabled = useStore((s) => s.cloudSyncEnabled);
@@ -139,14 +146,17 @@ function ThemedNavigation() {
   const [hasCheckedSession, setHasCheckedSession] = React.useState(false);
   const [session, setSession] = React.useState<Session | null>(null);
   const [authMode, setAuthMode] = React.useState<AuthMode>("sign-up");
+  const [appleAvailable, setAppleAvailable] = React.useState(false);
+
+  React.useEffect(() => {
+    void isAppleSignInAvailable().then(setAppleAvailable);
+  }, []);
   const [authErrorMessage, setAuthErrorMessage] = React.useState<string | null>(
     null,
   );
   const [authInfoMessage, setAuthInfoMessage] = React.useState<string | null>(
     null,
   );
-  const [pendingVerificationEmail, setPendingVerificationEmail] =
-    React.useState<string | null>(null);
   const [isSubmittingAuth, setIsSubmittingAuth] = React.useState(false);
   const [showPasswordUpdate, setShowPasswordUpdate] = React.useState(false);
   const [passwordUpdateErrorMessage, setPasswordUpdateErrorMessage] =
@@ -236,7 +246,10 @@ function ThemedNavigation() {
         }
       }
 
-      const { owned, shared } = await fetchAccessibleGoals(user);
+      const { owned, shared, friendsPublic } = await fetchAccessibleGoals(user);
+      // Friends' public goals are never written from this device, so they
+      // can always be replaced regardless of the dirty check below.
+      setFriendGoals(friendsPublic);
       const s = useStore.getState();
       // Replace nothing while something is still unsynced (invariants 3-4);
       // a failed flush keeps local state and retries on the next foreground.
@@ -265,6 +278,7 @@ function ThemedNavigation() {
       flushSerialized,
       markGoalsSynced,
       setCloudSyncEnabled,
+      setFriendGoals,
       setGoals,
       setSharedGoals,
     ],
@@ -427,7 +441,6 @@ function ThemedNavigation() {
           refreshSocialGraph(nextSession.user.id);
 
           setAuthErrorMessage(null);
-          setPendingVerificationEmail(null);
           setAuthMode("sign-in");
         })
         .catch((error) => {
@@ -462,9 +475,10 @@ function ThemedNavigation() {
       return;
     }
 
+    // ontrack://auth/callback in builds; exp://host/--/auth/callback in
+    // Expo Go. Anything else is not ours.
     if (
-      parsedUrl.hostname !== "auth" ||
-      !parsedUrl.pathname.includes("callback")
+      !`${parsedUrl.hostname}${parsedUrl.pathname}`.includes("auth/callback")
     ) {
       return;
     }
@@ -490,7 +504,6 @@ function ThemedNavigation() {
 
       setAuthMode("sign-in");
       setAuthInfoMessage("Your email is verified. You can sign in now.");
-      setPendingVerificationEmail(null);
     } catch (error) {
       const message =
         error instanceof Error
@@ -578,37 +591,19 @@ function ThemedNavigation() {
   );
 
   const handleAuthSubmit = React.useCallback(
-    async ({
-      displayName,
-      username,
-      email,
-      password,
-    }: {
-      displayName: string;
-      username: string;
-      email: string;
-      password: string;
-    }) => {
+    async ({ email, password }: { email: string; password: string }) => {
       setIsSubmittingAuth(true);
       setAuthErrorMessage(null);
       setAuthInfoMessage(null);
 
       try {
         if (authMode === "sign-up") {
-          const result = await signUpWithEmail({
-            displayName,
-            username,
-            email,
-            password,
-          });
+          const result = await signUpWithEmail({ email, password });
 
-          setPendingVerificationEmail(email.trim().toLowerCase());
-          setAuthMode("sign-in");
-          setAuthInfoMessage(
-            result.session
-              ? "Your account was created and you are signed in."
-              : "Your account was created. Check your inbox, verify your email, then sign in.",
-          );
+          if (!result.session) {
+            setAuthMode("sign-in");
+            setAuthInfoMessage("Check your inbox to confirm, then sign in.");
+          }
           return;
         }
 
@@ -618,7 +613,7 @@ function ThemedNavigation() {
         const message =
           error instanceof Error
             ? error.message
-            : "Something went wrong while contacting Supabase.";
+            : "Something went wrong. Try again.";
         setAuthErrorMessage(message);
       } finally {
         setIsSubmittingAuth(false);
@@ -627,19 +622,24 @@ function ThemedNavigation() {
     [authMode],
   );
 
-  const handleResendVerification = React.useCallback(async (email: string) => {
+  const handleSso = React.useCallback(async (provider: SsoProvider) => {
     setIsSubmittingAuth(true);
     setAuthErrorMessage(null);
+    setAuthInfoMessage(null);
 
     try {
-      await resendSignupVerification(email);
-      setAuthInfoMessage(`We sent another verification email to ${email}.`);
+      if (provider === "apple") {
+        await signInWithApple();
+      } else {
+        await signInWithGoogle();
+      }
     } catch (error) {
-      const message =
+      if (error instanceof SsoCancelledError) return;
+      setAuthErrorMessage(
         error instanceof Error
           ? error.message
-          : "We could not resend the verification email.";
-      setAuthErrorMessage(message);
+          : "Something went wrong. Try again.",
+      );
     } finally {
       setIsSubmittingAuth(false);
     }
@@ -727,18 +727,17 @@ function ThemedNavigation() {
       <>
         <AuthScreen
           mode={authMode}
-          pendingVerificationEmail={pendingVerificationEmail}
-          hasExistingData={goals.length > 0}
           isSubmitting={isSubmittingAuth}
           errorMessage={authErrorMessage}
           infoMessage={authInfoMessage}
+          appleAvailable={appleAvailable}
           onModeChange={(mode) => {
             setAuthMode(mode);
             setAuthErrorMessage(null);
             setAuthInfoMessage(null);
           }}
           onSubmit={handleAuthSubmit}
-          onResendVerification={handleResendVerification}
+          onSso={handleSso}
           onPasswordResetRequest={handlePasswordResetRequest}
         />
         <StatusBar style={isDark ? "light" : "dark"} />
@@ -810,6 +809,16 @@ function ThemedNavigation() {
           name="Friend"
           component={FriendScreen}
           options={{ title: "Friend" }}
+        />
+        <Stack.Screen
+          name="GoalMembers"
+          component={GoalMembersScreen}
+          options={{ title: "Doing this together" }}
+        />
+        <Stack.Screen
+          name="FindPeople"
+          component={FindPeopleScreen}
+          options={{ title: "Find people" }}
         />
         <Stack.Screen
           name="Instructions"

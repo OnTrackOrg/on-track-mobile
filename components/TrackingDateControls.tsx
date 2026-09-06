@@ -13,7 +13,11 @@ import { card, circleButton } from "./ui";
 import CalendarModal from "./CalendarModal";
 
 type TrackingDateControlsProps = {
-  hasCompletions: boolean;
+  hasCompletions?: boolean;
+  // Controlled mode: drive a screen-local date instead of the store's
+  // selectedDate (the friend page steps through days without moving Today).
+  value?: Date;
+  onChange?: (date: Date) => void;
 };
 
 // Compact date control from the turn-3 mockups: ‹ [📅 Jul 5] ›.
@@ -21,11 +25,13 @@ type TrackingDateControlsProps = {
 export default function TrackingDateControls(
   // hasCompletions is kept in the signature so callers don't churn; the pill
   // itself no longer varies by it since day-freezing was removed.
-  _props: TrackingDateControlsProps,
+  { value, onChange }: TrackingDateControlsProps,
 ) {
   const { theme, isDark } = useTheme();
-  const selectedDate = useStore((s) => s.selectedDate);
-  const setSelectedDate = useStore((s) => s.setSelectedDate);
+  const storeDate = useStore((s) => s.selectedDate);
+  const setStoreDate = useStore((s) => s.setSelectedDate);
+  const selectedDate = value ?? storeDate;
+  const setSelectedDate = onChange ?? setStoreDate;
   const [calendarVisible, setCalendarVisible] = React.useState(false);
 
   const viewingToday = isToday(selectedDate);

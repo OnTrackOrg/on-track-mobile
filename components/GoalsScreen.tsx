@@ -15,7 +15,7 @@ import {
 } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
-import { goalColor } from "../utils/goalColors";
+import { getGoalColor } from "../utils/goalColors";
 import { mix, withAlpha } from "../utils/color";
 import { shouldPlayEntrance } from "../utils/entrance";
 import { Goal } from "../types";
@@ -102,7 +102,7 @@ export default function GoalsScreen() {
 
   const renderGoalCard = (goal: Goal, index: number) => {
     const progress = getGoalProgress(goal, today);
-    const color = goalColor(goal.id);
+    const color = getGoalColor(goal);
     const maxStreak = goal.tasks.reduce(
       (best, task) => Math.max(best, getGoalStreak(task)),
       0,
@@ -234,7 +234,7 @@ export default function GoalsScreen() {
 
   // Draft cards: dashed outline, no progress chrome, a Start action.
   const renderDraftCard = (goal: Goal) => {
-    const color = goalColor(goal.id);
+    const color = getGoalColor(goal);
     const isOwned = goals.some((g) => g.id === goal.id);
     return (
       <Pressable
@@ -327,7 +327,7 @@ export default function GoalsScreen() {
 
   // Scheduled cards: start-date badge; owners can tap it to reschedule.
   const renderScheduledCard = (goal: Goal) => {
-    const color = goalColor(goal.id);
+    const color = getGoalColor(goal);
     const isOwned = goals.some((g) => g.id === goal.id);
     const startDate = getGoalStartDate(goal);
     const daysUntil = differenceInCalendarDays(startDate, today);

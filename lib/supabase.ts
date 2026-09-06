@@ -51,5 +51,8 @@ export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+    // PKCE so every redirect (email links, Google OAuth via the system
+    // browser) lands with a ?code= we exchange in handleAuthCallbackUrl.
+    flowType: "pkce",
   },
 });

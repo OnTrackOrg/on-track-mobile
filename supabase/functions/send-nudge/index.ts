@@ -6,6 +6,10 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+// One nudge per sender + recipient + goal per hour, enforced against the
+// nudges log so it holds across devices and app restarts.
+const NUDGE_WINDOW_MS = 60 * 60 * 1000;
+
 const json = (body: Record<string, unknown>, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -45,11 +49,7 @@ Deno.serve(async (request) => {
     return json({ error: "Invalid or expired session" }, 401);
   }
 
-  let payload: {
-    recipientUserId?: unknown;
-    goalId?: unknown;
-    message?: unknown;
-  };
+  let payload: { recipientUserId?: unknown; goalId?: unknown };
   try {
     payload = await request.json();
   } catch {
@@ -58,13 +58,8 @@ Deno.serve(async (request) => {
   if (!isUuid(payload.recipientUserId) || !isUuid(payload.goalId)) {
     return json({ error: "A valid recipient and goal are required" }, 400);
   }
-  // Optional supportive message chosen by the sender; kept short so the
-  // push body stays readable.
-  const message =
-    typeof payload.message === "string"
-      ? payload.message.trim().slice(0, 200)
-      : "";
-  if (payload.recipientUserId === user.id) {
+  const recipientUserId = payload.recipientUserId;
+  if (recipientUserId === user.id) {
     return json({ error: "You cannot nudge yourself" }, 400);
   }
 
@@ -74,7 +69,7 @@ Deno.serve(async (request) => {
     .select("id")
     .eq("status", "accepted")
     .or(
-      `and(requester_user_id.eq.${user.id},addressee_user_id.eq.${payload.recipientUserId}),and(requester_user_id.eq.${payload.recipientUserId},addressee_user_id.eq.${user.id})`,
+      `and(requester_user_id.eq.${user.id},addressee_user_id.eq.${recipientUserId}),and(requester_user_id.eq.${recipientUserId},addressee_user_id.eq.${user.id})`,
     )
     .limit(1);
   if (friendshipError) return json({ error: "Could not verify friendship" }, 500);
@@ -84,7 +79,7 @@ Deno.serve(async (request) => {
 
   const { data: goal, error: goalError } = await adminClient
     .from("goals")
-    .select("id, title, owner_user_id, completed_at")
+    .select("id, title, owner_user_id, completed_at, visibility")
     .eq("id", payload.goalId)
     .maybeSingle();
   if (goalError) return json({ error: "Could not verify the goal" }, 500);
@@ -97,19 +92,58 @@ Deno.serve(async (request) => {
     .from("goal_memberships")
     .select("user_id")
     .eq("goal_id", goal.id)
-    .in("user_id", [user.id, payload.recipientUserId]);
+    .in("user_id", [user.id, recipientUserId]);
   if (membershipError) {
     return json({ error: "Could not verify goal membership" }, 500);
   }
   const participantIds = new Set([
-    goal.owner_user_id,
+    goal.owner_user_id as string,
     ...(memberships ?? []).map((membership) => membership.user_id as string),
   ]);
-  if (
-    !participantIds.has(user.id) ||
-    !participantIds.has(payload.recipientUserId)
-  ) {
-    return json({ error: "You can only nudge a friend on a shared goal" }, 403);
+  if (!participantIds.has(recipientUserId)) {
+    return json({ error: "Your friend isn't part of this goal" }, 403);
+  }
+
+  // Members can always nudge each other. Anyone else needs the goal to be
+  // public and to be friends with its owner (the same rule that lets them
+  // see it).
+  if (!participantIds.has(user.id)) {
+    let allowed = goal.visibility === "public";
+    if (allowed && goal.owner_user_id !== recipientUserId) {
+      const { data: friendsWithOwner, error: ownerFriendError } =
+        await adminClient.rpc("are_users_friends", {
+          left_user_id: user.id,
+          right_user_id: goal.owner_user_id,
+        });
+      if (ownerFriendError) {
+        return json({ error: "Could not verify goal access" }, 500);
+      }
+      allowed = friendsWithOwner === true;
+    }
+    if (!allowed) {
+      return json({ error: "You can't see this goal" }, 403);
+    }
+  }
+
+  const windowStart = new Date(Date.now() - NUDGE_WINDOW_MS);
+  const { data: recentNudges, error: recentError } = await adminClient
+    .from("nudges")
+    .select("created_at")
+    .eq("sender_user_id", user.id)
+    .eq("recipient_user_id", recipientUserId)
+    .eq("goal_id", goal.id)
+    .gte("created_at", windowStart.toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (recentError) return json({ error: "Could not check recent nudges" }, 500);
+  const lastNudge = recentNudges?.[0]?.created_at as string | undefined;
+  if (lastNudge) {
+    const elapsed = Date.now() - new Date(lastNudge).getTime();
+    const retryAfterMinutes = Math.max(
+      1,
+      Math.ceil((NUDGE_WINDOW_MS - elapsed) / 60_000),
+    );
+    return json({ error: "Nudged recently", retryAfterMinutes }, 429);
   }
 
   const { data: sender, error: senderError } = await adminClient
@@ -123,11 +157,11 @@ Deno.serve(async (request) => {
   const { data: tokens, error: tokensError } = await adminClient
     .from("push_tokens")
     .select("token")
-    .eq("user_id", payload.recipientUserId)
+    .eq("user_id", recipientUserId)
     .limit(100);
   if (tokensError) return json({ error: "Could not find a device" }, 500);
   if (!tokens?.length) {
-    return json({ error: "This friend has not enabled push notifications yet" }, 409);
+    return json({ error: "This friend hasn't turned on notifications yet" }, 409);
   }
 
   const expoResponse = await fetch("https://exp.host/--/api/v2/push/send", {
@@ -141,10 +175,8 @@ Deno.serve(async (request) => {
       tokens.map(({ token }) => ({
         to: token,
         sound: "default",
-        title: `${senderName} sent a nudge`,
-        body: message
-          ? `"${message}" — about ${goal.title}.`
-          : `${senderName} is nudging you to do ${goal.title}.`,
+        title: `${senderName} nudged you`,
+        body: goal.title,
         data: {
           goalId: goal.id,
           senderUserId: user.id,
@@ -165,6 +197,13 @@ Deno.serve(async (request) => {
   if (!delivered) {
     return json({ error: "Could not deliver the nudge" }, 502);
   }
+
+  // Log after delivery so a failed send never burns the hourly slot.
+  await adminClient.from("nudges").insert({
+    sender_user_id: user.id,
+    recipient_user_id: recipientUserId,
+    goal_id: goal.id,
+  });
 
   return json({ delivered });
 });

@@ -1,218 +1,133 @@
 import React from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../contexts/ThemeContext";
-import {
-  getNudgeCandidates,
-  NudgeCandidate,
-  wasRecentlyNudged,
-} from "../lib/nudges";
+import { getNudgeCandidates } from "../lib/nudges";
 import { RootStackParamList } from "../navigation";
+import { startOfDay } from "date-fns";
 import { useStore } from "../store";
-import { haptics } from "../utils/haptics";
-import { withAlpha } from "../utils/color";
 import Avatar from "./Avatar";
-import NudgeModal from "./NudgeModal";
-import { card } from "./ui";
+import FriendGoalCard from "./FriendGoalCard";
+import TrackingDateControls from "./TrackingDateControls";
 
 type FriendScreenProps = NativeStackScreenProps<RootStackParamList, "Friend">;
 
-const percentage = (value: number) => `${Math.round(value * 100)}%`;
-
+/**
+ * A friend's page mirrors what they see on their own goals: every goal you
+ * share plus their public goals, each with their tasks for the chosen day
+ * and their full heatmap. The date stepper here is screen-local so browsing
+ * their yesterday never moves your Today tab.
+ */
 export default function FriendScreen({ route }: FriendScreenProps) {
   const { friend } = route.params;
   const goals = useStore((s) => s.goals);
   const sharedGoals = useStore((s) => s.sharedGoals);
-  const { theme, isDark } = useTheme();
-  // Candidate whose NudgeModal is open (issue #165).
-  const [nudging, setNudging] = React.useState<NudgeCandidate | null>(null);
-
-  const candidates = React.useMemo(
-    () => getNudgeCandidates([...goals, ...sharedGoals], friend.userId),
-    [friend.userId, goals, sharedGoals],
+  const friendGoals = useStore((s) => s.friendGoals);
+  const account = useStore((s) => s.account);
+  const { theme } = useTheme();
+  const [selectedDate, setSelectedDate] = React.useState(() =>
+    startOfDay(new Date()),
   );
 
-  const panel = { ...card(theme, isDark), padding: 16 };
+  const candidates = React.useMemo(
+    () =>
+      getNudgeCandidates(
+        [...goals, ...sharedGoals, ...friendGoals],
+        friend.userId,
+        new Date(),
+        account?.id,
+      ),
+    [account?.id, friend.userId, friendGoals, goals, sharedGoals],
+  );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: theme.background }}
+      edges={["bottom", "left", "right"]}
+    >
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 32, gap: 12 }}
         style={{ flex: 1 }}
+        showsVerticalScrollIndicator={false}
       >
-        <View style={{ alignItems: "center", marginTop: 8 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            marginBottom: 4,
+          }}
+        >
           <Avatar
             userId={friend.userId}
             displayName={friend.displayName}
             avatarUri={friend.avatarUri}
             size="lg"
           />
-          <Text
+          <View style={{ flex: 1 }}>
+            <Text
+              style={{ color: theme.text, fontSize: 22, fontWeight: "800" }}
+            >
+              {friend.displayName}
+            </Text>
+            {friend.username ? (
+              <Text style={{ color: theme.textSecondary, marginTop: 2 }}>
+                @{friend.username}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+
+        {candidates.length > 0 ? (
+          <>
+            <TrackingDateControls
+              value={selectedDate}
+              onChange={(date) => setSelectedDate(startOfDay(date))}
+            />
+            {candidates.map((candidate) => (
+              <FriendGoalCard
+                key={candidate.goal.id}
+                goal={candidate.goal}
+                friendUserId={friend.userId}
+                friendName={friend.displayName}
+                selectedDate={selectedDate}
+                adherence={candidate.adherence}
+                isPublicOnly={candidate.isPublicOnly}
+              />
+            ))}
+          </>
+        ) : (
+          <View
             style={{
-              color: theme.text,
-              fontSize: 24,
-              fontWeight: "800",
-              marginTop: 12,
+              alignItems: "center",
+              paddingHorizontal: 16,
+              paddingVertical: 40,
+              gap: 8,
             }}
           >
-            {friend.displayName}
-          </Text>
-          {friend.username ? (
-            <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
-              @{friend.username}
-            </Text>
-          ) : null}
-        </View>
-
-        <View style={{ ...panel, marginTop: 24 }}>
-          <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
             <Ionicons
-              name="megaphone-outline"
-              size={22}
-              color={theme.primary}
+              name="eye-off-outline"
+              size={28}
+              color={theme.textSecondary}
             />
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: theme.text, fontWeight: "800" }}>
-                Nudge {friend.displayName}
-              </Text>
-              <Text
-                style={{
-                  color: theme.textSecondary,
-                  lineHeight: 20,
-                  marginTop: 4,
-                }}
-              >
-                Send some encouragement on any goal you share.
-              </Text>
-            </View>
-          </View>
-
-          {candidates.length > 0 ? (
-            <View style={{ gap: 10, marginTop: 16 }}>
-              {candidates.map((candidate) => {
-                const nudgedRecently = wasRecentlyNudged(
-                  friend.userId,
-                  candidate.goal.id,
-                );
-                return (
-                  <View
-                    key={candidate.goal.id}
-                    style={{
-                      borderColor: theme.border,
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      padding: 12,
-                    }}
-                  >
-                    <View
-                      style={{
-                        alignItems: "center",
-                        flexDirection: "row",
-                        gap: 10,
-                      }}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: theme.text, fontWeight: "700" }}>
-                          {candidate.goal.title}
-                        </Text>
-                        <Text
-                          style={{
-                            color: theme.textSecondary,
-                            fontSize: 13,
-                            marginTop: 3,
-                          }}
-                        >
-                          {percentage(candidate.adherence)} recent adherence
-                        </Text>
-                      </View>
-                      <Pressable
-                        accessibilityLabel={`Nudge ${friend.displayName} about ${candidate.goal.title}`}
-                        disabled={nudgedRecently}
-                        onPress={() => {
-                          void haptics.tap();
-                          setNudging(candidate);
-                        }}
-                        style={{
-                          alignItems: "center",
-                          backgroundColor: nudgedRecently
-                            ? withAlpha(theme.success, 0.15)
-                            : theme.primary,
-                          borderRadius: 9999,
-                          flexDirection: "row",
-                          gap: 6,
-                          justifyContent: "center",
-                          minWidth: 100,
-                          paddingHorizontal: 12,
-                          paddingVertical: 9,
-                        }}
-                      >
-                        <Ionicons
-                          name={nudgedRecently ? "checkmark" : "megaphone"}
-                          size={15}
-                          color={nudgedRecently ? theme.success : "#ffffff"}
-                        />
-                        <Text
-                          style={{
-                            color: nudgedRecently ? theme.success : "#ffffff",
-                            fontWeight: "700",
-                          }}
-                        >
-                          {nudgedRecently ? "Nudged" : "Nudge"}
-                        </Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          ) : (
-            <View
+            <Text style={{ color: theme.text, fontWeight: "700" }}>
+              Nothing to see yet
+            </Text>
+            <Text
               style={{
-                alignItems: "center",
-                paddingHorizontal: 8,
-                paddingVertical: 24,
+                color: theme.textSecondary,
+                textAlign: "center",
+                lineHeight: 20,
               }}
             >
-              <Ionicons
-                name="people-outline"
-                size={30}
-                color={theme.textSecondary}
-              />
-              <Text
-                style={{
-                  color: theme.text,
-                  fontWeight: "700",
-                  marginTop: 8,
-                }}
-              >
-                No shared goals yet
-              </Text>
-              <Text
-                style={{
-                  color: theme.textSecondary,
-                  lineHeight: 20,
-                  marginTop: 4,
-                  textAlign: "center",
-                }}
-              >
-                Invite {friend.displayName} to one of your goals and you can
-                nudge each other from here.
-              </Text>
-            </View>
-          )}
-        </View>
+              Goals you share and {friend.displayName}’s public goals show up
+              here.
+            </Text>
+          </View>
+        )}
       </ScrollView>
-      {nudging ? (
-        <NudgeModal
-          visible
-          recipient={friend}
-          goal={nudging.goal}
-          adherence={nudging.adherence}
-          onClose={() => setNudging(null)}
-        />
-      ) : null}
     </SafeAreaView>
   );
 }
