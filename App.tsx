@@ -63,6 +63,8 @@ import { setAccountDeletedHandler } from "./lib/accountDeleted";
 import { supabase } from "./lib/supabase";
 import { reconcileAvatarWithProfile } from "./lib/avatar";
 import { registerPushTokenForCurrentUser } from "./lib/pushNotifications";
+import { useWidgetSync } from "./lib/widgetSync";
+import { WidgetLink, parseWidgetLink } from "./lib/widgetLinks";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -150,6 +152,31 @@ function ThemedNavigation() {
 
   React.useEffect(() => {
     void isAppleSignInAvailable().then(setAppleAvailable);
+  }, []);
+
+  // Home/lock-screen widgets mirror the store once it has hydrated.
+  useWidgetSync(hasHydratedStore);
+
+  // A widget tap can arrive before the navigator exists (cold start, or
+  // while signed out); it is held until the container reports ready.
+  const pendingWidgetLinkRef = React.useRef<WidgetLink | null>(null);
+  const openWidgetLink = React.useCallback((link: WidgetLink) => {
+    if (!navigationRef.isReady()) {
+      pendingWidgetLinkRef.current = link;
+      return;
+    }
+    pendingWidgetLinkRef.current = null;
+    const { goals: ownGoals, sharedGoals } = useStore.getState();
+    if (
+      link.screen === "goal" &&
+      [...ownGoals, ...sharedGoals].some((goal) => goal.id === link.goalId)
+    ) {
+      navigationRef.navigate("Goal", { goalId: link.goalId });
+      return;
+    }
+    navigationRef.navigate("Tabs", {
+      screen: link.screen === "today" ? "Today" : "Goals",
+    });
   }, []);
   const [authErrorMessage, setAuthErrorMessage] = React.useState<string | null>(
     null,
@@ -514,20 +541,29 @@ function ThemedNavigation() {
   }, []);
 
   React.useEffect(() => {
+    const handleUrl = (url: string) => {
+      const widgetLink = parseWidgetLink(url);
+      if (widgetLink) {
+        openWidgetLink(widgetLink);
+        return;
+      }
+      void handleAuthCallbackUrl(url);
+    };
+
     void Linking.getInitialURL().then((url) => {
       if (url) {
-        void handleAuthCallbackUrl(url);
+        handleUrl(url);
       }
     });
 
     const subscription = Linking.addEventListener("url", ({ url }) => {
-      void handleAuthCallbackUrl(url);
+      handleUrl(url);
     });
 
     return () => {
       subscription.remove();
     };
-  }, [handleAuthCallbackUrl]);
+  }, [handleAuthCallbackUrl, openWidgetLink]);
 
   React.useEffect(() => {
     if (!session?.user || !cloudSyncEnabled) {
@@ -778,7 +814,16 @@ function ThemedNavigation() {
   };
 
   return (
-    <NavigationContainer ref={navigationRef} theme={navTheme}>
+    <NavigationContainer
+      ref={navigationRef}
+      theme={navTheme}
+      onReady={() => {
+        const pending = pendingWidgetLinkRef.current;
+        if (pending) {
+          openWidgetLink(pending);
+        }
+      }}
+    >
       <Stack.Navigator
         screenOptions={{
           headerStyle: {

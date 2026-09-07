@@ -68,7 +68,9 @@ OnTrack/
 ├── contexts/          # ThemeContext
 ├── docs/              # Product and engineering docs
 ├── lib/               # auth, dataSync, social, supabase client, persistence, dateContext
+├── modules/           # Local Expo modules (ontrack-widgets = app-group bridge to the widgets)
 ├── supabase/          # SQL migrations, edge functions, config
+├── targets/           # Native Apple targets (widgets/ = the iOS home & lock-screen widgets, SwiftUI)
 ├── tests/             # Jest tests (plus co-located *.test.ts files)
 ├── utils/             # Small helpers (haptics)
 ├── App.tsx            # Root component: session gating, sync orchestration, navigation
@@ -86,6 +88,7 @@ OnTrack/
 - `docs/account-sync-foundation.md`: auth, session persistence, and the local-data import flow
 - adocs/app-store-submission-checklist.md`: App Review prep
 - `docs/supabase-branching.md`: Supabase environment workflow
+- `docs/widgets.md`: iOS home/lock-screen widgets (data bridge, native target, how to build)
 
 ## Notes
 
