@@ -1,11 +1,17 @@
 import React from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { differenceInCalendarDays, format, subDays } from "date-fns";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
+import {
+  NestableDraggableFlatList,
+  NestableScrollContainer,
+  RenderItemParams,
+  ScaleDecorator,
+} from "react-native-draggable-flatlist";
 import {
   useStore,
   getGoalLifecycleStatus,
@@ -30,8 +36,6 @@ const getDayDate = (dayKey: string): Date => {
   return new Date(year, month - 1, day);
 };
 
-// ponytail: drag-reorder for goals was dropped with the old HomeScreen;
-// ordering survives via the stored goal order (position on flush) only.
 export default function GoalsScreen() {
   const { theme, isDark } = useTheme();
   const navigation =
@@ -39,6 +43,7 @@ export default function GoalsScreen() {
   const goals = useStore((s) => s.goals);
   const sharedGoals = useStore((s) => s.sharedGoals);
   const startGoal = useStore((s) => s.startGoal);
+  const reorderGoals = useStore((s) => s.reorderGoals);
 
   const [achievedOpen, setAchievedOpen] = React.useState(false);
   // Goal whose "start on..." date picker is open.
@@ -100,7 +105,12 @@ export default function GoalsScreen() {
     </View>
   );
 
-  const renderGoalCard = (goal: Goal, index: number) => {
+  const renderGoalCard = (
+    goal: Goal,
+    index: number,
+    drag?: () => void,
+    isActive = false,
+  ) => {
     const progress = getGoalProgress(goal, today);
     const color = getGoalColor(goal);
     const maxStreak = goal.tasks.reduce(
@@ -123,11 +133,22 @@ export default function GoalsScreen() {
           void haptics.navigate();
           navigation.navigate("Goal", { goalId: goal.id });
         }}
+        onLongPress={
+          drag
+            ? () => {
+                void haptics.press();
+                drag();
+              }
+            : undefined
+        }
+        delayLongPress={200}
+        disabled={isActive}
         style={{
           ...card(theme, isDark),
           gap: 12,
           paddingLeft: 18,
           overflow: "hidden",
+          ...(isActive ? { shadowOpacity: 0.18, elevation: 8 } : {}),
         }}
       >
         <View
@@ -211,6 +232,19 @@ export default function GoalsScreen() {
       </Animated.View>
     );
   };
+
+  // Owned active goals: long-press and drag to reorder (persisted as the
+  // stored goal order, which the sync layer flushes as `position`).
+  const renderDraggableGoal = ({
+    item,
+    getIndex,
+    drag,
+    isActive,
+  }: RenderItemParams<Goal>) => (
+    <ScaleDecorator activeScale={1.03}>
+      {renderGoalCard(item, (getIndex() ?? 0) + 1, drag, isActive)}
+    </ScaleDecorator>
+  );
 
   const sectionHeaderStyle = {
     fontWeight: "700" as const,
@@ -399,7 +433,7 @@ export default function GoalsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
-      <ScrollView
+      <NestableScrollContainer
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
@@ -464,7 +498,17 @@ export default function GoalsScreen() {
           </TourAnchor>
         ) : (
           <>
-            {activeOwned.map((goal, index) => renderGoalCard(goal, index + 1))}
+            <NestableDraggableFlatList
+              data={activeOwned}
+              keyExtractor={(goal) => goal.id}
+              renderItem={renderDraggableGoal}
+              onDragEnd={({ data }) => {
+                void haptics.tap();
+                reorderGoals(data.map((goal) => goal.id));
+              }}
+              activationDistance={12}
+              ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+            />
             {activeShared.map((goal, index) =>
               renderGoalCard(goal, activeOwned.length + index + 1),
             )}
@@ -605,7 +649,7 @@ export default function GoalsScreen() {
             ) : null}
           </>
         ) : null}
-      </ScrollView>
+      </NestableScrollContainer>
 
       <DatePickerModal
         visible={startingGoalId !== null}

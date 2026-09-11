@@ -8,5 +8,6 @@ export const STORAGE_KEYS = {
   themePreference: "ontrack-theme",
   accentTheme: "ontrack-accent-theme",
   avatar: "ontrack-avatar",
+  dailyReminder: "ontrack-daily-reminder",
   legacyThemePreference: "theme",
 } as const;

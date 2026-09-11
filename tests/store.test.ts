@@ -1321,3 +1321,26 @@ describe("weekday-pinned schedules (issue #162)", () => {
     expect(canPostponeTask(goal, floating, tuesday)).toBe(true);
   });
 });
+
+describe("reorderGoals", () => {
+  it("applies the dragged order and keeps unlisted goals after it", () => {
+    const mk = (id: string): Goal => ({
+      id,
+      title: id,
+      tasks: [],
+      createdAt: 0,
+    });
+    useStore.setState({ goals: [mk("a"), mk("b"), mk("c"), mk("d")] });
+    const before = useStore.getState().syncRevision;
+
+    useStore.getState().reorderGoals(["c", "a", "missing"]);
+
+    expect(useStore.getState().goals.map((g) => g.id)).toEqual([
+      "c",
+      "a",
+      "b",
+      "d",
+    ]);
+    expect(useStore.getState().syncRevision).toBe(before + 1);
+  });
+});
