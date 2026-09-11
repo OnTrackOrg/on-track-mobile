@@ -25,6 +25,10 @@ import { card } from "./ui";
 import { haptics } from "../utils/haptics";
 import { mix, withAlpha } from "../utils/color";
 import { STORAGE_KEYS } from "../lib/persistence";
+import {
+  isDailyReminderEnabled,
+  setDailyReminderEnabled,
+} from "../lib/reminders";
 import { RootStackParamList, TabParamList } from "../navigation";
 import {
   deleteCurrentAccount,
@@ -84,6 +88,22 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
   // "Copied" feedback for the AI-assistant setup prompt.
   const [copiedMcpPrompt, setCopiedMcpPrompt] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [reminderOn, setReminderOn] = useState(false);
+  React.useEffect(() => {
+    void isDailyReminderEnabled().then(setReminderOn);
+  }, []);
+  const toggleReminder = async (enabled: boolean) => {
+    void haptics.toggle();
+    setReminderOn(enabled);
+    const result = await setDailyReminderEnabled(enabled);
+    setReminderOn(result);
+    if (enabled && !result) {
+      Alert.alert(
+        "Notifications are off",
+        "Allow notifications for OnTrack in Settings to get the daily check-in.",
+      );
+    }
+  };
   // Account card: rename + linked sign-in methods.
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
@@ -1098,6 +1118,60 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                     }}
                     trackColor={{ false: theme.border, true: theme.primary }}
                     thumbColor={isDark ? theme.surface : theme.background}
+                  />
+                </View>
+              </View>
+
+              {/* Reminders: fixed 8 PM end-of-day check-in */}
+              <View style={settingsCardStyle}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 10,
+                      flex: 1,
+                    }}
+                  >
+                    <Ionicons
+                      name={
+                        reminderOn ? "notifications" : "notifications-outline"
+                      }
+                      size={20}
+                      color={reminderOn ? theme.primary : theme.textSecondary}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          color: theme.text,
+                          fontWeight: "600",
+                          fontSize: 16,
+                        }}
+                      >
+                        Daily reminder
+                      </Text>
+                      <Text
+                        style={{
+                          color: theme.textSecondary,
+                          fontSize: 13,
+                          marginTop: 2,
+                        }}
+                      >
+                        8:00 PM nudge to check off today&rsquo;s tasks
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={reminderOn}
+                    onValueChange={(value) => void toggleReminder(value)}
+                    trackColor={{ false: theme.border, true: theme.primary }}
+                    thumbColor={reminderOn ? theme.surface : theme.background}
                   />
                 </View>
               </View>

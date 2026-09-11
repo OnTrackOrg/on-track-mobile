@@ -1098,6 +1098,8 @@ interface State {
     },
   ) => void;
   startGoal: (goalId: string, startDay: string) => void;
+  // Owned goals only; ids not in the list keep their relative order after.
+  reorderGoals: (goalIdsInOrder: string[]) => void;
   setSelectedDate: (date: Date) => void;
   updateGoal: (
     goalId: string,
@@ -1331,6 +1333,13 @@ export const useStore = create<State>()(
             s.syncRevision,
           ),
         })),
+      reorderGoals: (goalIdsInOrder) =>
+        set((s) => {
+          const byId = new Map(s.goals.map((g) => [g.id, g]));
+          const ordered = goalIdsInOrder.flatMap((id) => byId.get(id) ?? []);
+          const rest = s.goals.filter((g) => !goalIdsInOrder.includes(g.id));
+          return buildDirtyGoalState([...ordered, ...rest], s.syncRevision);
+        }),
       /** Take a goal out of draft (or reschedule it) to begin on `startDay`. */
       startGoal: (goalId, startDay) =>
         set((s) => ({
