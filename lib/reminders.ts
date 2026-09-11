@@ -1,11 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
-import { Platform } from "react-native";
 import { STORAGE_KEYS } from "./persistence";
 
-// ponytail: one fixed end-of-day check-in; add a time picker if anyone asks.
-export const REMINDER_HOUR = 20;
-export const REMINDER_MINUTE = 0;
+// ponytail: one fixed 8 PM check-in; add a time picker if anyone asks.
 const REMINDER_ID = "daily-check-in";
 
 Notifications.setNotificationHandler({
@@ -28,7 +25,6 @@ export const isDailyReminderEnabled = async (): Promise<boolean> =>
 export const setDailyReminderEnabled = async (
   enabled: boolean,
 ): Promise<boolean> => {
-  if (Platform.OS === "web") return false;
   if (!enabled) {
     await Notifications.cancelScheduledNotificationAsync(REMINDER_ID);
     await AsyncStorage.setItem(STORAGE_KEYS.dailyReminder, "0");
@@ -51,15 +47,10 @@ export const setDailyReminderEnabled = async (
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DAILY,
-      hour: REMINDER_HOUR,
-      minute: REMINDER_MINUTE,
+      hour: 20,
+      minute: 0,
     },
   });
   await AsyncStorage.setItem(STORAGE_KEYS.dailyReminder, "1");
   return true;
-};
-
-/** Re-arm the reminder on launch (e.g. after a reinstall) if it was on. */
-export const syncDailyReminder = async (): Promise<void> => {
-  if (await isDailyReminderEnabled()) await setDailyReminderEnabled(true);
 };

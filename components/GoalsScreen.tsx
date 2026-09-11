@@ -105,12 +105,7 @@ export default function GoalsScreen() {
     </View>
   );
 
-  const renderGoalCard = (
-    goal: Goal,
-    index: number,
-    drag?: () => void,
-    isActive = false,
-  ) => {
+  const renderGoalCard = (goal: Goal, index: number, drag?: () => void) => {
     const progress = getGoalProgress(goal, today);
     const color = getGoalColor(goal);
     const maxStreak = goal.tasks.reduce(
@@ -142,13 +137,11 @@ export default function GoalsScreen() {
             : undefined
         }
         delayLongPress={200}
-        disabled={isActive}
         style={{
           ...card(theme, isDark),
           gap: 12,
           paddingLeft: 18,
           overflow: "hidden",
-          ...(isActive ? { shadowOpacity: 0.18, elevation: 8 } : {}),
         }}
       >
         <View
@@ -239,10 +232,9 @@ export default function GoalsScreen() {
     item,
     getIndex,
     drag,
-    isActive,
   }: RenderItemParams<Goal>) => (
     <ScaleDecorator activeScale={1.03}>
-      {renderGoalCard(item, (getIndex() ?? 0) + 1, drag, isActive)}
+      {renderGoalCard(item, (getIndex() ?? 0) + 1, drag)}
     </ScaleDecorator>
   );
 

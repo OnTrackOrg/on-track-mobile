@@ -63,7 +63,6 @@ import { setAccountDeletedHandler } from "./lib/accountDeleted";
 import { supabase } from "./lib/supabase";
 import { reconcileAvatarWithProfile } from "./lib/avatar";
 import { registerPushTokenForCurrentUser } from "./lib/pushNotifications";
-import { syncDailyReminder } from "./lib/reminders";
 import { useWidgetSync } from "./lib/widgetSync";
 import { WidgetLink, parseWidgetLink } from "./lib/widgetLinks";
 
@@ -346,10 +345,6 @@ function ThemedNavigation() {
       console.warn("Push notification registration failed", error);
     });
   }, [session]);
-
-  React.useEffect(() => {
-    void syncDailyReminder().catch(() => {});
-  }, []);
 
   React.useEffect(() => {
     if (!session?.user) {
