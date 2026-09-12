@@ -58,6 +58,7 @@ import {
   replaceRemoteGoalsForUser,
 } from "./lib/dataSync";
 import { importLocalDataToCloud, pruneDroppedTaskIds } from "./lib/importLocal";
+import { fetchPersonalOrder, pushPersonalOrder } from "./lib/orderSync";
 import { fetchSocialGraph } from "./lib/social";
 import { setAccountDeletedHandler } from "./lib/accountDeleted";
 import { supabase } from "./lib/supabase";
@@ -143,6 +144,12 @@ function ThemedNavigation() {
   const syncRevision = useStore((s) => s.syncRevision);
   const lastSyncedRevision = useStore((s) => s.lastSyncedRevision);
   const markGoalsSynced = useStore((s) => s.markGoalsSynced);
+  const personalOrderRevision = useStore((s) => s.personalOrderRevision);
+  const personalOrderSyncedRevision = useStore(
+    (s) => s.personalOrderSyncedRevision,
+  );
+  const adoptPersonalOrder = useStore((s) => s.adoptPersonalOrder);
+  const markPersonalOrderSynced = useStore((s) => s.markPersonalOrderSynced);
   const [showAppTour, setShowAppTour] = React.useState(false);
   const [hasHydratedStore, setHasHydratedStore] = React.useState(false);
   const [hasCheckedSession, setHasCheckedSession] = React.useState(false);
@@ -277,6 +284,25 @@ function ThemedNavigation() {
       // Friends' public goals are never written from this device, so they
       // can always be replaced regardless of the dirty check below.
       setFriendGoals(friendsPublic);
+
+      /**
+       * Personal goal/task order: adopt the server copy unless this device
+       * has an unsynced reorder (the flush effect below pushes that first).
+       * Best-effort, so a missing table or a network blip never blocks goals.
+       */
+      const orderState = useStore.getState();
+      if (
+        orderState.personalOrderRevision <= orderState.personalOrderSyncedRevision
+      ) {
+        try {
+          const remoteOrder = await fetchPersonalOrder(user.id);
+          if (remoteOrder) {
+            adoptPersonalOrder(remoteOrder);
+          }
+        } catch (error) {
+          console.error("Failed to fetch personal order", error);
+        }
+      }
       const s = useStore.getState();
       // Replace nothing while something is still unsynced (invariants 3-4);
       // a failed flush keeps local state and retries on the next foreground.
@@ -302,6 +328,7 @@ function ThemedNavigation() {
       }
     },
     [
+      adoptPersonalOrder,
       flushSerialized,
       markGoalsSynced,
       setCloudSyncEnabled,
@@ -310,6 +337,28 @@ function ThemedNavigation() {
       setSharedGoals,
     ],
   );
+
+  // Push a reordered personal order whenever it changes (last write wins).
+  React.useEffect(() => {
+    if (!session?.user) {
+      return;
+    }
+    if (personalOrderRevision <= personalOrderSyncedRevision) {
+      return;
+    }
+    const revisionToSync = personalOrderRevision;
+    const userId = session.user.id;
+    pushPersonalOrder(userId, useStore.getState().personalOrder)
+      .then(() => markPersonalOrderSynced(revisionToSync))
+      .catch((error) => {
+        console.error("Failed to push personal order", error);
+      });
+  }, [
+    markPersonalOrderSynced,
+    personalOrderRevision,
+    personalOrderSyncedRevision,
+    session,
+  ]);
 
   // Best-effort: offline is fine, the persisted cache stays until it works.
   const refreshSocialGraph = React.useCallback(
