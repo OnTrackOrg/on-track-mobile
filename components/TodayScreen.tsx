@@ -278,6 +278,8 @@ export default function TodayScreen({ navigation }: TodayProps) {
   const selectedDate = useStore((s) => s.selectedDate);
   const setSelectedDate = useStore((s) => s.setSelectedDate);
   const postponedTasks = useStore((s) => s.postponedTasks);
+  // Today follows the user's own goal + task order (set on Goals / goal page).
+  const personalOrder = useStore((s) => s.personalOrder);
   const postponeTask = useStore((s) => s.postponeTask);
   const undoPostponeTask = useStore((s) => s.undoPostponeTask);
   const toggleTaskCompletion = useStore((s) => s.toggleTaskCompletion);
@@ -328,8 +330,15 @@ export default function TodayScreen({ navigation }: TodayProps) {
   );
 
   const { todo, done, postponed, totals } = React.useMemo(
-    () => getTodayItems(goals, sharedGoals, selectedDate, postponedTaskIds),
-    [goals, sharedGoals, selectedDate, postponedTaskIds],
+    () =>
+      getTodayItems(
+        goals,
+        sharedGoals,
+        selectedDate,
+        postponedTaskIds,
+        personalOrder,
+      ),
+    [goals, sharedGoals, selectedDate, postponedTaskIds, personalOrder],
   );
   const allDone = totals.total > 0 && totals.done === totals.total;
 

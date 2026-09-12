@@ -1321,3 +1321,92 @@ describe("weekday-pinned schedules (issue #162)", () => {
     expect(canPostponeTask(goal, floating, tuesday)).toBe(true);
   });
 });
+
+describe("personal ordering", () => {
+  const task = (id: string, title: string): Task => ({
+    id,
+    title,
+    frequency: "daily",
+    completions: [],
+  });
+  const goalA: Goal = {
+    id: "goal-a",
+    title: "A",
+    createdAt: 1,
+    tasks: [task("a1", "A one"), task("a2", "A two")],
+  };
+  const goalB: Goal = {
+    id: "goal-b",
+    title: "B",
+    createdAt: 2,
+    tasks: [task("b1", "B one")],
+  };
+  const sharedC: Goal = {
+    id: "goal-c",
+    title: "C",
+    createdAt: 3,
+    tasks: [task("c1", "C one")],
+  };
+  const day = new Date("2026-09-12T12:00:00.000Z");
+
+  it("getTodayItems keeps the default order without a personal order", () => {
+    const { todo } = getTodayItems([goalA, goalB], [sharedC], day);
+    expect(todo.map((item) => item.task.id)).toEqual(["a1", "a2", "b1", "c1"]);
+  });
+
+  it("getTodayItems follows the personal goal and task order", () => {
+    const { todo } = getTodayItems([goalA, goalB], [sharedC], day, undefined, {
+      goals: ["goal-c", "goal-a"],
+      tasks: { "goal-a": ["a2"] },
+    });
+    // Shared goal C first, then A with a2 before a1, then unlisted B last.
+    expect(todo.map((item) => item.task.id)).toEqual(["c1", "a2", "a1", "b1"]);
+    expect(todo[0].isShared).toBe(true);
+  });
+
+  it("reorder actions bump the personal order revision, not the goals one", () => {
+    useStore.setState({
+      personalOrder: { goals: [], tasks: {} },
+      personalOrderRevision: 0,
+      personalOrderSyncedRevision: 0,
+      syncRevision: 5,
+    });
+
+    useStore.getState().reorderGoals(["goal-b", "goal-a"]);
+    useStore.getState().reorderGoalTasks("goal-a", ["a2", "a1"]);
+
+    const state = useStore.getState();
+    expect(state.personalOrder).toEqual({
+      goals: ["goal-b", "goal-a"],
+      tasks: { "goal-a": ["a2", "a1"] },
+    });
+    expect(state.personalOrderRevision).toBe(2);
+    expect(state.syncRevision).toBe(5);
+  });
+
+  it("adopting the server order marks it synced and normalizes it", () => {
+    useStore.setState({
+      personalOrderRevision: 3,
+      personalOrderSyncedRevision: 1,
+    });
+    useStore
+      .getState()
+      .adoptPersonalOrder({ goals: ["goal-a"], tasks: { "goal-a": [] } });
+    const state = useStore.getState();
+    expect(state.personalOrder).toEqual({ goals: ["goal-a"], tasks: {} });
+    expect(state.personalOrderSyncedRevision).toBe(3);
+  });
+
+  it("switching accounts drops the previous user's order", () => {
+    useStore.setState({
+      dataOwnerUserId: "user-1",
+      personalOrder: { goals: ["goal-a"], tasks: {} },
+      personalOrderRevision: 4,
+      personalOrderSyncedRevision: 4,
+    });
+    useStore.getState().claimLocalData("user-2");
+    const state = useStore.getState();
+    expect(state.personalOrder).toEqual({ goals: [], tasks: {} });
+    expect(state.personalOrderRevision).toBe(0);
+  });
+});

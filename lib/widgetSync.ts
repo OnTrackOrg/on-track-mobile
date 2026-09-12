@@ -15,6 +15,7 @@ export const useWidgetSync = (enabled: boolean) => {
   const goals = useStore((s) => s.goals);
   const sharedGoals = useStore((s) => s.sharedGoals);
   const postponedTasks = useStore((s) => s.postponedTasks);
+  const personalOrder = useStore((s) => s.personalOrder);
   const { theme } = useTheme();
   const [foregroundCount, setForegroundCount] = React.useState(0);
 
@@ -35,6 +36,7 @@ export const useWidgetSync = (enabled: boolean) => {
         sharedGoals,
         postponedTasks,
         accent: theme.primary,
+        order: personalOrder,
       }),
     );
   }, [
@@ -42,6 +44,7 @@ export const useWidgetSync = (enabled: boolean) => {
     goals,
     sharedGoals,
     postponedTasks,
+    personalOrder,
     theme.primary,
     foregroundCount,
   ]);
