@@ -39,6 +39,8 @@ import GoalColorPicker from "./GoalColorPicker";
 import PrivacyLock from "./PrivacyLock";
 import { ratioHeatmapValues, taskHeatmapValues } from "../lib/heatmapValues";
 import TaskEditorModal, { TaskEditorValue } from "./TaskEditorModal";
+import SortableList from "./SortableList";
+import { applyOrder } from "../lib/personalOrder";
 import { card } from "./ui";
 import { leaveGoal } from "../lib/social";
 
@@ -62,6 +64,12 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const deleteTask = useStore((s) => s.deleteTask);
   const deleteGoal = useStore((s) => s.deleteGoal);
   const setSharedGoals = useStore((s) => s.setSharedGoals);
+  const personalTaskOrder = useStore((s) =>
+    goal ? s.personalOrder.tasks[goal.id] : undefined,
+  );
+  const reorderGoalTasks = useStore((s) => s.reorderGoalTasks);
+  // A lifted task row owns the touch; the page must not scroll under it.
+  const [dragging, setDragging] = React.useState(false);
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -273,6 +281,8 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     paddingVertical: 8,
   };
 
+  const taskKey = (task: Task) => task.id;
+
   const resetTaskEditor = () => {
     setEditingTaskId(null);
     setIsEditing(false);
@@ -446,6 +456,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!dragging}
       >
         {/* Header row: title + one compact actions entry point. Edit,
             Complete, and Delete/Leave live in the ⋯ menu so the page opens
@@ -1065,7 +1076,15 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             </Text>
           ) : null}
         </View>
-        {goal.tasks.map((item) => {
+        {/* Press and hold a task to reorder it. The order is this user's
+            own (store.personalOrder), never the goal's shared task order. */}
+        <SortableList
+          items={applyOrder(goal.tasks, personalTaskOrder)}
+          keyOf={taskKey}
+          gap={12}
+          onReorder={(ids) => reorderGoalTasks(goal.id, ids)}
+          onDragActiveChange={setDragging}
+          renderItem={(item) => {
           const selected = heatmapTaskId === item.id;
           const canFilter = item.frequency !== "once";
           return (
@@ -1148,7 +1167,8 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
               {renderTaskActionButtons(item)}
             </Pressable>
           );
-        })}
+          }}
+        />
 
         {/* Goal actions menu (⋯): everything rare or destructive lives here
             instead of taking permanent space on the page. */}

@@ -23,6 +23,8 @@ import { RootStackParamList } from "../navigation";
 import DatePickerModal from "./DatePickerModal";
 import ProgressRing from "./ProgressRing";
 import { TourAnchor } from "./tour/TourAnchor";
+import SortableList from "./SortableList";
+import { applyOrder } from "../lib/personalOrder";
 import { card } from "./ui";
 
 const getDayDate = (dayKey: string): Date => {
@@ -30,8 +32,9 @@ const getDayDate = (dayKey: string): Date => {
   return new Date(year, month - 1, day);
 };
 
-// ponytail: drag-reorder for goals was dropped with the old HomeScreen;
-// ordering survives via the stored goal order (position on flush) only.
+// Active goals reorder by press-and-hold (SortableList). The order is the
+// user's own (store.personalOrder): it never touches the shared position
+// columns, so members of a shared goal each keep their own arrangement.
 export default function GoalsScreen() {
   const { theme, isDark } = useTheme();
   const navigation =
@@ -39,8 +42,12 @@ export default function GoalsScreen() {
   const goals = useStore((s) => s.goals);
   const sharedGoals = useStore((s) => s.sharedGoals);
   const startGoal = useStore((s) => s.startGoal);
+  const personalOrder = useStore((s) => s.personalOrder);
+  const reorderGoals = useStore((s) => s.reorderGoals);
 
   const [achievedOpen, setAchievedOpen] = React.useState(false);
+  // A lifted card owns the touch; the page must not scroll under it.
+  const [dragging, setDragging] = React.useState(false);
   // Goal whose "start on..." date picker is open.
   const [startingGoalId, setStartingGoalId] = React.useState<string | null>(
     null,
@@ -63,6 +70,12 @@ export default function GoalsScreen() {
   );
   const achieved = goals.filter((g) => g.completedAt !== undefined);
   const activeShared = sharedGoals.filter((g) => statusOf(g) === "active");
+  // One list, owned then shared by default, in the user's own order.
+  const activeGoals = applyOrder(
+    [...activeOwned, ...activeShared],
+    personalOrder.goals,
+  );
+  const goalKey = (goal: Goal) => goal.id;
 
   // Last-14-days consistency strip in the goal's colour (redesign mockup).
   const renderStrip = (goal: Goal, color: string) => (
@@ -403,6 +416,7 @@ export default function GoalsScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!dragging}
       >
         <View
           style={{
@@ -463,12 +477,14 @@ export default function GoalsScreen() {
             </View>
           </TourAnchor>
         ) : (
-          <>
-            {activeOwned.map((goal, index) => renderGoalCard(goal, index + 1))}
-            {activeShared.map((goal, index) =>
-              renderGoalCard(goal, activeOwned.length + index + 1),
-            )}
-          </>
+          <SortableList
+            items={activeGoals}
+            keyOf={goalKey}
+            gap={12}
+            onReorder={reorderGoals}
+            onDragActiveChange={setDragging}
+            renderItem={(goal, index) => renderGoalCard(goal, index + 1)}
+          />
         )}
 
         {scheduled.length > 0 ? (

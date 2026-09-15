@@ -24,6 +24,13 @@ import {
 import { normalizeAccountDraft } from "./account";
 import { isUuid, makeUuid } from "./lib/ids";
 import { STORAGE_KEYS } from "./lib/persistence";
+import {
+  EMPTY_PERSONAL_ORDER,
+  PersonalOrder,
+  applyOrder,
+  normalizePersonalOrder,
+  orderGoalTasks,
+} from "./lib/personalOrder";
 
 // Date utility functions
 const normalizeDate = (date: Date): Date => startOfDay(date);
@@ -428,6 +435,9 @@ export const getTodayItems = (
   sharedGoals: Goal[],
   date: Date,
   postponedTaskIds?: ReadonlySet<string>,
+  // The user's private order (lib/personalOrder): goals across owned and
+  // shared, and tasks within each goal. Omitted = default order.
+  order?: PersonalOrder,
 ): {
   todo: TodayItem[];
   done: TodayItem[];
@@ -452,8 +462,16 @@ export const getTodayItems = (
       postponed.push({ goal, task, isShared });
   };
 
-  goals.forEach((goal) => collect(goal, false));
-  sharedGoals.forEach((goal) => collect(goal, true));
+  const entries = applyOrder(
+    [
+      ...goals.map((goal) => ({ id: goal.id, goal, isShared: false })),
+      ...sharedGoals.map((goal) => ({ id: goal.id, goal, isShared: true })),
+    ],
+    order?.goals,
+  );
+  entries.forEach(({ goal, isShared }) =>
+    collect(orderGoalTasks(goal, order), isShared),
+  );
 
   return {
     todo,
@@ -1070,6 +1088,16 @@ interface State {
   lastSyncedRevision: number;
   // "Not Today" swipes: taskIds postponed per "yyyy-MM-dd" day key.
   postponedTasks: Record<string, string[]>;
+  // Press-and-hold reordering. Private to this user (never written to the
+  // shared goals/tasks position columns) and synced through user_orderings.
+  personalOrder: PersonalOrder;
+  personalOrderRevision: number;
+  personalOrderSyncedRevision: number;
+  reorderGoals: (orderedGoalIds: string[]) => void;
+  reorderGoalTasks: (goalId: string, orderedTaskIds: string[]) => void;
+  // Server copy wins only when nothing local is unsynced (App.tsx checks).
+  adoptPersonalOrder: (order: PersonalOrder) => void;
+  markPersonalOrderSynced: (revision: number) => void;
   setGoals: (goals: Goal[]) => void;
   setSharedGoals: (sharedGoals: Goal[]) => void;
   setFriendGoals: (friendGoals: Goal[]) => void;
@@ -1223,6 +1251,35 @@ export const useStore = create<State>()(
       syncRevision: 0,
       lastSyncedRevision: 0,
       postponedTasks: {},
+      personalOrder: EMPTY_PERSONAL_ORDER,
+      personalOrderRevision: 0,
+      personalOrderSyncedRevision: 0,
+
+      reorderGoals: (orderedGoalIds) =>
+        set((s) => ({
+          personalOrder: { ...s.personalOrder, goals: orderedGoalIds },
+          personalOrderRevision: s.personalOrderRevision + 1,
+        })),
+      reorderGoalTasks: (goalId, orderedTaskIds) =>
+        set((s) => ({
+          personalOrder: {
+            ...s.personalOrder,
+            tasks: { ...s.personalOrder.tasks, [goalId]: orderedTaskIds },
+          },
+          personalOrderRevision: s.personalOrderRevision + 1,
+        })),
+      adoptPersonalOrder: (order) =>
+        set((s) => ({
+          personalOrder: normalizePersonalOrder(order),
+          personalOrderSyncedRevision: s.personalOrderRevision,
+        })),
+      markPersonalOrderSynced: (revision) =>
+        set((s) => ({
+          personalOrderSyncedRevision: Math.max(
+            s.personalOrderSyncedRevision,
+            revision,
+          ),
+        })),
 
       /**
        * This setter is the bridge between remote reads and the existing
@@ -1268,6 +1325,9 @@ export const useStore = create<State>()(
                 postponedTasks: {},
                 syncRevision: 0,
                 lastSyncedRevision: 0,
+                personalOrder: EMPTY_PERSONAL_ORDER,
+                personalOrderRevision: 0,
+                personalOrderSyncedRevision: 0,
               },
         ),
 
@@ -1567,6 +1627,8 @@ export const useStore = create<State>()(
           account: s.account,
           postponedTasks: {},
           syncRevision: s.syncRevision + 1,
+          personalOrder: EMPTY_PERSONAL_ORDER,
+          personalOrderRevision: s.personalOrderRevision + 1,
         }));
       },
       createAccount: (displayName, username, email) => {
@@ -1632,6 +1694,14 @@ export const useStore = create<State>()(
             );
           } else if (state) {
             state.friendGoals = [];
+          }
+
+          if (state) {
+            // Builds before personal ordering persisted nothing here.
+            state.personalOrder = normalizePersonalOrder(state.personalOrder);
+            state.personalOrderRevision = state.personalOrderRevision ?? 0;
+            state.personalOrderSyncedRevision =
+              state.personalOrderSyncedRevision ?? 0;
           }
 
           if (state?.selectedDate) {
