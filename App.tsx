@@ -43,9 +43,7 @@ import {
   ensureProfileForUser,
   isAppleSignInAvailable,
   signInWithApple,
-  signInWithGoogle,
   SsoCancelledError,
-  SsoProvider,
   getPersistedSession,
   requestPasswordReset,
   signInWithEmail,
@@ -65,6 +63,7 @@ import { setAccountDeletedHandler } from "./lib/accountDeleted";
 import { supabase } from "./lib/supabase";
 import { reconcileAvatarWithProfile } from "./lib/avatar";
 import { registerPushTokenForCurrentUser } from "./lib/pushNotifications";
+import { initTaskReminders } from "./lib/taskReminders";
 import { useWidgetSync } from "./lib/widgetSync";
 import { WidgetLink, parseWidgetLink } from "./lib/widgetLinks";
 
@@ -414,6 +413,9 @@ function ThemedNavigation() {
     setAccountDeletedHandler(() => setShowAccountDeletedScreen(true));
     return () => setAccountDeletedHandler(null);
   }, []);
+
+  // Task reminders are local, so they work signed in or not.
+  React.useEffect(() => initTaskReminders(), []);
 
   // Avatars are shared via profiles.avatar_uri; reconcile the device photo
   // with the profile once per sign-in (upload local-only, adopt remote-only).
@@ -817,17 +819,13 @@ function ThemedNavigation() {
     [authMode],
   );
 
-  const handleSso = React.useCallback(async (provider: SsoProvider) => {
+  const handleAppleSignIn = React.useCallback(async () => {
     setIsSubmittingAuth(true);
     setAuthErrorMessage(null);
     setAuthInfoMessage(null);
 
     try {
-      if (provider === "apple") {
-        await signInWithApple();
-      } else {
-        await signInWithGoogle();
-      }
+      await signInWithApple();
     } catch (error) {
       if (error instanceof SsoCancelledError) return;
       setAuthErrorMessage(
@@ -932,7 +930,7 @@ function ThemedNavigation() {
             setAuthInfoMessage(null);
           }}
           onSubmit={handleAuthSubmit}
-          onSso={handleSso}
+          onAppleSignIn={handleAppleSignIn}
           onPasswordResetRequest={handlePasswordResetRequest}
         />
         <StatusBar style={isDark ? "light" : "dark"} />

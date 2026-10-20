@@ -1,5 +1,6 @@
 import { User } from "@supabase/supabase-js";
-import { Goal, GoalMember, Task } from "../types";
+import { Goal, GoalMember, Task, TaskTime } from "../types";
+import { normalizeTaskTiming } from "../store";
 import { makeUuid } from "./ids";
 import { supabase } from "./supabase";
 
@@ -26,6 +27,10 @@ type TaskRow = {
   custom_type?: "weekly" | "monthly" | null;
   custom_target?: number | null;
   custom_weekdays?: number[] | null;
+  times_per_day?: number | null;
+  times?: TaskTime[] | null;
+  reminder_lead_min?: number | null;
+  once_day?: string | null;
   position?: number | null;
   created_at?: string | null;
 };
@@ -187,6 +192,12 @@ const buildTasks = (
                 : undefined,
           }
         : undefined,
+    ...normalizeTaskTiming(task.frequency, {
+      timesPerDay: task.times_per_day ?? undefined,
+      times: task.times ?? undefined,
+      reminderLeadMin: task.reminder_lead_min ?? undefined,
+      onDay: task.once_day ?? undefined,
+    }),
     completions: myCompletionsByTaskId.get(task.id) ?? [],
     // Every other member gets an entry (even when empty) so goalAsSeenBy can
     // distinguish "member with no completions" from "the current user".
@@ -278,33 +289,48 @@ type CompletionInsertRow = {
   completed_by_user_id: string;
   completed_at: string;
   completed_day: string;
+  occurrence: number;
 };
 
-// One row per (task, day); local toggles can transiently hold duplicates.
+/** The schedule columns of a tasks row, shared by every task upsert. */
+export const taskScheduleColumns = (task: Task) => ({
+  frequency: task.frequency,
+  custom_type: task.customFrequency?.type ?? null,
+  custom_target: task.customFrequency?.target ?? null,
+  custom_weekdays: task.customFrequency?.weekdays ?? null,
+  times_per_day: task.timesPerDay ?? 1,
+  times: task.times ?? null,
+  reminder_lead_min: task.reminderLeadMin ?? 0,
+  once_day: task.onDay ?? null,
+});
+
+// One row per logged dose: (task, day, occurrence), occurrences numbered
+// from 0 within each day.
 const buildCompletionPayload = (
   tasks: Task[],
   userId: string,
 ): CompletionInsertRow[] => {
-  const byTaskAndDay = new Map<string, CompletionInsertRow>();
+  const rows: CompletionInsertRow[] = [];
+  const dosesByTaskAndDay = new Map<string, number>();
 
   for (const task of tasks) {
     for (const completion of task.completions) {
       const completedDay = toCompletedDay(completion);
       const completionKey = `${task.id}:${completedDay}`;
-
-      if (!byTaskAndDay.has(completionKey)) {
-        byTaskAndDay.set(completionKey, {
-          id: makeUuid(),
-          task_id: task.id,
-          completed_by_user_id: userId,
-          completed_at: toCompletedAt(completion),
-          completed_day: completedDay,
-        });
-      }
+      const occurrence = dosesByTaskAndDay.get(completionKey) ?? 0;
+      dosesByTaskAndDay.set(completionKey, occurrence + 1);
+      rows.push({
+        id: makeUuid(),
+        task_id: task.id,
+        completed_by_user_id: userId,
+        completed_at: toCompletedAt(completion),
+        completed_day: completedDay,
+        occurrence,
+      });
     }
   }
 
-  return [...byTaskAndDay.values()];
+  return rows;
 };
 
 /**
@@ -339,7 +365,7 @@ export const fetchAccessibleGoals = async (
     const { data: taskRows, error: tasksError } = await supabase
       .from("tasks")
       .select(
-        "id, goal_id, title, frequency, custom_type, custom_target, custom_weekdays, position, created_at",
+        "id, goal_id, title, frequency, custom_type, custom_target, custom_weekdays, times_per_day, times, reminder_lead_min, once_day, position, created_at",
       )
       .in("goal_id", chunk)
       .order("position", { ascending: true })
@@ -503,10 +529,7 @@ export const replaceRemoteGoalsForUser = async (
       id: task.id,
       goal_id: goal.id,
       title: task.title,
-      frequency: task.frequency,
-      custom_type: task.customFrequency?.type ?? null,
-      custom_target: task.customFrequency?.target ?? null,
-      custom_weekdays: task.customFrequency?.weekdays ?? null,
+      ...taskScheduleColumns(task),
       position: index,
     })),
   );
@@ -702,6 +725,7 @@ export const deleteRemoteAccountDataForUser = async (
 };
 
 export const __internal = {
+  buildCompletionPayload,
   buildGoals,
   buildTasks,
   deleteRemoteAccountDataForUser,

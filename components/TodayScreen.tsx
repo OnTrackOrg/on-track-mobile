@@ -25,13 +25,20 @@ import ReanimatedSwipeable, {
 } from "react-native-gesture-handler/ReanimatedSwipeable";
 import {
   canPostponeTask,
+  getDosesOnDate,
   getTaskPeriodProgress,
+  getTaskTimesPerDay,
   getTaskWeekdays,
   getTodayItems,
   useStore,
   TodayItem,
 } from "../store";
-import { describeTaskSchedule } from "../lib/taskSchedule";
+import {
+  describeTaskCadence,
+  describeTaskSchedule,
+  formatClock,
+  timeToMinutes,
+} from "../lib/taskSchedule";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
 import { getGoalColor } from "../utils/goalColors";
@@ -43,9 +50,15 @@ import { TourAnchor } from "./tour/TourAnchor";
 import Confetti from "./Confetti";
 import { AvatarStack } from "./Avatar";
 import { card } from "./ui";
-import { Task } from "../types";
+import DoseRing from "./DoseRing";
+import { Task, TaskTime } from "../types";
 
-const frequencyLabel = (task: Task): string => describeTaskSchedule(task);
+// Pips beside the title stop at this many doses; the ring still shows all.
+const MAX_PIPS = 8;
+
+/** The time of the first dose still open on `date`, if the task has times. */
+const nextOpenTime = (task: Task, date: Date): TaskTime | undefined =>
+  task.times?.[getDosesOnDate(task, date)];
 
 const postponeBlockReason = (task: Task): string => {
   if (task.frequency === "daily") {
@@ -69,6 +82,7 @@ type TaskRowProps = {
   swipeable: boolean;
   postponeAllowed: boolean;
   onToggle: () => void;
+  onUndoDose: () => void;
   onPostpone: () => void;
 };
 
@@ -81,6 +95,7 @@ function TaskRow({
   swipeable,
   postponeAllowed,
   onToggle,
+  onUndoDose,
   onPostpone,
 }: TaskRowProps) {
   const { theme, isDark } = useTheme();
@@ -91,6 +106,16 @@ function TaskRow({
   const period = getTaskPeriodProgress(item.task, date);
   const canLogExtra = isDone && period !== null && !period.doneOnDate;
   const beyondTarget = period !== null && period.completed > period.target;
+  // Multi-dose tasks stay in To do until their last dose (mockup 1e).
+  const perDay = getTaskTimesPerDay(item.task);
+  const logged = Math.min(getDosesOnDate(item.task, date), perDay);
+  const isPartial = !isDone && perDay > 1;
+  const nextTime = isDone ? undefined : nextOpenTime(item.task, date);
+  const subtitle = isPartial
+    ? `${logged}/${perDay} today`
+    : !isDone && item.task.times
+      ? describeTaskCadence(item.task)
+      : describeTaskSchedule(item.task);
 
   const handleSwipeOpen = () => {
     if (!postponeAllowed) {
@@ -106,6 +131,8 @@ function TaskRow({
   const row = (
     <Pressable
       onPress={onToggle}
+      // Take back one dose of a partly logged day.
+      onLongPress={isPartial && logged > 0 ? onUndoDose : undefined}
       style={{
         ...card(theme, isDark),
         flexDirection: "row",
@@ -146,6 +173,13 @@ function TaskRow({
             color="#ffffff"
           />
         </View>
+      ) : isPartial ? (
+        <DoseRing
+          total={perDay}
+          logged={logged}
+          color={color}
+          trackColor={mix(color, 0.5, theme.surface)}
+        />
       ) : (
         <View
           style={{
@@ -157,22 +191,42 @@ function TaskRow({
           }}
         />
       )}
-      <View style={{ flex: 1 }}>
-        <Text
-          style={{
-            fontWeight: "700",
-            fontSize: 14,
-            color: theme.text,
-            textDecorationLine: isDone ? "line-through" : "none",
-          }}
-        >
-          {item.task.title}
-        </Text>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Text
+            numberOfLines={1}
+            style={{
+              flexShrink: 1,
+              fontWeight: "700",
+              fontSize: 14,
+              color: theme.text,
+              textDecorationLine: isDone ? "line-through" : "none",
+            }}
+          >
+            {item.task.title}
+          </Text>
+          {isPartial && perDay <= MAX_PIPS ? (
+            <View style={{ flexDirection: "row", gap: 3 }}>
+              {Array.from({ length: perDay }, (_, i) => (
+                <View
+                  key={i}
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor:
+                      i < logged ? color : mix(color, 0.3, theme.surface),
+                  }}
+                />
+              ))}
+            </View>
+          ) : null}
+        </View>
         <Text
           style={{ color: theme.textSecondary, fontSize: 12, marginTop: 1 }}
         >
           <Text style={{ color, fontWeight: "600" }}>{item.goal.title}</Text> ·{" "}
-          {period ? (
+          {period && !isPartial ? (
             <>
               <Text
                 style={
@@ -186,10 +240,37 @@ function TaskRow({
               {` this ${period.period}`}
             </>
           ) : (
-            frequencyLabel(item.task)
+            subtitle
           )}
         </Text>
       </View>
+      {nextTime ? (
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 4,
+            paddingHorizontal: 8,
+            paddingVertical: 4,
+            borderRadius: 9999,
+            backgroundColor: withAlpha(theme.primary, 0.12),
+          }}
+        >
+          {nextTime.remind ? (
+            <Ionicons name="notifications" size={11} color={theme.primary} />
+          ) : null}
+          <Text
+            style={{
+              color: theme.primary,
+              fontWeight: "700",
+              fontSize: 12,
+              fontVariant: ["tabular-nums"],
+            }}
+          >
+            {formatClock(nextTime.at)}
+          </Text>
+        </View>
+      ) : null}
       {item.isShared && item.goal.members && item.goal.members.length > 1 ? (
         <AvatarStack
           users={item.goal.members.map((member) => ({
@@ -279,6 +360,7 @@ export default function TodayScreen() {
   const postponeTask = useStore((s) => s.postponeTask);
   const undoPostponeTask = useStore((s) => s.undoPostponeTask);
   const toggleTaskCompletion = useStore((s) => s.toggleTaskCompletion);
+  const removeTaskDose = useStore((s) => s.removeTaskDose);
   const toggleSharedTaskCompletion = useStore(
     (s) => s.toggleSharedTaskCompletion,
   );
@@ -337,6 +419,15 @@ export default function TodayScreen() {
     [goals, sharedGoals, selectedDate, postponedTaskIds, personalOrder],
   );
   const allDone = totals.total > 0 && totals.done === totals.total;
+  // Timed rows lead in order of their next open dose; the rest keep the
+  // personal order after them (the sort is stable).
+  const sortedTodo = React.useMemo(() => {
+    const nextMinutes = (item: TodayItem) => {
+      const time = nextOpenTime(item.task, selectedDate);
+      return time ? timeToMinutes(time.at) : Number.POSITIVE_INFINITY;
+    };
+    return [...todo].sort((a, b) => nextMinutes(a) - nextMinutes(b));
+  }, [todo, selectedDate]);
 
   // "Not today" only makes sense on the actual current day.
   const isViewingToday = dateKey === format(new Date(), "yyyy-MM-dd");
@@ -356,7 +447,12 @@ export default function TodayScreen() {
   );
 
   const toggleItem = (item: TodayItem, completing: boolean) => {
-    const completesDay = completing && todo.length === 1;
+    // A multi-dose row only leaves To do on its last dose.
+    const finishesTask =
+      completing &&
+      getDosesOnDate(item.task, selectedDate) + 1 >=
+        getTaskTimesPerDay(item.task);
+    const completesDay = finishesTask && todo.length === 1;
     const period = getTaskPeriodProgress(item.task, selectedDate);
     // A Done row whose target was met on other days logs an extra for this
     // day instead of un-checking anything.
@@ -376,6 +472,11 @@ export default function TodayScreen() {
     } else {
       toggleTaskCompletion(item.goal.id, item.task.id, selectedDate);
     }
+  };
+
+  const undoDose = (item: TodayItem) => {
+    void haptics.tap();
+    removeTaskDose(item.goal.id, item.task.id, item.isShared, selectedDate);
   };
 
   return (
@@ -523,7 +624,7 @@ export default function TodayScreen() {
                 {todo.length} left
               </Text>
             </View>
-            {todo.map((item, index) => (
+            {sortedTodo.map((item, index) => (
               <TaskRow
                 key={`${item.goal.id}:${item.task.id}`}
                 item={item}
@@ -538,6 +639,7 @@ export default function TodayScreen() {
                 )}
                 date={selectedDate}
                 onToggle={() => toggleItem(item, true)}
+                onUndoDose={() => undoDose(item)}
                 onPostpone={() => postponeTask(item.task.id, selectedDate)}
               />
             ))}
@@ -567,6 +669,7 @@ export default function TodayScreen() {
                 swipeable={false}
                 postponeAllowed={false}
                 onToggle={() => toggleItem(item, false)}
+                onUndoDose={() => {}}
                 onPostpone={() => {}}
               />
             ))}

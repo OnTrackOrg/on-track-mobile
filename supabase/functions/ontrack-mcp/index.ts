@@ -69,6 +69,9 @@ interface TaskRow {
   custom_type: string | null;
   custom_target: number | null;
   custom_weekdays: number[] | null;
+  times_per_day: number;
+  times: { at: string; remind: boolean }[] | null;
+  once_day: string | null;
   archived_at: string | null;
 }
 
@@ -88,7 +91,7 @@ interface GoalRow {
 
 const GOAL_COLUMNS =
   "id,title,target,visibility,is_draft,start_day,due_day,completed_at,created_at,owner_user_id," +
-  "tasks(id,title,frequency,custom_type,custom_target,custom_weekdays,archived_at)";
+  "tasks(id,title,frequency,custom_type,custom_target,custom_weekdays,times_per_day,times,once_day,archived_at)";
 
 const goalStatus = (goal: GoalRow) => {
   if (goal.completed_at) return "achieved";
@@ -97,7 +100,10 @@ const goalStatus = (goal: GoalRow) => {
   return "active";
 };
 
-const describeFrequency = (task: TaskRow) => {
+const describeCadence = (task: TaskRow) => {
+  if (task.frequency === "once") {
+    return task.once_day ? `once, on ${task.once_day}` : "once";
+  }
   if (task.frequency !== "custom") return task.frequency;
   if (task.custom_weekdays?.length) {
     return `weekly on ${task.custom_weekdays
@@ -106,6 +112,16 @@ const describeFrequency = (task: TaskRow) => {
   }
   const unit = task.custom_type === "monthly" ? "month" : "week";
   return `${task.custom_target ?? "?"} times per ${unit}`;
+};
+
+// e.g. "daily, 3 times a day at 08:00, 14:30, 21:00"
+const describeFrequency = (task: TaskRow) => {
+  const parts = [describeCadence(task)];
+  if (task.times_per_day > 1) parts.push(`${task.times_per_day} times a day`);
+  if (task.times?.length) {
+    parts.push(`at ${task.times.map((time) => time.at).join(", ")}`);
+  }
+  return parts.join(", ");
 };
 
 const activeTasks = (goal: GoalRow) =>
@@ -241,22 +257,47 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
       }
       const { data: task, error: taskError } = await db
         .from("tasks")
-        .select("id,title,archived_at,goals(id,title,completed_at)")
+        .select("id,title,times_per_day,archived_at,goals(id,title,completed_at)")
         .eq("id", args.task_id)
         .maybeSingle();
       if (taskError) throw new Error(`Could not load task: ${taskError.message}`);
       if (!task) throw new Error("Task not found or not visible to this user");
       if (task.archived_at) throw new Error("This task has been archived");
+      // Multi-dose tasks log one row per dose, numbered from 0 each day.
+      const { count, error: countError } = await db
+        .from("task_completions")
+        .select("id", { count: "exact", head: true })
+        .eq("task_id", args.task_id)
+        .eq("completed_by_user_id", user.id)
+        .eq("completed_day", day);
+      if (countError) {
+        throw new Error(`Could not load completions: ${countError.message}`);
+      }
+      const logged = count ?? 0;
+      const perDay = task.times_per_day ?? 1;
+      if (logged >= perDay) {
+        return textResult(
+          perDay > 1
+            ? `All ${perDay} of "${task.title}" were already logged for ${day}.`
+            : `"${task.title}" was already logged for ${day}.`,
+        );
+      }
       const { error } = await db.from("task_completions").insert({
         task_id: args.task_id,
         completed_by_user_id: user.id,
         completed_day: day,
+        occurrence: logged,
       });
       if (error) {
         if (error.code === "23505") {
           return textResult(`"${task.title}" was already logged for ${day}.`);
         }
         throw new Error(`Could not log completion: ${error.message}`);
+      }
+      if (perDay > 1) {
+        return textResult(
+          `Logged "${task.title}" for ${day} (${logged + 1} of ${perDay}).`,
+        );
       }
       return textResult(`Logged "${task.title}" as completed for ${day}.`);
     },
@@ -275,17 +316,26 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
       if (!isUuid(args.task_id)) throw new Error("task_id must be a uuid");
       const day = args.day ?? todayUtc();
       if (!isDayKey(day)) throw new Error("day must be formatted yyyy-MM-dd");
-      const { data, error } = await db
+      // Undo the latest dose only; earlier doses that day stay logged.
+      const { data: latest, error: findError } = await db
         .from("task_completions")
-        .delete()
+        .select("id")
         .eq("task_id", args.task_id)
         .eq("completed_by_user_id", user.id)
         .eq("completed_day", day)
-        .select("id");
-      if (error) throw new Error(`Could not undo completion: ${error.message}`);
-      if (!data?.length) {
+        .order("occurrence", { ascending: false })
+        .limit(1);
+      if (findError) {
+        throw new Error(`Could not load completions: ${findError.message}`);
+      }
+      if (!latest?.length) {
         return textResult(`No completion of that task was logged for ${day}.`);
       }
+      const { error } = await db
+        .from("task_completions")
+        .delete()
+        .eq("id", latest[0].id);
+      if (error) throw new Error(`Could not undo completion: ${error.message}`);
       return textResult(`Removed the completion logged for ${day}.`);
     },
   });

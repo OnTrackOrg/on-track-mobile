@@ -9,14 +9,13 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
 import * as AppleAuthentication from "expo-apple-authentication";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
 import LabeledTextField from "./LabeledTextField";
 import BrandMark from "./BrandMark";
 import { isValidEmail, isValidPassword } from "../account";
-import { AuthMode, SsoProvider } from "../lib/auth";
+import { AuthMode } from "../lib/auth";
 
 type AuthScreenProps = {
   mode: AuthMode;
@@ -26,13 +25,12 @@ type AuthScreenProps = {
   appleAvailable: boolean;
   onModeChange: (mode: AuthMode) => void;
   onSubmit: (input: { email: string; password: string }) => void;
-  onSso: (provider: SsoProvider) => void;
+  onAppleSignIn: () => void;
   onPasswordResetRequest?: (email: string) => void;
 };
 
 /**
- * Sign-in is provider-first: Apple and Google take one tap and need no
- * form. Email + password stays as the fallback below the divider. Names
+ * Sign-in is provider-first: Apple takes one tap and needs no form. Email + password stays as the fallback below the divider. Names
  * and usernames are derived and editable later from Profile, so nothing
  * here asks for them.
  */
@@ -44,7 +42,7 @@ export default function AuthScreen({
   appleAvailable,
   onModeChange,
   onSubmit,
-  onSso,
+  onAppleSignIn,
   onPasswordResetRequest,
 }: AuthScreenProps) {
   const { theme, isDark } = useTheme();
@@ -74,10 +72,10 @@ export default function AuthScreen({
     onSubmit({ email, password });
   };
 
-  const sso = (provider: SsoProvider) => {
+  const appleSignIn = () => {
     if (isSubmitting) return;
     void haptics.press();
-    onSso(provider);
+    onAppleSignIn();
   };
 
   return (
@@ -110,11 +108,16 @@ export default function AuthScreen({
             </Text>
           </View>
 
-          <View style={{ gap: 10 }}>
-            {appleAvailable ? (
+          {/* Apple first; email is the fallback below the divider. */}
+          {appleAvailable ? (
+            <>
               <AppleAuthentication.AppleAuthenticationButton
+                // The native label only updates on remount.
+                key={mode}
                 buttonType={
-                  AppleAuthentication.AppleAuthenticationButtonType.CONTINUE
+                  isSignUp
+                    ? AppleAuthentication.AppleAuthenticationButtonType.SIGN_UP
+                    : AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN
                 }
                 buttonStyle={
                   isDark
@@ -123,50 +126,28 @@ export default function AuthScreen({
                 }
                 cornerRadius={999}
                 style={{ height: 50, opacity: isSubmitting ? 0.6 : 1 }}
-                onPress={() => sso("apple")}
+                onPress={appleSignIn}
               />
-            ) : null}
-            <Pressable
-              onPress={() => sso("google")}
-              disabled={isSubmitting}
-              style={{
-                height: 50,
-                borderRadius: 999,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-                backgroundColor: theme.surface,
-                borderWidth: 1,
-                borderColor: theme.border,
-                opacity: isSubmitting ? 0.6 : 1,
-              }}
-            >
-              <Ionicons name="logo-google" size={18} color={theme.text} />
-              <Text
-                style={{ color: theme.text, fontWeight: "700", fontSize: 16 }}
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 12,
+                  marginVertical: 22,
+                }}
               >
-                Continue with Google
-              </Text>
-            </Pressable>
-          </View>
-
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 12,
-              marginVertical: 22,
-            }}
-          >
-            <View
-              style={{ flex: 1, height: 1, backgroundColor: theme.border }}
-            />
-            <Text style={{ color: theme.textSecondary, fontSize: 12 }}>or</Text>
-            <View
-              style={{ flex: 1, height: 1, backgroundColor: theme.border }}
-            />
-          </View>
+                <View
+                  style={{ flex: 1, height: 1, backgroundColor: theme.border }}
+                />
+                <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                  or
+                </Text>
+                <View
+                  style={{ flex: 1, height: 1, backgroundColor: theme.border }}
+                />
+              </View>
+            </>
+          ) : null}
 
           <View style={{ gap: 12 }}>
             <LabeledTextField
@@ -175,7 +156,6 @@ export default function AuthScreen({
               onChangeText={setEmail}
               autoCapitalize="none"
               autoCorrect={false}
-              placeholder="you@example.com"
               textContentType="emailAddress"
               autoComplete="email"
               keyboardType="email-address"
@@ -190,15 +170,19 @@ export default function AuthScreen({
               autoCapitalize="none"
               autoCorrect={false}
               placeholder={isSignUp ? "Choose a password" : "Your password"}
+              // Without a webcredentials associated domain iOS can't save a
+              // generated strong password for us, so sign-up opts out of its
+              // yellow strong-password cover ("oneTimeCode" is the only type
+              // that does). Never swap the type while the field is in use:
+              // iOS then strands its yellow fill over an emptied field.
               textContentType={
-                Platform.OS === "ios" && showPassword
-                  ? "oneTimeCode"
-                  : isSignUp
-                    ? "newPassword"
-                    : "password"
+                isSignUp
+                  ? Platform.OS === "ios"
+                    ? "oneTimeCode"
+                    : "newPassword"
+                  : "password"
               }
               autoComplete={isSignUp ? "new-password" : "password"}
-              passwordRules="minlength: 10; required: lower; required: upper; required: digit;"
               secureTextEntry={!showPassword}
               returnKeyType="done"
               onSubmitEditing={submit}

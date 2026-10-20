@@ -9,16 +9,39 @@ export interface CustomFrequency {
   weekdays?: number[];
 }
 
+/** One time of day a task is due at, with its own reminder bell. */
+export interface TaskTime {
+  at: string; // "HH:mm", device-local
+  remind: boolean;
+}
+
 export interface Task {
   id: string;
   title: string;
   frequency: Frequency;
   customFrequency?: CustomFrequency; // Only used when frequency is "custom"
-  completions: Date[]; // The CURRENT user's completion dates
+  // Doses per due day, on top of any frequency; absent means 1. A day only
+  // counts as done once this many completions are logged on it.
+  timesPerDay?: number;
+  // Absent = any time of day. Otherwise exactly `timesPerDay` entries,
+  // sorted by `at`.
+  times?: TaskTime[];
+  // Minutes before each belled time the reminder fires (0 = at the time).
+  reminderLeadMin?: number;
+  // "yyyy-MM-dd"; one-off tasks only. Not due before this day.
+  onDay?: string;
+  // The CURRENT user's completion dates, one entry per logged dose.
+  completions: Date[];
   // Other members' completions as "yyyy-MM-dd" day keys, keyed by userId.
   // The current user never appears here; their history is `completions`.
   memberCompletions?: Record<string, string[]>;
 }
+
+/** The timing fields the task editor owns, replaced together on save. */
+export type TaskTiming = Pick<
+  Task,
+  "timesPerDay" | "times" | "reminderLeadMin" | "onDay"
+>;
 
 export interface GoalMember {
   userId: string;

@@ -27,18 +27,12 @@ import DatePickerModal from "./DatePickerModal";
 import TaskEditorModal, { TaskEditorValue } from "./TaskEditorModal";
 import GoalColorPicker from "./GoalColorPicker";
 import OptionPair from "./OptionPair";
-import { CustomFrequency, Frequency } from "../types";
 import { GOAL_PALETTE } from "../utils/goalColors";
 import { describeTaskSchedule } from "../lib/taskSchedule";
 
 type NewGoalProps = NativeStackScreenProps<RootStackParamList, "NewGoal">;
 
-type DraftTask = {
-  key: string;
-  title: string;
-  frequency: Frequency;
-  customFrequency?: CustomFrequency;
-};
+type DraftTask = TaskEditorValue & { key: string };
 
 // One question per step: title, target, dates, visibility, tasks.
 const STEP_COUNT = 5;
@@ -193,7 +187,13 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
       return;
     }
     for (const draft of draftTasks) {
-      addTask(created.id, draft.title, draft.frequency, draft.customFrequency);
+      addTask(
+        created.id,
+        draft.title,
+        draft.frequency,
+        draft.customFrequency,
+        draft.timing,
+      );
     }
 
     void haptics.success();
@@ -252,8 +252,6 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
             <TextInput
               value={title}
               onChangeText={setTitle}
-              placeholder="Run a half marathon"
-              placeholderTextColor={theme.textSecondary}
               autoFocus
               returnKeyType="next"
               submitBehavior="submit"
@@ -279,8 +277,6 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
             <TextInput
               value={target}
               onChangeText={setTarget}
-              placeholder="200 lbs, 10% BF"
-              placeholderTextColor={theme.textSecondary}
               autoFocus
               returnKeyType="next"
               submitBehavior="submit"
@@ -433,7 +429,7 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
                     {task.title}
                   </Text>
                   <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-                    {describeTaskSchedule(task)}
+                    {describeTaskSchedule({ ...task, ...task.timing })}
                   </Text>
                 </View>
                 <Pressable

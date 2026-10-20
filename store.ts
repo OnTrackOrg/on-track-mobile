@@ -6,6 +6,7 @@ import {
   Frequency,
   CustomFrequency,
   Task,
+  TaskTiming,
   UserAccount,
   FriendProfile,
   FriendRequest,
@@ -129,10 +130,82 @@ export const getTaskWeekdays = (
     ? task.customFrequency.weekdays
     : null;
 
-/** False only for weekday-pinned tasks on a day outside their weekdays. */
+/**
+ * False for weekday-pinned tasks on a day outside their weekdays, and for
+ * one-off tasks before their day.
+ */
 export const isTaskScheduledOnDate = (task: Task, date: Date): boolean => {
+  if (task.frequency === "once" && task.onDay) {
+    return task.onDay <= dateToKey(date);
+  }
   const weekdays = getTaskWeekdays(task);
   return weekdays === null || weekdays.includes(date.getDay());
+};
+
+// X-a-day doses -------------------------------------------------------------
+
+export const getTaskTimesPerDay = (task: Pick<Task, "timesPerDay">): number =>
+  Math.max(1, task.timesPerDay ?? 1);
+
+/** Doses logged on one calendar day. */
+export const getDosesOnDate = (task: Task, date: Date): number => {
+  const key = dateToKey(date);
+  return task.completions.filter((completion) => dateToKey(completion) === key)
+    .length;
+};
+
+/**
+ * Canonical timing for a frequency: one-offs get a single dose, times are
+ * kept only when there is one per dose, and empty fields are dropped so
+ * untimed tasks persist exactly as before.
+ */
+export const normalizeTaskTiming = (
+  frequency: Frequency,
+  timing: TaskTiming = {},
+): TaskTiming => {
+  const perDay =
+    frequency === "once"
+      ? 1
+      : Math.min(24, Math.max(1, Math.round(timing.timesPerDay ?? 1)));
+  const times =
+    timing.times && timing.times.length === perDay
+      ? [...timing.times].sort((a, b) => a.at.localeCompare(b.at))
+      : undefined;
+  const lead = timing.reminderLeadMin ?? 0;
+  return {
+    timesPerDay: perDay > 1 ? perDay : undefined,
+    times,
+    reminderLeadMin:
+      times?.some((time) => time.remind) && lead > 0 ? lead : undefined,
+    onDay: frequency === "once" ? timing.onDay : undefined,
+  };
+};
+
+const fullDaysCache = new WeakMap<Task, Date[]>();
+
+/**
+ * One date per day on which every dose was logged. Every "was it done that
+ * day" selector reads this instead of raw completions, so a 3×-a-day task
+ * stays due until its third dose. Single-dose tasks get `completions` back
+ * untouched.
+ */
+export const getFullDays = (task: Task): Date[] => {
+  const perDay = getTaskTimesPerDay(task);
+  if (perDay === 1) return task.completions;
+  const cached = fullDaysCache.get(task);
+  if (cached) return cached;
+  const counts = new Map<string, { date: Date; count: number }>();
+  for (const completion of task.completions) {
+    const key = dateToKey(completion);
+    const entry = counts.get(key);
+    if (entry) entry.count += 1;
+    else counts.set(key, { date: completion, count: 1 });
+  }
+  const days = [...counts.values()]
+    .filter((entry) => entry.count >= perDay)
+    .map((entry) => entry.date);
+  fullDaysCache.set(task, days);
+  return days;
 };
 
 // Helper functions for custom frequency calculations
@@ -158,7 +231,7 @@ export const getCustomFrequencyProgress = (
     periodEnd = endOfMonth(referenceDate);
   }
 
-  const completionsInPeriod = task.completions.filter((date) =>
+  const completionsInPeriod = getFullDays(task).filter((date) =>
     isWithinInterval(date, { start: periodStart, end: periodEnd }),
   );
 
@@ -183,13 +256,13 @@ export const getTaskPeriodProgress = (
   period: "week" | "month";
   doneOnDate: boolean;
 } | null => {
-  const doneOnDate = task.completions.some((date) =>
+  const doneOnDate = getFullDays(task).some((date) =>
     isSameDay(date, referenceDate),
   );
   if (task.frequency === "weekly") {
     const start = startOfWeek(referenceDate, { weekStartsOn: 0 });
     const end = endOfWeek(referenceDate, { weekStartsOn: 0 });
-    const completed = task.completions.filter((date) =>
+    const completed = getFullDays(task).filter((date) =>
       isWithinInterval(date, { start, end }),
     ).length;
     return { completed, target: 1, period: "week", doneOnDate };
@@ -216,7 +289,7 @@ export const shouldShowCustomTask = (
 ): boolean => {
   if (task.frequency !== "custom") return true;
 
-  const completedToday = task.completions.some((date) =>
+  const completedToday = getFullDays(task).some((date) =>
     isSameDay(date, referenceDate),
   );
   if (getTaskWeekdays(task)) {
@@ -234,7 +307,7 @@ export const isOnceTaskCompletedOnDate = (
     return false;
   }
 
-  return task.completions.some((date) => isSameDay(date, referenceDate));
+  return getFullDays(task).some((date) => isSameDay(date, referenceDate));
 };
 
 export const getGoalProgress = (
@@ -261,7 +334,7 @@ export const getGoalProgress = (
     if (task.frequency === "daily") {
       return (
         count +
-        (task.completions.some((date) =>
+        (getFullDays(task).some((date) =>
           isSameDay(date, normalizedReferenceDate),
         )
           ? 1
@@ -272,7 +345,7 @@ export const getGoalProgress = (
     if (task.frequency === "weekly") {
       return (
         count +
-        (task.completions.some((date) => {
+        (getFullDays(task).some((date) => {
           const normalizedDate = normalizeDate(date);
           return (
             normalizedDate >= selectedWeekStart &&
@@ -285,7 +358,7 @@ export const getGoalProgress = (
     }
 
     if (task.frequency === "custom" && task.customFrequency) {
-      const completedToday = task.completions.some((date) =>
+      const completedToday = getFullDays(task).some((date) =>
         isSameDay(date, normalizedReferenceDate),
       );
       // Weekday-pinned tasks behave like daily on their scheduled days.
@@ -302,7 +375,7 @@ export const getGoalProgress = (
     if (task.frequency === "once") {
       return (
         count +
-        (task.completions.some(
+        (getFullDays(task).some(
           (date) => normalizeDate(date) <= normalizedReferenceDate,
         )
           ? 1
@@ -336,9 +409,9 @@ export const getTaskBucketsForDate = (
   const weekStart = startOfWeek(date, { weekStartsOn: 0 });
   const weekEnd = endOfWeek(date, { weekStartsOn: 0 });
   const doneOnDate = (task: Task) =>
-    task.completions.some((completion) => isSameDay(completion, date));
+    getFullDays(task).some((completion) => isSameDay(completion, date));
   const doneThisWeek = (task: Task) =>
-    task.completions.some((completion) =>
+    getFullDays(task).some((completion) =>
       isWithinInterval(completion, { start: weekStart, end: weekEnd }),
     );
 
@@ -358,7 +431,8 @@ export const getTaskBucketsForDate = (
     if (task.frequency === "custom") return shouldShowCustomTask(task, date);
     if (task.frequency === "daily") return !doneOnDate(task);
     if (task.frequency === "weekly") return !doneThisWeek(task);
-    return task.completions.length === 0; // once
+    // once: open until done, from its day on
+    return getFullDays(task).length === 0 && isTaskScheduledOnDate(task, date);
   });
 
   const pending = due.filter((task) => !postponedTaskIds?.has(task.id));
@@ -400,7 +474,7 @@ export const canPostponeTask = (
     const weekStart = startOfWeek(day, { weekStartsOn: 0 });
     const weekEnd = endOfWeek(day, { weekStartsOn: 0 });
     periodEnd = weekEnd;
-    completedInPeriod = task.completions.some((completion) =>
+    completedInPeriod = getFullDays(task).some((completion) =>
       isWithinInterval(completion, { start: weekStart, end: weekEnd }),
     )
       ? 1
@@ -477,9 +551,23 @@ export const getTodayItems = (
     todo,
     done,
     postponed,
+    // Counted in doses, so a 3×-a-day task is three of the day's steps.
     totals: {
-      done: done.length,
-      total: todo.length + done.length,
+      done:
+        done.reduce((sum, item) => sum + getTaskTimesPerDay(item.task), 0) +
+        todo.reduce(
+          (sum, item) =>
+            sum +
+            Math.min(
+              getDosesOnDate(item.task, date),
+              getTaskTimesPerDay(item.task),
+            ),
+          0,
+        ),
+      total: [...todo, ...done].reduce(
+        (sum, item) => sum + getTaskTimesPerDay(item.task),
+        0,
+      ),
       goalCount: goalIds.size,
     },
   };
@@ -553,7 +641,7 @@ export const getCustomFrequencyAlert = (
   }
 
   const progress = getCustomFrequencyProgress(task, referenceDate);
-  const completedToday = task.completions.some((date) =>
+  const completedToday = getFullDays(task).some((date) =>
     isSameDay(date, referenceDate),
   );
   const remainingNeeded = Math.max(progress.target - progress.completed, 0);
@@ -603,7 +691,7 @@ export const getGoalStreak = (task: Task): number => {
     while (daysChecked <= 365) {
       if (weekdays.includes(currentDate.getDay())) {
         const dateStr = format(currentDate, "yyyy-MM-dd");
-        const hasCompletion = task.completions.some(
+        const hasCompletion = getFullDays(task).some(
           (date) => format(date, "yyyy-MM-dd") === dateStr,
         );
         if (!hasCompletion) break;
@@ -651,7 +739,7 @@ export const getGoalStreak = (task: Task): number => {
     // For daily tasks, check consecutive days
     while (true) {
       const dateStr = format(currentDate, "yyyy-MM-dd");
-      const hasCompletion = task.completions.some(
+      const hasCompletion = getFullDays(task).some(
         (date) => format(date, "yyyy-MM-dd") === dateStr,
       );
 
@@ -671,7 +759,7 @@ export const getGoalStreak = (task: Task): number => {
       const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 }); // Sunday
       const weekEnd = endOfWeek(currentDate, { weekStartsOn: 0 }); // Saturday
 
-      const hasCompletionThisWeek = task.completions.some((date) =>
+      const hasCompletionThisWeek = getFullDays(task).some((date) =>
         isWithinInterval(date, { start: weekStart, end: weekEnd }),
       );
 
@@ -1145,6 +1233,7 @@ interface State {
     title: string,
     frequency: Frequency,
     customFrequency?: CustomFrequency,
+    timing?: TaskTiming,
   ) => void;
   updateTask: (
     goalId: string,
@@ -1153,10 +1242,29 @@ interface State {
       title?: string;
       frequency?: Frequency;
       customFrequency?: CustomFrequency | undefined;
+      // When present, replaces all four timing fields at once.
+      timing?: TaskTiming;
     },
   ) => void;
   deleteTask: (goalId: string, taskId: string) => void;
   toggleTaskCompletion: (goalId: string, taskId: string, date?: Date) => void;
+  /** Undo one dose of a multi-dose task on `date`. */
+  removeTaskDose: (
+    goalId: string,
+    taskId: string,
+    isShared: boolean,
+    date?: Date,
+  ) => void;
+  /**
+   * Log one more dose when the day is not full yet; never un-logs. Used by
+   * the reminder's "Mark done" action, which must be safe to repeat.
+   */
+  logTaskDose: (
+    goalId: string,
+    taskId: string,
+    isShared: boolean,
+    date?: Date,
+  ) => void;
   postponeTask: (taskId: string, date?: Date) => void;
   undoPostponeTask: (taskId: string, date?: Date) => void;
   completionsByDate: () => Record<string, number>;
@@ -1222,18 +1330,71 @@ const toggleCompletionInGoals = (
           };
         }
 
-        const hasCompletion = t.completions.some((completionDate) =>
-          isSameDay(completionDate, normalizedDate),
-        );
-        return {
-          ...t,
-          completions: hasCompletion
-            ? t.completions.filter((x) => !isSameDay(x, normalizedDate))
-            : [...t.completions, normalizedDate],
-        };
+        // Each tap logs the next dose; tapping a full day takes one back.
+        if (getDosesOnDate(t, normalizedDate) < getTaskTimesPerDay(t)) {
+          return { ...t, completions: [...t.completions, normalizedDate] };
+        }
+        return getTaskTimesPerDay(t) > 1
+          ? removeOneDose(t, normalizedDate)
+          : {
+              ...t,
+              completions: t.completions.filter(
+                (x) => !isSameDay(x, normalizedDate),
+              ),
+            };
       }),
     };
   });
+
+const updateTaskInGoals = (
+  goals: Goal[],
+  goalId: string,
+  taskId: string,
+  update: (task: Task) => Task,
+): Goal[] =>
+  goals.map((g) =>
+    g.id !== goalId
+      ? g
+      : {
+          ...g,
+          tasks: g.tasks.map((t) => (t.id === taskId ? update(t) : t)),
+        },
+  );
+
+const removeOneDose = (task: Task, date: Date): Task => {
+  let index = task.completions.length - 1;
+  while (index >= 0 && !isSameDay(task.completions[index], date)) index--;
+  return index < 0
+    ? task
+    : {
+        ...task,
+        completions: task.completions.filter((_, i) => i !== index),
+      };
+};
+
+const addDoseIfOpen = (task: Task, date: Date): Task =>
+  getDosesOnDate(task, date) >= getTaskTimesPerDay(task)
+    ? task
+    : { ...task, completions: [...task.completions, date] };
+
+// Completion edits on an owned or shared task; both bump the revision so
+// the change rides the next flush.
+const updateMyTask = (
+  s: State,
+  goalId: string,
+  taskId: string,
+  isShared: boolean,
+  update: (task: Task) => Task,
+): Partial<State> =>
+  isShared
+    ? {
+        sharedGoals: updateTaskInGoals(s.sharedGoals, goalId, taskId, update),
+        syncRevision: s.syncRevision + 1,
+      }
+    : buildDirtyGoalState(
+        updateTaskInGoals(s.goals, goalId, taskId, update),
+        s.syncRevision,
+      );
 
 export const useStore = create<State>()(
   persist(
@@ -1475,7 +1636,7 @@ export const useStore = create<State>()(
             s.syncRevision,
           ),
         })),
-      addTask: (goalId, title, frequency, customFrequency) =>
+      addTask: (goalId, title, frequency, customFrequency, timing) =>
         set((s) => ({
           ...buildDirtyGoalState(
             s.goals.map((g) =>
@@ -1490,6 +1651,7 @@ export const useStore = create<State>()(
                         frequency,
                         customFrequency:
                           frequency === "custom" ? customFrequency : undefined,
+                        ...normalizeTaskTiming(frequency, timing),
                         completions: [],
                       },
                     ],
@@ -1521,6 +1683,10 @@ export const useStore = create<State>()(
                           nextFrequency === "custom"
                             ? (updates.customFrequency ?? task.customFrequency)
                             : undefined,
+                        ...normalizeTaskTiming(
+                          nextFrequency,
+                          updates.timing ?? task,
+                        ),
                         completions: normalizeCompletionsForFrequencyChange(
                           task,
                           nextFrequency,
@@ -1557,6 +1723,18 @@ export const useStore = create<State>()(
               normalizeDate(date),
             ),
             s.syncRevision,
+          ),
+        ),
+      removeTaskDose: (goalId, taskId, isShared, date = new Date()) =>
+        set((s) =>
+          updateMyTask(s, goalId, taskId, isShared, (task) =>
+            removeOneDose(task, normalizeDate(date)),
+          ),
+        ),
+      logTaskDose: (goalId, taskId, isShared, date = new Date()) =>
+        set((s) =>
+          updateMyTask(s, goalId, taskId, isShared, (task) =>
+            addDoseIfOpen(task, normalizeDate(date)),
           ),
         ),
       /**
