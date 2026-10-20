@@ -13,7 +13,6 @@ import { buildWidgetSnapshot } from "./widgetSnapshot";
  */
 export const useWidgetSync = (enabled: boolean) => {
   const goals = useStore((s) => s.goals);
-  const sharedGoals = useStore((s) => s.sharedGoals);
   const postponedTasks = useStore((s) => s.postponedTasks);
   const personalOrder = useStore((s) => s.personalOrder);
   const { theme } = useTheme();
@@ -33,7 +32,6 @@ export const useWidgetSync = (enabled: boolean) => {
     publishWidgetSnapshot(
       buildWidgetSnapshot({
         goals,
-        sharedGoals,
         postponedTasks,
         accent: theme.primary,
         order: personalOrder,
@@ -42,7 +40,6 @@ export const useWidgetSync = (enabled: boolean) => {
   }, [
     enabled,
     goals,
-    sharedGoals,
     postponedTasks,
     personalOrder,
     theme.primary,

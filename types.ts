@@ -30,11 +30,9 @@ export interface Task {
   reminderLeadMin?: number;
   // "yyyy-MM-dd"; one-off tasks only. Not due before this day.
   onDay?: string;
-  // The CURRENT user's completion dates, one entry per logged dose.
+  // Completion dates, one entry per logged dose: mine on my goals, the
+  // owner's on a friend's goal.
   completions: Date[];
-  // Other members' completions as "yyyy-MM-dd" day keys, keyed by userId.
-  // The current user never appears here; their history is `completions`.
-  memberCompletions?: Record<string, string[]>;
 }
 
 /** The timing fields the task editor owns, replaced together on save. */
@@ -42,14 +40,6 @@ export type TaskTiming = Pick<
   Task,
   "timesPerDay" | "times" | "reminderLeadMin" | "onDay"
 >;
-
-export interface GoalMember {
-  userId: string;
-  username: string;
-  displayName: string;
-  isOwner: boolean;
-  avatarUri?: string; // data URI synced from profiles.avatar_uri
-}
 
 /**
  * Lifecycle: draft (isDraft) → scheduled (startDay in the future) → active →
@@ -67,11 +57,10 @@ export interface Goal {
   startDay?: string; // "yyyy-MM-dd"; tasks only become due from this day on
   dueDay?: string; // "yyyy-MM-dd"; target date to reach the goal by
   ownerUserId?: string;
-  members?: GoalMember[]; // includes the owner, isOwner flagged
   // Accent override chosen by the owner; falls back to a hash of the id.
   color?: string;
-  // Public goals are visible (and nudgeable) to all accepted friends, not
-  // just members. Goals default to private.
+  // Public goals are visible (and nudgeable) to all accepted friends.
+  // Goals default to private.
   isPublic?: boolean;
 }
 

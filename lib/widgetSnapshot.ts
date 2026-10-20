@@ -135,26 +135,19 @@ const buildWidgetGoal = (
 
 const buildWidgetDay = (
   goals: Goal[],
-  sharedGoals: Goal[],
   postponedTasks: Record<string, string[]>,
   day: Date,
   order?: PersonalOrder,
 ): WidgetDay => {
   const dayKey = dayKeyOf(day);
   const postponedTaskIds = new Set(postponedTasks[dayKey] ?? []);
-  const { todo, totals } = getTodayItems(
-    goals,
-    sharedGoals,
-    day,
-    postponedTaskIds,
-    order,
-  );
+  const { todo, totals } = getTodayItems(goals, day, postponedTaskIds, order);
   const pendingByGoal = new Map<string, number>();
   for (const item of todo) {
     pendingByGoal.set(item.goal.id, (pendingByGoal.get(item.goal.id) ?? 0) + 1);
   }
 
-  const widgetGoals = applyOrder([...goals, ...sharedGoals], order?.goals)
+  const widgetGoals = applyOrder(goals, order?.goals)
     .filter((goal) => getGoalLifecycleStatus(goal, day) === "active")
     .map((goal) => buildWidgetGoal(goal, day, pendingByGoal.get(goal.id) ?? 0));
 
@@ -171,14 +164,12 @@ const buildWidgetDay = (
 
 export const buildWidgetSnapshot = ({
   goals,
-  sharedGoals,
   postponedTasks,
   accent,
   order,
   now = new Date(),
 }: {
   goals: Goal[];
-  sharedGoals: Goal[];
   postponedTasks: Record<string, string[]>;
   accent: string;
   /** The user's own goal/task order, so widgets match the app. */
@@ -188,6 +179,6 @@ export const buildWidgetSnapshot = ({
   version: WIDGET_SNAPSHOT_VERSION,
   accent,
   days: [now, addDays(now, 1)].map((day) =>
-    buildWidgetDay(goals, sharedGoals, postponedTasks, day, order),
+    buildWidgetDay(goals, postponedTasks, day, order),
   ),
 });

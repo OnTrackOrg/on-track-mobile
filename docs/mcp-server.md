@@ -27,8 +27,8 @@ friends.
 
 | Tool | What it does |
 | --- | --- |
-| `list_goals` | Own + friends' shared goals, with tasks and lifecycle status |
-| `get_goal` | One goal in detail: tasks, members, last-30-day completions |
+| `list_goals` | Own + friends' public goals, with tasks and lifecycle status |
+| `get_goal` | One goal in detail: owner, tasks, the owner's last-30-day completions |
 | `create_goal` | Create a goal (optionally with tasks, drafts, weekday schedules) |
 | `log_task_completion` | Log a task done for a day (own completions only) |
 | `undo_task_completion` | Remove a previously logged completion |
@@ -93,8 +93,9 @@ clients should see in discovery metadata and the consent page.
 - No service-role access: a bug in a tool can never show a user rows RLS
   would hide from their own session.
 - Write surface is deliberately small: logging/undoing the user's own
-  completions and sending nudges (which re-checks friendship + shared-goal
-  membership server-side in `send-nudge`). Goal/task creation and edits stay
+  completions on their own goals and sending nudges (which re-checks the
+  friendship and that the goal is the friend's public goal, server-side in
+  `send-nudge`). Goal/task creation and edits stay
   in the app for now.
 - OAuth access tokens are ordinary Supabase JWTs; revoking a connection from
   the OAuth server dashboard stops refresh, and short JWT expiry bounds the

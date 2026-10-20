@@ -5,13 +5,13 @@ This repository now avoids the main repo-side review risks for the current app:
 - Production builds no longer ship seeded demo data.
 - Internal debug storage tools are hidden from release builds.
 - The app includes an in-app Privacy & Data screen.
-- Account deletion removes local app data, synced account data, friendships, memberships, and template commitments.
+- Account deletion removes local app data, synced account data, friendships, and template commitments.
 
 ## User-generated and social content (App Review Guideline 1.2)
 
-The app now includes social features: friend requests, shared goals (member names and completion activity are visible to other members), and a public goal template catalog.
+The app now includes social features: friend requests, public goals (a goal marked public, with its completion activity, is visible to the owner's friends), and a public goal template catalog.
 
-- Templates are curated (no user publishing path in the app), which limits UGC exposure, but usernames and display names are user-entered and visible to other users via search and shared goals.
+- Templates are curated (no user publishing path in the app), which limits UGC exposure, but usernames and display names are user-entered and visible to other users via search and friends' pages.
 - There is currently NO in-app mechanism to report or block another user. Guideline 1.2 expects filtering, reporting, blocking, and published contact info for apps with user-generated content. Pre-submission TODO: add block/report (or at minimum unfriend plus a support contact for abuse reports, and be ready to justify scope to App Review).
 - Username/display-name moderation is another 1.2 consideration; document the plan (manual takedown via support) in review notes.
 
@@ -37,9 +37,9 @@ provider ever comes back, Apple has to stay. Backend setup that lives outside th
 - Set your final iOS bundle identifier, signing, and build metadata before creating the App Store build.
 - Capture screenshots from the production build, not from development mode.
 - Answer the age rating questionnaire accurately, accounting for user interaction (social features usually push the "unrestricted web/user interaction" questions; confirm in App Store Connect).
-- App Privacy answers must now cover the social graph: email, username, display name, friendships, shared-goal membership, and completion activity visible to goal members, all linked to identity. Not just "habit data synced for backup".
+- App Privacy answers must now cover the social graph: email, username, display name, friendships, and completion activity on public goals visible to friends, all linked to identity. Not just "habit data synced for backup".
 - Test the release build on a physical iPhone and iPad through TestFlight for layout, persistence, and navigation.
-- Verify the hosted privacy policy describes Supabase account auth, cloud sync, social features (friends, shared goals, people search), and optional local notifications.
+- Verify the hosted privacy policy describes Supabase account auth, cloud sync, social features (friends, public goals, people search), and optional local notifications.
 - Deploy the `delete-account` Supabase Edge Function before submitting any build with account deletion enabled.
 - If you add analytics, ads, or purchases later, update the privacy policy, App Privacy answers, and review notes before submission.
 

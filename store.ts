@@ -502,15 +502,14 @@ export const canPostponeTask = (
   return remainingNeeded <= daysLeftAfterToday;
 };
 
-export type TodayItem = { goal: Goal; task: Task; isShared: boolean };
+export type TodayItem = { goal: Goal; task: Task };
 
 export const getTodayItems = (
   goals: Goal[],
-  sharedGoals: Goal[],
   date: Date,
   postponedTaskIds?: ReadonlySet<string>,
-  // The user's private order (lib/personalOrder): goals across owned and
-  // shared, and tasks within each goal. Omitted = default order.
+  // The user's private order (lib/personalOrder): goals, and tasks within
+  // each goal. Omitted = default order.
   order?: PersonalOrder,
 ): {
   todo: TodayItem[];
@@ -523,28 +522,20 @@ export const getTodayItems = (
   const postponed: TodayItem[] = [];
   const goalIds = new Set<string>();
 
-  const collect = (goal: Goal, isShared: boolean) => {
+  const collect = (goal: Goal) => {
     if (goal.completedAt !== undefined) return;
     if (!hasGoalStarted(goal, date)) return; // drafts + scheduled starts
     const buckets = getTaskBucketsForDate(goal, date, postponedTaskIds);
     if (buckets.pending.length + buckets.completed.length > 0) {
       goalIds.add(goal.id);
     }
-    for (const task of buckets.pending) todo.push({ goal, task, isShared });
-    for (const task of buckets.completed) done.push({ goal, task, isShared });
-    for (const task of buckets.postponed)
-      postponed.push({ goal, task, isShared });
+    for (const task of buckets.pending) todo.push({ goal, task });
+    for (const task of buckets.completed) done.push({ goal, task });
+    for (const task of buckets.postponed) postponed.push({ goal, task });
   };
 
-  const entries = applyOrder(
-    [
-      ...goals.map((goal) => ({ id: goal.id, goal, isShared: false })),
-      ...sharedGoals.map((goal) => ({ id: goal.id, goal, isShared: true })),
-    ],
-    order?.goals,
-  );
-  entries.forEach(({ goal, isShared }) =>
-    collect(orderGoalTasks(goal, order), isShared),
+  applyOrder(goals, order?.goals).forEach((goal) =>
+    collect(orderGoalTasks(goal, order)),
   );
 
   return {
@@ -571,59 +562,6 @@ export const getTodayItems = (
       goalCount: goalIds.size,
     },
   };
-};
-
-/**
- * View a goal through a member's eyes: their day keys become the tasks'
- * `completions`, so every existing selector works unchanged. Identity for
- * the current user (whose completions already live on `completions` and who
- * never has a memberCompletions entry).
- */
-export const goalAsSeenBy = (goal: Goal, userId: string): Goal => {
-  const isOtherMember = goal.tasks.some(
-    (task) => task.memberCompletions && userId in task.memberCompletions,
-  );
-  if (!isOtherMember) return goal;
-
-  return {
-    ...goal,
-    tasks: goal.tasks.map((task) => ({
-      ...task,
-      completions: (task.memberCompletions?.[userId] ?? []).map((key) => {
-        const [year, month, day] = key.split("-").map(Number);
-        return new Date(year, month - 1, day); // local calendar day, not UTC
-      }),
-    })),
-  };
-};
-
-/**
- * 8-week adherence per docs/social-model.md: mean of the member's daily
- * getGoalProgress percent over the last `windowDays` days, clamped to the
- * goal's age (minimum 1 day).
- */
-export const getMemberAdherence = (
-  goal: Goal,
-  userId: string,
-  referenceDate: Date = new Date(),
-  windowDays = 56,
-): number => {
-  const view = goalAsSeenBy(goal, userId);
-  const end = normalizeDate(referenceDate);
-  const ageDays = differenceInCalendarDays(end, getGoalStartDate(goal)) + 1;
-  const days = Math.max(1, Math.min(windowDays, ageDays));
-
-  let sum = 0;
-  let countedDays = 0;
-  for (let i = 0; i < days; i++) {
-    const progress = getGoalProgress(view, addDays(end, -i));
-    // Days with nothing due (weekday-pinned off-days) don't count against
-    // adherence.
-    if (progress.total === 0) continue;
-    sum += progress.percent;
-    countedDays++;
-  }
-  return countedDays === 0 ? 0 : sum / countedDays;
 };
 
 export const getCustomFrequencyAlert = (
@@ -1158,8 +1096,8 @@ export const getCurrentMode = () => CURRENT_MODE;
 
 interface State {
   goals: Goal[];
-  sharedGoals: Goal[];
-  // Friends' public goals I'm not a member of (read-only, server-authoritative).
+  // Friends' public goals (read-only, server-authoritative). Each task's
+  // `completions` are the goal owner's.
   friendGoals: Goal[];
   friends: FriendProfile[];
   friendRequests: FriendRequest[];
@@ -1176,8 +1114,8 @@ interface State {
   lastSyncedRevision: number;
   // "Not Today" swipes: taskIds postponed per "yyyy-MM-dd" day key.
   postponedTasks: Record<string, string[]>;
-  // Press-and-hold reordering. Private to this user (never written to the
-  // shared goals/tasks position columns) and synced through user_orderings.
+  // Press-and-hold reordering. Kept apart from the goals/tasks position
+  // columns and synced through user_orderings.
   personalOrder: PersonalOrder;
   personalOrderRevision: number;
   personalOrderSyncedRevision: number;
@@ -1187,7 +1125,6 @@ interface State {
   adoptPersonalOrder: (order: PersonalOrder) => void;
   markPersonalOrderSynced: (revision: number) => void;
   setGoals: (goals: Goal[]) => void;
-  setSharedGoals: (sharedGoals: Goal[]) => void;
   setFriendGoals: (friendGoals: Goal[]) => void;
   setSocialGraph: (
     friends: FriendProfile[],
@@ -1195,11 +1132,6 @@ interface State {
     sentFriendRequestUserIds?: string[],
   ) => void;
   claimLocalData: (userId: string) => void;
-  toggleSharedTaskCompletion: (
-    goalId: string,
-    taskId: string,
-    date?: Date,
-  ) => void;
   setCloudSyncEnabled: (enabled: boolean) => void;
   markGoalsSynced: (revision: number) => void;
   addGoal: (
@@ -1249,22 +1181,12 @@ interface State {
   deleteTask: (goalId: string, taskId: string) => void;
   toggleTaskCompletion: (goalId: string, taskId: string, date?: Date) => void;
   /** Undo one dose of a multi-dose task on `date`. */
-  removeTaskDose: (
-    goalId: string,
-    taskId: string,
-    isShared: boolean,
-    date?: Date,
-  ) => void;
+  removeTaskDose: (goalId: string, taskId: string, date?: Date) => void;
   /**
    * Log one more dose when the day is not full yet; never un-logs. Used by
    * the reminder's "Mark done" action, which must be safe to repeat.
    */
-  logTaskDose: (
-    goalId: string,
-    taskId: string,
-    isShared: boolean,
-    date?: Date,
-  ) => void;
+  logTaskDose: (goalId: string, taskId: string, date?: Date) => void;
   postponeTask: (taskId: string, date?: Date) => void;
   undoPostponeTask: (taskId: string, date?: Date) => void;
   completionsByDate: () => Record<string, number>;
@@ -1308,8 +1230,6 @@ const buildDirtyGoalState = (goals: Goal[], currentRevision: number) => ({
   syncRevision: currentRevision + 1,
 });
 
-// Shared by toggleTaskCompletion (owned) and toggleSharedTaskCompletion:
-// only ever mutates the current user's `completions`.
 const toggleCompletionInGoals = (
   goals: Goal[],
   goalId: string,
@@ -1377,30 +1297,10 @@ const addDoseIfOpen = (task: Task, date: Date): Task =>
     ? task
     : { ...task, completions: [...task.completions, date] };
 
-// Completion edits on an owned or shared task; both bump the revision so
-// the change rides the next flush.
-const updateMyTask = (
-  s: State,
-  goalId: string,
-  taskId: string,
-  isShared: boolean,
-  update: (task: Task) => Task,
-): Partial<State> =>
-  isShared
-    ? {
-        sharedGoals: updateTaskInGoals(s.sharedGoals, goalId, taskId, update),
-        syncRevision: s.syncRevision + 1,
-      }
-    : buildDirtyGoalState(
-        updateTaskInGoals(s.goals, goalId, taskId, update),
-        s.syncRevision,
-      );
-
 export const useStore = create<State>()(
   persist(
     (set, get) => ({
       goals: getInitialGoals(), // Dynamic initialization based on store mode
-      sharedGoals: [],
       friendGoals: [],
       friends: [],
       friendRequests: [],
@@ -1450,9 +1350,7 @@ export const useStore = create<State>()(
        */
       setGoals: (goals) => set({ goals }),
 
-      // Server-authoritative slice: replaced wholesale by fetches, mutated
-      // locally only through toggleSharedTaskCompletion.
-      setSharedGoals: (sharedGoals) => set({ sharedGoals }),
+      // Server-authoritative slice, replaced wholesale by fetches.
       setFriendGoals: (friendGoals) => set({ friendGoals }),
 
       // Omitting sentFriendRequestUserIds keeps the current list (local
@@ -1478,7 +1376,6 @@ export const useStore = create<State>()(
             : {
                 dataOwnerUserId: userId,
                 goals: [],
-                sharedGoals: [],
                 friendGoals: [],
                 friends: [],
                 friendRequests: [],
@@ -1491,21 +1388,6 @@ export const useStore = create<State>()(
                 personalOrderSyncedRevision: 0,
               },
         ),
-
-      /**
-       * My completions on shared-goal tasks ride the same revision flush as
-       * owned goals (social-model.md invariant 1), hence the revision bump.
-       */
-      toggleSharedTaskCompletion: (goalId, taskId, date = new Date()) =>
-        set((s) => ({
-          sharedGoals: toggleCompletionInGoals(
-            s.sharedGoals,
-            goalId,
-            taskId,
-            normalizeDate(date),
-          ),
-          syncRevision: s.syncRevision + 1,
-        })),
 
       /**
        * Cloud sync stays disabled for users who already had purely local
@@ -1725,16 +1607,22 @@ export const useStore = create<State>()(
             s.syncRevision,
           ),
         ),
-      removeTaskDose: (goalId, taskId, isShared, date = new Date()) =>
+      removeTaskDose: (goalId, taskId, date = new Date()) =>
         set((s) =>
-          updateMyTask(s, goalId, taskId, isShared, (task) =>
-            removeOneDose(task, normalizeDate(date)),
+          buildDirtyGoalState(
+            updateTaskInGoals(s.goals, goalId, taskId, (task) =>
+              removeOneDose(task, normalizeDate(date)),
+            ),
+            s.syncRevision,
           ),
         ),
-      logTaskDose: (goalId, taskId, isShared, date = new Date()) =>
+      logTaskDose: (goalId, taskId, date = new Date()) =>
         set((s) =>
-          updateMyTask(s, goalId, taskId, isShared, (task) =>
-            addDoseIfOpen(task, normalizeDate(date)),
+          buildDirtyGoalState(
+            updateTaskInGoals(s.goals, goalId, taskId, (task) =>
+              addDoseIfOpen(task, normalizeDate(date)),
+            ),
+            s.syncRevision,
           ),
         ),
       /**
@@ -1837,11 +1725,13 @@ export const useStore = create<State>()(
     {
       name: ACTIVE_STORAGE_KEY, // Dynamic storage key based on CURRENT_MODE
       storage: createJSONStorage(() => AsyncStorage),
-      // v1 strips the retired freeze-days feature from persisted state.
-      version: 1,
+      // v1 strips the retired freeze-days feature from persisted state; v2
+      // the retired shared goals (the server split them into owned copies).
+      version: 2,
       migrate: (persisted) => {
         if (persisted && typeof persisted === "object") {
           delete (persisted as Record<string, unknown>).frozenDays;
+          delete (persisted as Record<string, unknown>).sharedGoals;
         }
         return persisted;
       },
@@ -1858,12 +1748,6 @@ export const useStore = create<State>()(
               state.goals = goals;
               state.syncRevision = (state.syncRevision ?? 0) + 1;
             }
-          }
-
-          if (state?.sharedGoals) {
-            state.sharedGoals = state.sharedGoals.map((goal) =>
-              normalizeGoal(goal as PersistedGoal),
-            );
           }
 
           if (state?.friendGoals) {

@@ -24,7 +24,6 @@ Lightweight backlog for ideas that are not yet tracked as GitHub issues.
 - Admin flow for curating the goal template catalog
 - Offline/blocked-state UI for social actions (queued vs unavailable)
 - Report/block users (App Review Guideline 1.2, pre-submission)
-- Show a member's completions on the shared-goal heatmap, not just adherence bars
 
 ## UX and polish
 

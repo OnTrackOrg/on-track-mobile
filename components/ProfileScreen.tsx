@@ -26,7 +26,6 @@ import IconButton from "./IconButton";
 import { card } from "./ui";
 import { haptics } from "../utils/haptics";
 import { mix, withAlpha } from "../utils/color";
-import { STORAGE_KEYS } from "../lib/persistence";
 import { RootStackParamList, TabParamList } from "../navigation";
 import {
   deleteCurrentAccount,
@@ -48,9 +47,10 @@ import {
   unfriend,
 } from "../lib/social";
 import { importLocalDataToCloud } from "../lib/importLocal";
-import { uploadAvatarToProfile } from "../lib/avatar";
+import { clearMyAvatar, saveMyAvatar, useMyAvatar } from "../lib/avatar";
 import { supabase, supabaseBaseUrl } from "../lib/supabase";
 import { buildMcpConnectPrompt } from "../lib/mcpPrompt";
+import { getFriendPublicGoals } from "../lib/nudges";
 import * as Clipboard from "expo-clipboard";
 import {
   APP_TOUR_STORAGE_KEY,
@@ -71,13 +71,12 @@ const SECTION_HEADER = {
 
 export default function ProfileScreen({ navigation }: ProfileProps) {
   const goals = useStore((s) => s.goals);
-  const sharedGoals = useStore((s) => s.sharedGoals);
+  const friendGoals = useStore((s) => s.friendGoals);
   const friends = useStore((s) => s.friends);
   const friendRequests = useStore((s) => s.friendRequests);
   const account = useStore((s) => s.account);
   const cloudSyncEnabled = useStore((s) => s.cloudSyncEnabled);
   const setGoals = useStore((s) => s.setGoals);
-  const setSharedGoals = useStore((s) => s.setSharedGoals);
   const setSocialGraph = useStore((s) => s.setSocialGraph);
   const setAccount = useStore((s) => s.setAccount);
   const setCloudSyncEnabled = useStore((s) => s.setCloudSyncEnabled);
@@ -159,24 +158,20 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
     }
   };
   const [isImporting, setIsImporting] = useState(false);
-  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const avatarUri = useMyAvatar((s) => s.uri);
 
   const accountId = account?.id;
-  const allGoals = React.useMemo(
-    () => [...goals, ...sharedGoals],
-    [goals, sharedGoals],
-  );
   const activeGoals = React.useMemo(
-    () => allGoals.filter((goal) => getGoalLifecycleStatus(goal) === "active"),
-    [allGoals],
+    () => goals.filter((goal) => getGoalLifecycleStatus(goal) === "active"),
+    [goals],
   );
   const achievedGoals = React.useMemo(
     () =>
-      allGoals.filter(
+      goals.filter(
         (goal): goal is Goal & { completedAt: number } =>
           goal.completedAt !== undefined,
       ),
-    [allGoals],
+    [goals],
   );
   // Newest achievement headlines the stacked card; undefined when none.
   const latestAchieved = React.useMemo(
@@ -187,14 +182,6 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
   // Profile photo (redesign): stored locally as a data URI, like the mock.
   // Re-read on focus so a photo adopted from the profile (fresh install)
   // shows up without an app restart.
-  useFocusEffect(
-    React.useCallback(() => {
-      AsyncStorage.getItem(STORAGE_KEYS.avatar)
-        .then((value) => setAvatarUri(value))
-        .catch(() => {});
-    }, []),
-  );
-
   const pickAvatar = async () => {
     void haptics.tap();
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -225,39 +212,26 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
       if (!asset.base64) return;
       uri = `data:${asset.mimeType ?? "image/jpeg"};base64,${asset.base64}`;
     }
-    setAvatarUri(uri);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEYS.avatar, uri);
-    } catch {
-      // Keep the in-memory photo even if persisting fails.
-    }
-    // Publish to the profile so friends see it too; offline picks are
-    // reconciled on the next app launch.
-    try {
-      const session = await getPersistedSession();
-      if (session?.user) {
-        await uploadAvatarToProfile(session.user.id, uri);
-      }
-    } catch {
-      // Best-effort; the launch reconcile retries.
-    }
+    // Shows everywhere at once, then publishes so friends see it too;
+    // an offline pick uploads on the next launch.
+    const session = await getPersistedSession().catch(() => null);
+    await saveMyAvatar(uri, session?.user.id ?? null);
     void haptics.success();
   };
   const activeGoalCount = activeGoals.length;
   const bestStreak = React.useMemo(() => {
     let best = 0;
-    for (const goal of allGoals) {
+    for (const goal of goals) {
       for (const task of goal.tasks) {
         best = Math.max(best, getGoalStreak(task));
       }
     }
     return best;
-  }, [allGoals]);
+  }, [goals]);
 
-  const sharedGoalCountFor = (friendUserId: string): number =>
-    allGoals.filter((goal) =>
-      goal.members?.some((member) => member.userId === friendUserId),
-    ).length;
+  // How many goals tapping a friend opens.
+  const publicGoalCountFor = (friendUserId: string): number =>
+    getFriendPublicGoals(friendGoals, friendUserId).length;
 
   // Silent refresh whenever the tab gains focus; the persisted cache stays
   // until it works.
@@ -357,7 +331,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
             void haptics.warning();
             Alert.alert(
               "Unfriend?",
-              `Remove ${friend.displayName} from your friends. Shared goals stay until either of you leaves them.`,
+              `Remove ${friend.displayName} from your friends. You'll stop seeing each other's public goals.`,
               [
                 { text: "Cancel", style: "cancel" },
                 {
@@ -405,11 +379,8 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
           onPress: async () => {
             try {
               await signOut();
-              // The photo belongs to the signed-out account; don't let the next
-              // sign-in upload it to a different profile.
-              await AsyncStorage.removeItem(STORAGE_KEYS.avatar).catch(
-                () => {},
-              );
+              // The photo belongs to the signed-out account.
+              await clearMyAvatar();
               setSettingsVisible(false);
             } catch {
               Alert.alert("Error", "Failed to sign out. Please try again.");
@@ -435,10 +406,10 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
               await haptics.destructive();
               await deleteCurrentAccount();
               await useStore.persist.clearStorage();
+              await clearMyAvatar();
               await AsyncStorage.removeItem(APP_TOUR_STORAGE_KEY);
               await AsyncStorage.removeItem(LEGACY_ONBOARDING_STORAGE_KEY);
               setGoals([]);
-              setSharedGoals([]);
               setSocialGraph([], [], []);
               setAccount(null);
               setCloudSyncEnabled(false);
@@ -834,7 +805,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
           </View>
           {friends.length > 0 ? (
             friends.map((friend) => {
-              const sharedCount = sharedGoalCountFor(friend.userId);
+              const goalCount = publicGoalCountFor(friend.userId);
               return (
                 <Pressable
                   key={friend.userId}
@@ -864,7 +835,9 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                       {friend.displayName}
                     </Text>
                     <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
-                      {sharedCount} shared goal{sharedCount === 1 ? "" : "s"}
+                      {goalCount > 0
+                        ? `${goalCount} goal${goalCount === 1 ? "" : "s"}`
+                        : `@${friend.username}`}
                     </Text>
                   </View>
                   <IconButton
@@ -893,7 +866,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                 No friends yet
               </Text>
               <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
-                Find people to share goals and keep each other on track.
+                Find people to follow each other&apos;s goals.
               </Text>
             </Pressable>
           )}

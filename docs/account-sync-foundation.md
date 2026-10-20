@@ -40,5 +40,5 @@ accepted or owned cloud data appears.
 
 Delete Account removes local app data, synced OnTrack rows, and the Supabase
 Auth user through the `delete-account` edge function. Auth-user deletion
-cascades through `profiles` to goals, tasks, completions, friendships,
-memberships, and commitments.
+cascades through `profiles` to goals, tasks, completions, friendships, and
+commitments.

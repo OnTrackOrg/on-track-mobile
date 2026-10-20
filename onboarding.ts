@@ -14,7 +14,7 @@ export const LEGACY_ONBOARDING_STORAGE_KEY = STORAGE_KEYS.onboardingComplete;
  * The tour is for first-time users only. It shows when this device has not
  * completed it AND the signed-in account has no existing data.
  *
- * Existing data = any goal (owned or shared, achieved or not) known after
+ * Existing data = any goal (achieved or not) known after
  * the session's first sync, or already persisted locally for this account.
  * So an established account that reinstalls or moves to a new device skips
  * the tour; App.tsx then writes the device flag so later launches do not

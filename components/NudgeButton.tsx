@@ -1,5 +1,5 @@
 import React from "react";
-import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, Text } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
@@ -15,9 +15,9 @@ type NudgeButtonProps = {
   recipientUserId: string;
   recipientName: string;
   goalId: string;
-  // "icon" is the 30pt circle used in member rows; "pill" adds a label.
-  variant?: "icon" | "pill";
   color?: string;
+  // Fires once a nudge goes out, so a parent can mark the goal as nudged.
+  onSent?: () => void;
 };
 
 type Status = "idle" | "sending" | "sent" | "limited";
@@ -26,16 +26,17 @@ const formatWait = (minutes: number) =>
   minutes >= 60 ? "1h" : `${Math.max(1, minutes)}m`;
 
 /**
- * One tap sends the nudge — no composer, no confirmation. The button turns
- * into a checkmark once sent and into a wait time if the hourly limit is
- * hit; both are the only explanation the user gets.
+ * The friend page's full-width "Nudge Maya" button. One tap sends the
+ * nudge — no composer, no confirmation. It turns into "Nudged Maya" once
+ * sent and into a wait time if the hourly limit is hit; both are the only
+ * explanation the user gets.
  */
 export default function NudgeButton({
   recipientUserId,
   recipientName,
   goalId,
-  variant = "icon",
   color,
+  onSent,
 }: NudgeButtonProps) {
   const { theme } = useTheme();
   const accent = color ?? theme.primary;
@@ -63,6 +64,7 @@ export default function NudgeButton({
       await sendNudge(recipientUserId, goalId);
       void haptics.success();
       setStatus("sent");
+      onSent?.();
     } catch (error) {
       if (error instanceof NudgeRateLimitError) {
         void haptics.warning();
@@ -88,86 +90,44 @@ export default function NudgeButton({
       : status === "limited"
         ? "time-outline"
         : "megaphone-outline";
-  const iconColor = done ? theme.textSecondary : accent;
-  const label =
-    status === "sent"
-      ? "Nudged"
-      : status === "limited"
-        ? formatWait(waitMinutes)
-        : "Nudge";
-
-  if (variant === "pill") {
-    return (
-      <Pressable
-        accessibilityLabel={`Nudge ${recipientName}`}
-        onPress={() => void send()}
-        hitSlop={6}
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 5,
-          paddingHorizontal: 12,
-          paddingVertical: 7,
-          borderRadius: 9999,
-          backgroundColor: done
-            ? withAlpha(theme.textSecondary, 0.12)
-            : withAlpha(accent, 0.14),
-        }}
-      >
-        {status === "sending" ? (
-          <ActivityIndicator size="small" color={accent} />
-        ) : (
-          <Ionicons name={iconName} size={14} color={iconColor} />
-        )}
-        <Text
-          style={{
-            color: done ? theme.textSecondary : accent,
-            fontWeight: "700",
-            fontSize: 13,
-          }}
-        >
-          {label}
-        </Text>
-      </Pressable>
-    );
-  }
-
+  const firstName = recipientName.split(" ")[0];
   return (
-    <View style={{ alignItems: "center", gap: 2 }}>
-      <Pressable
-        accessibilityLabel={`Nudge ${recipientName}`}
-        onPress={() => void send()}
-        hitSlop={6}
+    <Pressable
+      accessibilityLabel={`Nudge ${recipientName}`}
+      onPress={() => void send()}
+      style={{
+        flex: 1,
+        height: 50,
+        borderRadius: 9999,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        backgroundColor: done ? withAlpha(theme.textSecondary, 0.12) : accent,
+      }}
+    >
+      {status === "sending" ? (
+        <ActivityIndicator size="small" color="#ffffff" />
+      ) : (
+        <Ionicons
+          name={iconName}
+          size={18}
+          color={done ? theme.textSecondary : "#ffffff"}
+        />
+      )}
+      <Text
         style={{
-          width: 30,
-          height: 30,
-          borderRadius: 15,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: done
-            ? withAlpha(theme.textSecondary, 0.12)
-            : withAlpha(accent, 0.14),
+          fontSize: 16,
+          fontWeight: "700",
+          color: done ? theme.textSecondary : "#ffffff",
         }}
       >
-        {status === "sending" ? (
-          <ActivityIndicator size="small" color={accent} />
-        ) : (
-          <Ionicons name={iconName} size={15} color={iconColor} />
-        )}
-      </Pressable>
-      {status === "limited" ? (
-        <Text
-          style={{
-            fontSize: 9,
-            fontWeight: "700",
-            color: theme.textSecondary,
-            position: "absolute",
-            top: 31,
-          }}
-        >
-          {formatWait(waitMinutes)}
-        </Text>
-      ) : null}
-    </View>
+        {status === "sent"
+          ? `Nudged ${firstName}`
+          : status === "limited"
+            ? `Nudge again in ${formatWait(waitMinutes)}`
+            : `Nudge ${firstName}`}
+      </Text>
+    </Pressable>
   );
 }

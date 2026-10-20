@@ -1,6 +1,5 @@
 import React from "react";
 import { Image, Text, View, ViewStyle } from "react-native";
-import { useTheme } from "../contexts/ThemeContext";
 
 // Fixed palette (saturated mid-tones, readable with white text in both themes).
 const PALETTE = [
@@ -12,7 +11,7 @@ const PALETTE = [
   "#ec4899",
 ];
 
-const colorForUserId = (userId: string): string => {
+export const colorForUserId = (userId: string): string => {
   let hash = 0;
   for (let i = 0; i < userId.length; i++) {
     hash = (hash * 31 + userId.charCodeAt(i)) >>> 0;
@@ -29,7 +28,7 @@ const initialsFor = (displayName: string): string => {
     .join("");
 };
 
-const SIZES = { sm: 24, md: 36, lg: 72 } as const;
+const SIZES = { sm: 24, md: 36, picker: 48, lg: 72 } as const;
 
 export type AvatarSize = keyof typeof SIZES;
 
@@ -86,65 +85,6 @@ export default function Avatar({
       >
         {initialsFor(displayName)}
       </Text>
-    </View>
-  );
-}
-
-export function AvatarStack({
-  users,
-  size = "sm",
-  max = 4,
-}: {
-  users: AvatarUser[];
-  size?: AvatarSize;
-  max?: number;
-}) {
-  const { theme } = useTheme();
-  const px = SIZES[size];
-  const visible = users.slice(0, max);
-  const overflow = users.length - visible.length;
-
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center" }}>
-      {visible.map((user, index) => (
-        <Avatar
-          key={user.userId}
-          userId={user.userId}
-          displayName={user.displayName}
-          avatarUri={user.avatarUri}
-          size={size}
-          style={{
-            marginLeft: index === 0 ? 0 : -px / 3,
-            borderWidth: 2,
-            borderColor: theme.surface,
-          }}
-        />
-      ))}
-      {overflow > 0 && (
-        <View
-          style={{
-            width: px,
-            height: px,
-            borderRadius: px / 2,
-            marginLeft: visible.length > 0 ? -px / 3 : 0,
-            backgroundColor: theme.border,
-            borderWidth: 2,
-            borderColor: theme.surface,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Text
-            style={{
-              color: theme.text,
-              fontWeight: "700",
-              fontSize: px * 0.34,
-            }}
-          >
-            +{overflow}
-          </Text>
-        </View>
-      )}
     </View>
   );
 }

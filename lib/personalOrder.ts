@@ -3,16 +3,14 @@ import { Goal } from "../types";
 /**
  * A user's private ordering of goals and of the tasks inside each goal.
  *
- * It is an overlay on top of the shared data, never a rewrite of it: ids
- * listed here come first, in this order, and anything not listed (a task a
- * friend just added, a goal created on another device) keeps its default
- * place after them. Ids that no longer exist are skipped, so a stale list can
- * never hide anything. Because it is an overlay, reordering never touches
- * `goals.position` / `tasks.position`, which are shared between the members
- * of a goal, so one member's order is invisible to the others.
+ * It is an overlay on top of the synced data, never a rewrite of it: ids
+ * listed here come first, in this order, and anything not listed (a goal
+ * created on another device) keeps its default place after them. Ids that no
+ * longer exist are skipped, so a stale list can never hide anything.
+ * Reordering never touches `goals.position` / `tasks.position`.
  */
 export type PersonalOrder = {
-  /** Goal ids, top to bottom, across owned and shared goals. */
+  /** Goal ids, top to bottom. */
   goals: string[];
   /** Task ids, top to bottom, keyed by goal id. */
   tasks: Record<string, string[]>;

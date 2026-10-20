@@ -1,48 +1,26 @@
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { Goal } from "../types";
-import { getMemberAdherence, hasGoalStarted } from "../store";
+import { hasGoalStarted } from "../store";
 import { supabase } from "./supabase";
 
-export type NudgeCandidate = {
-  goal: Goal;
-  adherence: number;
-  // true when I follow this goal only because it is public (not a member).
-  isPublicOnly: boolean;
-};
-
-const isParticipant = (goal: Goal, userId: string): boolean =>
-  goal.ownerUserId === userId ||
-  Boolean(goal.members?.some((member) => member.userId === userId));
-
 /**
- * Every active goal a friend is part of that I can see is nudgeable: goals
- * we share as members, plus their public goals. Encouragement isn't
- * reserved for friends who are behind; the list is sorted so the goals that
- * could use a boost most come first.
+ * A friend's goals that show on their page: public, started and not yet
+ * achieved, in their own order. Every one of them is nudgeable;
+ * encouragement isn't reserved for friends who are behind.
  */
-export const getNudgeCandidates = (
-  goals: Goal[],
+export const getFriendPublicGoals = (
+  friendGoals: Goal[],
   friendUserId: string,
   referenceDate = new Date(),
-  myUserId?: string,
-): NudgeCandidate[] =>
-  goals
-    .filter(
-      (goal) =>
-        goal.completedAt === undefined &&
-        // Drafts and scheduled goals aren't due yet — nothing to nudge about.
-        hasGoalStarted(goal) &&
-        isParticipant(goal, friendUserId),
-    )
-    .map((goal) => ({
-      goal,
-      adherence: getMemberAdherence(goal, friendUserId, referenceDate),
-      isPublicOnly: myUserId !== undefined && !isParticipant(goal, myUserId),
-    }))
-    .sort(
-      (a, b) =>
-        a.adherence - b.adherence || a.goal.title.localeCompare(b.goal.title),
-    );
+): Goal[] =>
+  friendGoals.filter(
+    (goal) =>
+      goal.ownerUserId === friendUserId &&
+      goal.isPublic === true &&
+      goal.completedAt === undefined &&
+      // Drafts and scheduled goals aren't due yet — nothing to nudge about.
+      hasGoalStarted(goal, referenceDate),
+  );
 
 /**
  * One nudge per friend + goal per hour. The server enforces this (nudges
