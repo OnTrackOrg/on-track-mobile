@@ -22,6 +22,7 @@ import { RootStackParamList } from "../navigation";
 import { card } from "./ui";
 import Avatar from "./Avatar";
 import { haptics } from "../utils/haptics";
+import { withAlpha } from "../utils/color";
 
 type FindPeopleProps = NativeStackScreenProps<RootStackParamList, "FindPeople">;
 
@@ -107,29 +108,39 @@ export default function FindPeopleScreen(_props: FindPeopleProps) {
   };
 
   const trimmedQuery = query.trim();
-  const pill = (label: string, active: boolean, onPress?: () => void) => (
+  // "Add" is the one real action in a row. "Friends" / "Requested" are
+  // read-only status badges, deliberately muted so they don't read as buttons.
+  const addPill = (onPress: () => void) => (
     <Pressable
       onPress={onPress}
-      disabled={!onPress}
+      accessibilityRole="button"
       style={{
         borderRadius: 9999,
         paddingHorizontal: 12,
         paddingVertical: 7,
-        backgroundColor: active ? theme.primary : "transparent",
-        borderWidth: active ? 0 : 1,
-        borderColor: theme.border,
+        backgroundColor: theme.primary,
+      }}
+    >
+      <Text style={{ fontSize: 13, fontWeight: "700", color: "#ffffff" }}>
+        Add
+      </Text>
+    </Pressable>
+  );
+  const statusBadge = (label: string) => (
+    <View
+      style={{
+        borderRadius: 9999,
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        backgroundColor: withAlpha(theme.textSecondary, 0.12),
       }}
     >
       <Text
-        style={{
-          fontSize: 13,
-          fontWeight: "700",
-          color: active ? "#ffffff" : theme.textSecondary,
-        }}
+        style={{ fontSize: 12, fontWeight: "600", color: theme.textSecondary }}
       >
         {label}
       </Text>
-    </Pressable>
+    </View>
   );
 
   return (
@@ -217,10 +228,10 @@ export default function FindPeopleScreen(_props: FindPeopleProps) {
                   </Text>
                 </View>
                 {relationship === "friends"
-                  ? pill("Friends", false)
+                  ? statusBadge("Friends")
                   : relationship === "requested"
-                    ? pill("Requested", false)
-                    : pill("Add", true, () => void handleAddFriend(person))}
+                    ? statusBadge("Requested")
+                    : addPill(() => void handleAddFriend(person))}
               </View>
             );
           })

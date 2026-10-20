@@ -10,7 +10,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
-import { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import { format } from "date-fns";
 import Animated, {
   Easing,
@@ -38,7 +37,6 @@ import { haptics } from "../utils/haptics";
 import { getGoalColor } from "../utils/goalColors";
 import { mix, withAlpha } from "../utils/color";
 import { shouldPlayEntrance } from "../utils/entrance";
-import { TabParamList } from "../navigation";
 import TrackingDateControls from "./TrackingDateControls";
 import ProgressRing from "./ProgressRing";
 import { TourAnchor } from "./tour/TourAnchor";
@@ -46,8 +44,6 @@ import Confetti from "./Confetti";
 import { AvatarStack } from "./Avatar";
 import { card } from "./ui";
 import { Task } from "../types";
-
-type TodayProps = BottomTabScreenProps<TabParamList, "Today">;
 
 const frequencyLabel = (task: Task): string => describeTaskSchedule(task);
 
@@ -272,7 +268,7 @@ function TaskRow({
   );
 }
 
-export default function TodayScreen({ navigation }: TodayProps) {
+export default function TodayScreen() {
   const goals = useStore((s) => s.goals);
   const sharedGoals = useStore((s) => s.sharedGoals);
   const selectedDate = useStore((s) => s.selectedDate);
@@ -497,29 +493,12 @@ export default function TodayScreen({ navigation }: TodayProps) {
               >
                 {postponed.length > 0 ? "Day cleared" : "Nothing scheduled"}
               </Text>
-              <Text style={{ color: theme.textSecondary, textAlign: "center" }}>
-                {postponed.length > 0
-                  ? "Everything left was pushed off to another day."
-                  : "No tasks are due on this day. Set up a goal to get started."}
-              </Text>
-              {postponed.length === 0 ? (
-                <Pressable
-                  onPress={() => {
-                    void haptics.navigate();
-                    navigation.navigate("Goals");
-                  }}
-                  style={{
-                    marginTop: 4,
-                    paddingHorizontal: 16,
-                    paddingVertical: 8,
-                    borderRadius: 9999,
-                    backgroundColor: theme.primary,
-                  }}
+              {postponed.length > 0 ? (
+                <Text
+                  style={{ color: theme.textSecondary, textAlign: "center" }}
                 >
-                  <Text style={{ color: "#ffffff", fontWeight: "700" }}>
-                    Go to Goals
-                  </Text>
-                </Pressable>
+                  Everything left was pushed off to another day.
+                </Text>
               ) : null}
             </Animated.View>
           </TourAnchor>

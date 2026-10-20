@@ -18,6 +18,9 @@ interface HMProps {
   historyStartDay?: string;
   values: Record<string, number>; // yyyy-MM-dd -> count
   referenceDate?: Date;
+  // The last day in the grid. Defaults to today; an achieved goal passes
+  // the day it was achieved so its history stays frozen there.
+  endDate?: Date;
   valueMode?: "count" | "ratio";
   color?: string; // accent for filled cells; defaults to the legacy greens
 }
@@ -50,13 +53,23 @@ function Heatmap({
   historyStartDay,
   values,
   referenceDate = new Date(),
+  endDate,
   valueMode = "count",
   color,
 }: HMProps) {
   const scrollViewRef = useRef<ScrollView>(null);
   const { theme } = useTheme();
   const focusDate = referenceDate;
-  const today = useMemo(() => new Date(), []);
+  // Keyed by day so a caller passing a fresh Date each render does not
+  // rebuild the grid (and re-fire the autoscroll) every time.
+  const endDayKey = endDate ? format(endDate, "yyyy-MM-dd") : undefined;
+  const gridEnd = useMemo(() => {
+    if (!endDayKey) {
+      return new Date();
+    }
+    const [year, month, day] = endDayKey.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }, [endDayKey]);
 
   // The grid reaches back to the goal's start day (scrollable all the way),
   // with a minimum window so young goals still show some context. Snap to
@@ -69,24 +82,24 @@ function Heatmap({
     const historyStart = new Date(year, month - 1, day);
     return Math.max(
       startOffsetDays,
-      differenceInCalendarDays(today, historyStart),
+      differenceInCalendarDays(gridEnd, historyStart),
     );
-  }, [historyStartDay, startOffsetDays, today]);
+  }, [historyStartDay, startOffsetDays, gridEnd]);
 
   // Built in one memo so `days` is referentially stable across re-renders;
   // a fresh array here would re-fire the autoscroll effect and yank the
   // user back while they are scrolling through history.
   const days = useMemo(() => {
-    const roughStart = subDays(today, offsetDays);
+    const roughStart = subDays(gridEnd, offsetDays);
     const start = startOfWeek(roughStart, { weekStartsOn: 0 }); // 0 = Sunday
     const dayKeys: string[] = [];
 
-    for (let d = new Date(start); d <= today; d = addDays(d, 1)) {
+    for (let d = new Date(start); d <= gridEnd; d = addDays(d, 1)) {
       dayKeys.push(format(d, "yyyy-MM-dd"));
     }
 
     return dayKeys;
-  }, [offsetDays, today]);
+  }, [offsetDays, gridEnd]);
 
   const cols = Math.ceil(days.length / 7);
   const cell = 14;
@@ -127,7 +140,10 @@ function Heatmap({
   let currentMonth = "";
 
   days.forEach((d, i) => {
-    const date = new Date(d);
+    // Parse the local day key as a local date; `new Date("yyyy-MM-dd")` is
+    // UTC midnight and lands on the previous day west of Greenwich.
+    const [year, month, day] = d.split("-").map(Number);
+    const date = new Date(year, month - 1, day);
     const monthYear = format(date, showYears ? "MMM ''yy" : "MMM");
     const col = Math.floor(i / 7);
 

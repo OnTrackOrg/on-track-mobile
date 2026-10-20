@@ -325,14 +325,9 @@ export default function TaskEditorModal({
                   >
                     <Ionicons name="remove" size={18} color={theme.text} />
                   </Pressable>
+                  {/* Read-only value between the two real buttons. */}
                   <View
                     style={{
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                      borderRadius: 8,
-                      paddingHorizontal: 16,
-                      paddingVertical: 10,
-                      backgroundColor: theme.background,
                       minWidth: 84,
                       alignItems: "center",
                       justifyContent: "center",
@@ -341,7 +336,7 @@ export default function TaskEditorModal({
                     <Text
                       style={{
                         color: theme.text,
-                        fontWeight: "700",
+                        fontWeight: "800",
                         fontSize: 16,
                       }}
                     >

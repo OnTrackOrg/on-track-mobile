@@ -12,6 +12,7 @@ export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabParamList>;
   Goal: { goalId: string };
   NewGoal: undefined;
+  AchievedGoals: undefined;
   Friend: { friend: FriendProfile };
   GoalMembers: { goalId: string };
   FindPeople: undefined;

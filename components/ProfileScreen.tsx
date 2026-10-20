@@ -8,10 +8,12 @@ import {
   Switch,
   Modal,
   Image,
+  AccessibilityInfo,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { format } from "date-fns";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { CompositeScreenProps, useFocusEffect } from "@react-navigation/native";
@@ -55,7 +57,7 @@ import {
   APP_TOUR_STORAGE_KEY,
   LEGACY_ONBOARDING_STORAGE_KEY,
 } from "../onboarding";
-import { FriendProfile, FriendRequest } from "../types";
+import { FriendProfile, FriendRequest, Goal } from "../types";
 
 type ProfileProps = CompositeScreenProps<
   BottomTabScreenProps<TabParamList, "Profile">,
@@ -83,6 +85,17 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
   const { theme, isDark, toggleTheme, themeId, setThemeId } = useTheme();
   // "Copied" feedback for the AI-assistant setup prompt.
   const [copiedMcpPrompt, setCopiedMcpPrompt] = useState(false);
+  // Pending "Copied" reset; cleared before rescheduling and on unmount so a
+  // quick second tap keeps its full feedback window.
+  const copiedMcpTimer = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  React.useEffect(
+    () => () => {
+      if (copiedMcpTimer.current) clearTimeout(copiedMcpTimer.current);
+    },
+    [],
+  );
   const [settingsVisible, setSettingsVisible] = useState(false);
   // Account card: rename + linked sign-in methods.
   const [isEditingName, setIsEditingName] = useState(false);
@@ -165,8 +178,17 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
     [allGoals],
   );
   const achievedGoals = React.useMemo(
-    () => allGoals.filter((goal) => goal.completedAt !== undefined),
+    () =>
+      allGoals.filter(
+        (goal): goal is Goal & { completedAt: number } =>
+          goal.completedAt !== undefined,
+      ),
     [allGoals],
+  );
+  // Newest achievement headlines the stacked card; undefined when none.
+  const latestAchieved = React.useMemo(
+    () => [...achievedGoals].sort((a, b) => b.completedAt - a.completedAt)[0],
+    [achievedGoals],
   );
 
   // Profile photo (redesign): stored locally as a data URI, like the mock.
@@ -574,7 +596,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
               {account.displayName}
             </Text>
             <Text style={{ color: theme.textSecondary }}>
-              @{account.username} · tap photo to change
+              @{account.username}
             </Text>
           </View>
 
@@ -614,61 +636,101 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
             ))}
           </View>
 
-          {achievedGoals.length > 0 ? (
-            <>
-              <Text
-                style={{
-                  ...SECTION_HEADER,
-                  color: theme.textSecondary,
-                  marginTop: 8,
-                }}
-              >
-                ACHIEVED
-              </Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 14 }}>
-                {achievedGoals.map((goal) => (
-                  <Pressable
-                    key={goal.id}
-                    onPress={() => {
-                      void haptics.navigate();
-                      navigation.navigate("Goal", { goalId: goal.id });
+          {/* Achieved: one stacked card that opens the full list. */}
+          {latestAchieved ? (
+            <Pressable
+              accessibilityLabel={`Achieved goals, ${achievedGoals.length}. Latest: ${latestAchieved.title}, ${format(new Date(latestAchieved.completedAt), "MMM d, yyyy")}`}
+              onPress={() => {
+                void haptics.navigate();
+                navigation.navigate("AchievedGoals");
+              }}
+              style={{
+                ...card(theme, isDark),
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+                marginTop: 4,
+              }}
+            >
+              <View style={{ width: 44, height: 44 }}>
+                {/* Back two cards peek out up/right; the front holds the trophy. */}
+                {[
+                  { offset: 6, opacity: 0.35 },
+                  { offset: 3, opacity: 0.65 },
+                  { offset: 0, opacity: 1 },
+                ].map(({ offset, opacity }) => (
+                  <View
+                    key={offset}
+                    style={{
+                      position: "absolute",
+                      left: offset,
+                      top: 8 - offset,
+                      width: 36,
+                      height: 36,
+                      borderRadius: 8,
+                      opacity,
+                      backgroundColor: mix(theme.warning, 0.14, theme.surface),
+                      borderWidth: 1.5,
+                      borderColor: withAlpha(theme.warning, 0.45),
+                      alignItems: "center",
+                      justifyContent: "center",
                     }}
-                    style={{ alignItems: "center", gap: 5, width: 64 }}
                   >
-                    <View
-                      style={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 24,
-                        backgroundColor: mix(
-                          theme.warning,
-                          0.14,
-                          theme.surface,
-                        ),
-                        borderWidth: 1.5,
-                        borderColor: withAlpha(theme.warning, 0.45),
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Ionicons name="trophy" size={20} color={theme.warning} />
-                    </View>
-                    <Text
-                      numberOfLines={2}
-                      style={{
-                        fontSize: 10,
-                        fontWeight: "600",
-                        color: theme.text,
-                        textAlign: "center",
-                        lineHeight: 12,
-                      }}
-                    >
-                      {goal.title}
-                    </Text>
-                  </Pressable>
+                    {offset === 0 ? (
+                      <Ionicons name="trophy" size={18} color={theme.warning} />
+                    ) : null}
+                  </View>
                 ))}
               </View>
-            </>
+              <View style={{ flex: 1, gap: 3 }}>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      fontWeight: "700",
+                      color: theme.text,
+                    }}
+                  >
+                    Achieved
+                  </Text>
+                  <View
+                    style={{
+                      minWidth: 18,
+                      height: 18,
+                      borderRadius: 9,
+                      paddingHorizontal: 5,
+                      backgroundColor: withAlpha(theme.textSecondary, 0.15),
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: theme.textSecondary,
+                        fontSize: 11,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {achievedGoals.length}
+                    </Text>
+                  </View>
+                </View>
+                <Text
+                  numberOfLines={1}
+                  style={{ color: theme.textSecondary, fontSize: 13 }}
+                >
+                  {latestAchieved.title} ·{" "}
+                  {format(new Date(latestAchieved.completedAt), "MMM d, yyyy")}
+                </Text>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={theme.textSecondary}
+              />
+            </Pressable>
           ) : null}
 
           {friendRequests.length > 0 && (
@@ -764,27 +826,17 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                 void haptics.navigate();
                 navigation.navigate("FindPeople");
               }}
-              hitSlop={6}
+              hitSlop={8}
               style={{
-                flexDirection: "row",
+                width: 30,
+                height: 30,
+                borderRadius: 15,
                 alignItems: "center",
-                gap: 4,
-                paddingHorizontal: 10,
-                paddingVertical: 5,
-                borderRadius: 9999,
+                justifyContent: "center",
                 backgroundColor: withAlpha(theme.primary, 0.12),
               }}
             >
-              <Ionicons name="search" size={12} color={theme.primary} />
-              <Text
-                style={{
-                  color: theme.primary,
-                  fontWeight: "700",
-                  fontSize: 12,
-                }}
-              >
-                Find people
-              </Text>
+              <Ionicons name="search" size={15} color={theme.primary} />
             </Pressable>
           </View>
           {friends.length > 0 ? (
@@ -852,87 +904,6 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
               </Text>
             </Pressable>
           )}
-
-          <Text
-            style={{
-              ...SECTION_HEADER,
-              color: theme.textSecondary,
-              marginTop: 8,
-            }}
-          >
-            AI ASSISTANT
-          </Text>
-          <View
-            style={{
-              borderWidth: 1,
-              borderColor: theme.border,
-              borderRadius: 12,
-              padding: 14,
-              backgroundColor: theme.surface,
-              gap: 12,
-            }}
-          >
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <Ionicons name="sparkles" size={18} color={theme.primary} />
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: theme.text, fontWeight: "700" }}>
-                  Use OnTrack from your AI assistant
-                </Text>
-                <Text
-                  style={{
-                    color: theme.textSecondary,
-                    fontSize: 13,
-                    lineHeight: 19,
-                    marginTop: 3,
-                  }}
-                >
-                  Claude, ChatGPT, and other MCP clients can read your goals,
-                  log completions, and nudge friends for you. Copy the setup
-                  prompt and paste it to your assistant — it walks the agent
-                  through connecting and signing in as you.
-                </Text>
-              </View>
-            </View>
-            <Pressable
-              onPress={() => {
-                void (async () => {
-                  await Clipboard.setStringAsync(
-                    buildMcpConnectPrompt(supabaseBaseUrl),
-                  );
-                  void haptics.success();
-                  setCopiedMcpPrompt(true);
-                  setTimeout(() => setCopiedMcpPrompt(false), 2500);
-                })();
-              }}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                paddingVertical: 11,
-                borderRadius: 10,
-                backgroundColor: copiedMcpPrompt
-                  ? withAlpha(theme.success, 0.15)
-                  : theme.primary,
-              }}
-            >
-              <Ionicons
-                name={copiedMcpPrompt ? "checkmark" : "copy-outline"}
-                size={15}
-                color={copiedMcpPrompt ? theme.success : "#ffffff"}
-              />
-              <Text
-                style={{
-                  color: copiedMcpPrompt ? theme.success : "#ffffff",
-                  fontWeight: "700",
-                }}
-              >
-                {copiedMcpPrompt
-                  ? "Copied — paste it to your assistant"
-                  : "Copy setup prompt"}
-              </Text>
-            </Pressable>
-          </View>
 
           <View style={{ height: 20 }} />
         </View>
@@ -1332,6 +1303,62 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                 <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
                   Learn goals, tasks, daily views, heatmaps, and streaks.
                 </Text>
+              </Pressable>
+
+              {/* AI assistant: copies the MCP setup prompt to the clipboard. */}
+              <Pressable
+                accessibilityLabel={
+                  copiedMcpPrompt
+                    ? "Copied. Paste it to your assistant."
+                    : "Copy AI assistant setup prompt"
+                }
+                onPress={() => {
+                  void (async () => {
+                    await Clipboard.setStringAsync(
+                      buildMcpConnectPrompt(supabaseBaseUrl),
+                    );
+                    void haptics.success();
+                    setCopiedMcpPrompt(true);
+                    AccessibilityInfo.announceForAccessibility(
+                      "Copied. Paste it to your assistant.",
+                    );
+                    if (copiedMcpTimer.current) {
+                      clearTimeout(copiedMcpTimer.current);
+                    }
+                    copiedMcpTimer.current = setTimeout(() => {
+                      copiedMcpTimer.current = null;
+                      setCopiedMcpPrompt(false);
+                    }, 2500);
+                  })();
+                }}
+                style={{
+                  ...settingsCardStyle,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      color: theme.text,
+                      fontWeight: "600",
+                      fontSize: 16,
+                    }}
+                  >
+                    {copiedMcpPrompt ? "Copied" : "AI assistant"}
+                  </Text>
+                  <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
+                    {copiedMcpPrompt
+                      ? "Paste it to your assistant."
+                      : "Copy the setup prompt for Claude, ChatGPT, or any MCP client."}
+                  </Text>
+                </View>
+                <Ionicons
+                  name={copiedMcpPrompt ? "checkmark" : "copy-outline"}
+                  size={16}
+                  color={copiedMcpPrompt ? theme.success : theme.textSecondary}
+                />
               </Pressable>
 
               <Pressable

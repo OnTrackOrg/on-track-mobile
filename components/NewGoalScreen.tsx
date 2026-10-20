@@ -1,33 +1,35 @@
 import React from "react";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import {
-  ActivityIndicator,
-  Text,
-  View,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
-  TextInput,
-  Alert,
   ScrollView,
+  Text,
+  TextInput,
+  TextStyle,
+  View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { addDays, format } from "date-fns";
+import { format } from "date-fns";
+import Animated, { FadeInRight, FadeOutLeft } from "react-native-reanimated";
 import { useStore } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
 import { withAlpha } from "../utils/color";
 import { RootStackParamList } from "../navigation";
-import LabeledTextField from "./LabeledTextField";
-import Avatar from "./Avatar";
 import DatePickerModal from "./DatePickerModal";
 import TaskEditorModal, { TaskEditorValue } from "./TaskEditorModal";
-import { CustomFrequency, Frequency } from "../types";
-import { addMemberToGoal, inviteFriendToGoal } from "../lib/social";
-import { getPersistedSession } from "../lib/auth";
 import GoalColorPicker from "./GoalColorPicker";
+import OptionPair from "./OptionPair";
+import { CustomFrequency, Frequency } from "../types";
 import { GOAL_PALETTE } from "../utils/goalColors";
 import { describeTaskSchedule } from "../lib/taskSchedule";
-import { generateGoalDraft } from "../lib/goalDraft";
 
 type NewGoalProps = NativeStackScreenProps<RootStackParamList, "NewGoal">;
 
@@ -38,58 +40,130 @@ type DraftTask = {
   customFrequency?: CustomFrequency;
 };
 
+// One question per step: title, target, dates, visibility, tasks.
+const STEP_COUNT = 5;
+const LAST_STEP = STEP_COUNT - 1;
+// Steps past this one have no text field, so the keyboard should go away.
+const LAST_TYPING_STEP = 1;
+// The native header is the status bar plus the standard iOS nav bar.
+const IOS_NAV_BAR_HEIGHT = 44;
+
+const formatDay = (day: string) =>
+  format(new Date(`${day}T00:00:00`), "MMM d, yyyy");
+
 export default function NewGoalScreen({ navigation }: NewGoalProps) {
   const addGoal = useStore((s) => s.addGoal);
   const addTask = useStore((s) => s.addTask);
-  const setGoals = useStore((s) => s.setGoals);
-  const account = useStore((s) => s.account);
-  const friends = useStore((s) => s.friends);
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
 
+  const [step, setStep] = React.useState(0);
   const [title, setTitle] = React.useState("");
   const [target, setTarget] = React.useState("");
-  const [draftTasks, setDraftTasks] = React.useState<DraftTask[]>([]);
-  const [selectedFriendIds, setSelectedFriendIds] = React.useState<string[]>(
-    [],
-  );
-  const [isAddingTask, setIsAddingTask] = React.useState(false);
-  const [isCreating, setIsCreating] = React.useState(false);
-
-  // AI-assisted drafting (issue #161): describe an outcome, get an editable
-  // pre-filled form. Nothing is saved until the user taps Create/Save.
-  const [aiDescription, setAiDescription] = React.useState("");
-  const [isDrafting, setIsDrafting] = React.useState(false);
-  const [draftSource, setDraftSource] = React.useState<"ai" | "offline" | null>(
-    null,
-  );
-
-  // Goal lifecycle: start immediately, on a chosen day, or park as a draft.
-  const [startMode, setStartMode] = React.useState<
-    "now" | "scheduled" | "draft"
-  >("now");
+  const [dueDay, setDueDay] = React.useState<string | null>(null);
   const [startDay, setStartDay] = React.useState<string | null>(null);
   // Who can see it: private (default) or public to all friends.
   const [isPublic, setIsPublic] = React.useState(false);
   const [color, setColor] = React.useState<string | null>(null);
+  const [draftTasks, setDraftTasks] = React.useState<DraftTask[]>([]);
+  const [isCreating, setIsCreating] = React.useState(false);
+  const [isDuePickerOpen, setIsDuePickerOpen] = React.useState(false);
+  const [isStartPickerOpen, setIsStartPickerOpen] = React.useState(false);
   const [isColorPickerOpen, setIsColorPickerOpen] = React.useState(false);
+  const [isAddingTask, setIsAddingTask] = React.useState(false);
+  // Draft row being edited in the task editor; null while adding a new one.
+  const [editingTaskKey, setEditingTaskKey] = React.useState<string | null>(
+    null,
+  );
+  // Flipped right before the final goBack so the step guard lets it through.
+  const leavingRef = React.useRef(false);
+
+  const todayKey = format(new Date(), "yyyy-MM-dd");
   // Before the goal exists there is no id to derive "auto" from; preview
   // the auto swatch with the first palette color.
   const autoColorPreview = GOAL_PALETTE[0];
-  const [dueDay, setDueDay] = React.useState<string | null>(null);
-  const [isStartPickerOpen, setIsStartPickerOpen] = React.useState(false);
-  const [isDuePickerOpen, setIsDuePickerOpen] = React.useState(false);
-  const todayKey = format(new Date(), "yyyy-MM-dd");
+  const hasTitle = title.trim().length > 0;
+  const futureStartDay = startDay && startDay > todayKey ? startDay : null;
 
-  const canCreate = title.trim().length > 0 && !isCreating;
-  const showFriendPicker = Boolean(account) && friends.length > 0;
+  const goToStep = (next: number) => {
+    if (next > LAST_TYPING_STEP) {
+      Keyboard.dismiss();
+    }
+    setStep(next);
+  };
+
+  const advance = () => {
+    if (step < LAST_STEP) {
+      goToStep(step + 1);
+    }
+  };
+
+  // Header chevron: previous step while mid-flow, otherwise leave the screen.
+  // The swipe-back gesture is off past step 0 so it cannot drop progress.
+  React.useEffect(() => {
+    const onBack = () => {
+      if (step > 0) {
+        void haptics.navigate();
+        goToStep(step - 1);
+      } else {
+        navigation.goBack();
+      }
+    };
+    navigation.setOptions({
+      title: "New Goal",
+      gestureEnabled: step === 0,
+      headerLeft: () => (
+        <Pressable
+          onPress={onBack}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel={step > 0 ? "Previous step" : "Back"}
+        >
+          <Ionicons name="chevron-back" size={24} color={theme.text} />
+        </Pressable>
+      ),
+    });
+  }, [navigation, step, theme.text]);
+
+  // The Android hardware back button dispatches GO_BACK; treat it like the
+  // header chevron so it steps backwards instead of popping the screen.
+  React.useEffect(
+    () =>
+      navigation.addListener("beforeRemove", (event) => {
+        if (step === 0 || leavingRef.current) return;
+        const type = event.data.action.type;
+        if (type !== "GO_BACK" && type !== "POP") return;
+        event.preventDefault();
+        void haptics.navigate();
+        goToStep(step - 1);
+      }),
+    [navigation, step],
+  );
+
+  const editingDraft = editingTaskKey
+    ? draftTasks.find((task) => task.key === editingTaskKey)
+    : undefined;
+
+  const closeTaskEditor = () => {
+    setIsAddingTask(false);
+    setEditingTaskKey(null);
+  };
 
   const submitTaskEditor = (value: TaskEditorValue) => {
-    setDraftTasks((prev) => [
-      ...prev,
-      { key: `${Date.now()}-${prev.length}`, ...value },
-    ]);
+    if (editingTaskKey) {
+      setDraftTasks((prev) =>
+        prev.map((task) =>
+          task.key === editingTaskKey ? { key: task.key, ...value } : task,
+        ),
+      );
+    } else {
+      setDraftTasks((prev) => [
+        ...prev,
+        { key: `${Date.now()}-${prev.length}`, ...value },
+      ]);
+    }
     void haptics.success();
-    setIsAddingTask(false);
+    closeTaskEditor();
   };
 
   const removeDraftTask = (key: string) => {
@@ -97,101 +171,7 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
     setDraftTasks((prev) => prev.filter((task) => task.key !== key));
   };
 
-  const generateDraft = async () => {
-    const description = aiDescription.trim();
-    if (description.length < 3 || isDrafting) {
-      void haptics.error();
-      return;
-    }
-
-    setIsDrafting(true);
-    try {
-      const draft = await generateGoalDraft(description);
-      setTitle(draft.title);
-      setTarget(draft.target ?? "");
-      if (draft.durationDays) {
-        setDueDay(
-          format(addDays(new Date(), draft.durationDays), "yyyy-MM-dd"),
-        );
-      }
-      setDraftTasks(
-        draft.tasks.map((task, index) => ({
-          key: `ai-${Date.now()}-${index}`,
-          ...task,
-        })),
-      );
-      setDraftSource(draft.source);
-      void haptics.success();
-    } finally {
-      setIsDrafting(false);
-    }
-  };
-
-  const discardDraft = () => {
-    void haptics.destructive();
-    setTitle("");
-    setTarget("");
-    setDueDay(null);
-    setDraftTasks([]);
-    setDraftSource(null);
-  };
-
-  const toggleFriend = (userId: string) => {
-    void haptics.toggle();
-    setSelectedFriendIds((prev) =>
-      prev.includes(userId)
-        ? prev.filter((id) => id !== userId)
-        : [...prev, userId],
-    );
-  };
-
-  const frequencyLabel = (task: DraftTask) => describeTaskSchedule(task);
-
-  const inviteSelectedFriends = async (createdGoalId: string) => {
-    const session = await getPersistedSession();
-    const user = session?.user;
-    if (!user) {
-      throw new Error("You need to be signed in to invite friends.");
-    }
-
-    const localGoal = useStore
-      .getState()
-      .goals.find((g) => g.id === createdGoalId);
-    if (!localGoal) return;
-
-    // Ids are UUIDs from birth, so the concurrent background flush and these
-    // upserts write the same rows idempotently; nothing gets remapped.
-    for (const friendId of selectedFriendIds) {
-      await inviteFriendToGoal(localGoal, friendId, user);
-    }
-
-    const invitedFriends = friends.filter((f) =>
-      selectedFriendIds.includes(f.userId),
-    );
-    const owner = {
-      userId: user.id,
-      username: account?.username ?? "",
-      displayName: account?.displayName ?? "You",
-      isOwner: true,
-    };
-
-    // Merge the members into the CURRENT store goal (not a snapshot) so
-    // nothing mutated during the invites gets reverted.
-    setGoals(
-      useStore
-        .getState()
-        .goals.map((g) =>
-          g.id === createdGoalId
-            ? invitedFriends.reduce(
-                (acc, friend) => addMemberToGoal(acc, friend, owner),
-                g,
-              )
-            : g,
-        ),
-    );
-  };
-
-  const createGoal = async () => {
+  const createGoal = () => {
     const trimmedTitle = title.trim();
     if (!trimmedTitle || isCreating) {
       void haptics.error();
@@ -202,11 +182,7 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
 
     // addGoal returns void, so grab the freshly appended goal from the store.
     addGoal(trimmedTitle, target.trim() || undefined, {
-      isDraft: startMode === "draft",
-      startDay:
-        startMode === "scheduled" && startDay && startDay > todayKey
-          ? startDay
-          : undefined,
+      startDay: futureStartDay ?? undefined,
       dueDay: dueDay ?? undefined,
       color: color ?? undefined,
       isPublic,
@@ -220,104 +196,187 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
       addTask(created.id, draft.title, draft.frequency, draft.customFrequency);
     }
 
-    if (selectedFriendIds.length > 0) {
-      try {
-        await inviteSelectedFriends(created.id);
-      } catch (error) {
-        // The goal stays; inviting is an online one-shot the user can retry.
-        Alert.alert(
-          "Goal created, invites failed",
-          error instanceof Error
-            ? `${error.message} You can invite friends from the goal once you're back online.`
-            : "You can invite friends from the goal once you're back online.",
-        );
-      }
-    }
-
     void haptics.success();
+    leavingRef.current = true;
     navigation.goBack();
   };
 
-  return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: theme.background }}
-      edges={["bottom", "left", "right"]}
-    >
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 28 }}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* AI drafting (issue #161): optional — the manual form below works
-            exactly as before without it. */}
-        <View
-          style={{
-            borderWidth: 1,
-            borderColor: withAlpha(theme.primary, 0.35),
-            borderRadius: 12,
-            backgroundColor: withAlpha(theme.primary, 0.06),
-            padding: 12,
-            gap: 10,
-          }}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Ionicons name="sparkles" size={15} color={theme.primary} />
-            <Text style={{ fontWeight: "700", color: theme.text }}>
-              Draft it for me
-            </Text>
-          </View>
-          <TextInput
-            placeholder="Describe what you want to achieve, e.g. 'get ready for a 10k in October'"
-            placeholderTextColor={theme.textSecondary}
-            value={aiDescription}
-            onChangeText={setAiDescription}
-            multiline
-            style={{
-              borderWidth: 1,
-              borderColor: theme.border,
-              borderRadius: 10,
-              padding: 10,
-              minHeight: 56,
-              textAlignVertical: "top",
-              backgroundColor: theme.surface,
-              color: theme.text,
-            }}
-          />
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <Pressable
-              onPress={() => void generateDraft()}
-              disabled={isDrafting || aiDescription.trim().length < 3}
-              style={{
-                flex: 1,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                backgroundColor: theme.primary,
-                paddingVertical: 10,
-                borderRadius: 10,
-                opacity:
-                  isDrafting || aiDescription.trim().length < 3 ? 0.5 : 1,
+  // The one button for the current step. Null means nothing is rendered —
+  // never a greyed-out button.
+  const primaryAction = ((): { label: string; onPress: () => void } | null => {
+    switch (step) {
+      case 0:
+        return hasTitle ? { label: "Next", onPress: advance } : null;
+      case 1:
+        return { label: target.trim() ? "Next" : "Skip", onPress: advance };
+      case 2:
+        return {
+          label: dueDay || futureStartDay ? "Next" : "Skip",
+          onPress: advance,
+        };
+      case 3:
+        return { label: "Next", onPress: advance };
+      default:
+        return {
+          label: isCreating ? "Creating…" : "Create goal",
+          onPress: createGoal,
+        };
+    }
+  })();
+
+  const headline: TextStyle = {
+    fontSize: 26,
+    fontWeight: "800",
+    color: theme.text,
+  };
+  const hint: TextStyle = { fontSize: 15, color: theme.textSecondary };
+  const sectionLabel: TextStyle = {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    color: theme.textSecondary,
+  };
+  const bigInput: TextStyle = {
+    fontSize: 22,
+    fontWeight: "600",
+    color: theme.text,
+    paddingVertical: 8,
+  };
+
+  const renderStep = () => {
+    switch (step) {
+      case 0:
+        return (
+          <>
+            <Text style={headline}>What&apos;s the goal?</Text>
+            <TextInput
+              value={title}
+              onChangeText={setTitle}
+              placeholder="Run a half marathon"
+              placeholderTextColor={theme.textSecondary}
+              autoFocus
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => {
+                if (!hasTitle) {
+                  void haptics.warning();
+                  return;
+                }
+                void haptics.navigate();
+                advance();
               }}
-            >
-              {isDrafting ? (
-                <ActivityIndicator color="#ffffff" size="small" />
-              ) : (
-                <Ionicons name="sparkles-outline" size={14} color="#ffffff" />
-              )}
-              <Text style={{ color: "#ffffff", fontWeight: "700" }}>
-                {isDrafting
-                  ? "Drafting…"
-                  : draftSource
-                    ? "Draft again"
-                    : "Generate draft"}
-              </Text>
-            </Pressable>
-            {draftSource ? (
+              keyboardAppearance={isDark ? "dark" : "light"}
+              selectionColor={theme.primary}
+              style={bigInput}
+            />
+          </>
+        );
+      case 1:
+        return (
+          <>
+            <Text style={headline}>What&apos;s the target?</Text>
+            <Text style={hint}>Optional</Text>
+            <TextInput
+              value={target}
+              onChangeText={setTarget}
+              placeholder="200 lbs, 10% BF"
+              placeholderTextColor={theme.textSecondary}
+              autoFocus
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => {
+                void haptics.navigate();
+                advance();
+              }}
+              keyboardAppearance={isDark ? "dark" : "light"}
+              selectionColor={theme.primary}
+              style={bigInput}
+            />
+          </>
+        );
+      case 2:
+        return (
+          <>
+            <Text style={headline}>When should it be done?</Text>
+            <View style={{ gap: 8 }}>
+              <Text style={sectionLabel}>STARTS</Text>
+              <OptionPair
+                options={[
+                  { value: "today", label: "Today", icon: "play-outline" },
+                  {
+                    value: "date",
+                    label: futureStartDay
+                      ? formatDay(futureStartDay)
+                      : "On a date",
+                    icon: "calendar-outline",
+                  },
+                ]}
+                value={futureStartDay ? "date" : "today"}
+                onSelect={(value) => {
+                  if (value === "today") {
+                    setStartDay(null);
+                    return;
+                  }
+                  setIsStartPickerOpen(true);
+                }}
+              />
+            </View>
+            <View style={{ gap: 8 }}>
+              <Text style={sectionLabel}>DUE</Text>
+              <OptionPair
+                options={[
+                  {
+                    value: "open",
+                    label: "Open-ended",
+                    icon: "infinite-outline",
+                  },
+                  {
+                    value: "date",
+                    label: dueDay ? formatDay(dueDay) : "By a date",
+                    icon: "flag-outline",
+                  },
+                ]}
+                value={dueDay ? "date" : "open"}
+                onSelect={(value) => {
+                  if (value === "open") {
+                    setDueDay(null);
+                    return;
+                  }
+                  setIsDuePickerOpen(true);
+                }}
+              />
+            </View>
+          </>
+        );
+      case 3:
+        return (
+          <>
+            <Text style={headline}>Who can see it?</Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <View style={{ flex: 1 }}>
+                <OptionPair
+                  options={[
+                    {
+                      value: "private",
+                      label: "Private",
+                      icon: "lock-closed-outline",
+                    },
+                    { value: "public", label: "Public", icon: "globe-outline" },
+                  ]}
+                  value={isPublic ? "public" : "private"}
+                  onSelect={(value) => setIsPublic(value === "public")}
+                />
+              </View>
               <Pressable
-                onPress={discardDraft}
+                accessibilityRole="button"
+                accessibilityLabel="Goal color"
+                onPress={() => {
+                  void haptics.tap();
+                  setIsColorPickerOpen(true);
+                }}
                 style={{
-                  paddingHorizontal: 14,
+                  width: 44,
+                  alignItems: "center",
                   justifyContent: "center",
                   borderRadius: 10,
                   borderWidth: 1,
@@ -325,421 +384,189 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
                   backgroundColor: theme.surface,
                 }}
               >
-                <Text style={{ color: theme.textSecondary, fontWeight: "700" }}>
-                  Discard
-                </Text>
+                <View
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: 9,
+                    backgroundColor: color ?? autoColorPreview,
+                    borderWidth: color ? 0 : 2,
+                    borderColor: theme.border,
+                  }}
+                />
               </Pressable>
+            </View>
+            {isPublic ? (
+              <Text style={hint}>Friends can follow along and nudge you.</Text>
             ) : null}
-          </View>
-          {draftSource ? (
-            <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-              {draftSource === "ai"
-                ? "Draft ready — everything below is editable before you save."
-                : "You're offline, so this draft came from a built-in template. Everything below is editable."}
+          </>
+        );
+      default:
+        return (
+          <>
+            <Text style={headline}>Add tasks</Text>
+            <Text style={hint}>
+              The repeating steps that move this goal forward.
             </Text>
-          ) : null}
-        </View>
-
-        <LabeledTextField
-          label="Goal Title"
-          placeholder="e.g., Run a half marathon"
-          value={title}
-          onChangeText={setTitle}
-        />
-
-        <LabeledTextField
-          label="Target (optional)"
-          placeholder="e.g., 200 lbs, 10% BF"
-          value={target}
-          onChangeText={setTarget}
-        />
-
-        <Text
-          style={{
-            fontWeight: "700",
-            fontSize: 12,
-            letterSpacing: 0.6,
-            color: theme.textSecondary,
-            marginTop: 4,
-          }}
-        >
-          DUE DATE (OPTIONAL)
-        </Text>
-        <Pressable
-          onPress={() => {
-            void haptics.tap();
-            setIsDuePickerOpen(true);
-          }}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-            padding: 12,
-            borderWidth: 1,
-            borderColor: dueDay ? theme.primary : theme.border,
-            borderRadius: 10,
-            backgroundColor: theme.surface,
-          }}
-        >
-          <Ionicons
-            name="flag-outline"
-            size={16}
-            color={dueDay ? theme.primary : theme.textSecondary}
-          />
-          <Text
-            style={{
-              flex: 1,
-              fontWeight: "600",
-              color: dueDay ? theme.text : theme.textSecondary,
-            }}
-          >
-            {dueDay
-              ? `Reach it by ${format(new Date(`${dueDay}T00:00:00`), "MMM d, yyyy")}`
-              : "Pick a date to reach it by"}
-          </Text>
-          {dueDay ? (
+            {draftTasks.map((task) => (
+              <Pressable
+                key={task.key}
+                onPress={() => {
+                  void haptics.tap();
+                  setEditingTaskKey(task.key);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Edit ${task.title}`}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: 12,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  borderRadius: 10,
+                  backgroundColor: theme.surface,
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: "700", color: theme.text }}>
+                    {task.title}
+                  </Text>
+                  <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                    {describeTaskSchedule(task)}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => removeDraftTask(task.key)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${task.title}`}
+                  style={{ padding: 4, opacity: 0.5 }}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={16}
+                    color={theme.textSecondary}
+                  />
+                </Pressable>
+              </Pressable>
+            ))}
             <Pressable
               onPress={() => {
                 void haptics.tap();
-                setDueDay(null);
+                setIsAddingTask(true);
               }}
-              hitSlop={8}
+              accessibilityRole="button"
+              style={{
+                backgroundColor: theme.surface,
+                borderWidth: 1,
+                borderColor: theme.border,
+                padding: 12,
+                borderRadius: 10,
+              }}
             >
-              <Ionicons
-                name="close-circle"
-                size={18}
-                color={theme.textSecondary}
-              />
-            </Pressable>
-          ) : null}
-        </Pressable>
-
-        <Text
-          style={{
-            fontWeight: "700",
-            fontSize: 12,
-            letterSpacing: 0.6,
-            color: theme.textSecondary,
-            marginTop: 4,
-          }}
-        >
-          WHO CAN SEE IT
-        </Text>
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          {(
-            [
-              { value: false, label: "Private", icon: "lock-closed-outline" },
-              { value: true, label: "Public", icon: "globe-outline" },
-            ] as const
-          ).map(({ value, label, icon }) => {
-            const active = isPublic === value;
-            return (
-              <Pressable
-                key={label}
-                onPress={() => {
-                  void haptics.toggle();
-                  setIsPublic(value);
-                }}
+              <Text
                 style={{
-                  flex: 1,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 5,
-                  paddingVertical: 10,
-                  borderRadius: 10,
-                  borderWidth: 1,
-                  borderColor: active ? theme.primary : theme.border,
-                  backgroundColor: active
-                    ? withAlpha(theme.primary, 0.12)
-                    : theme.surface,
+                  color: theme.textSecondary,
+                  textAlign: "center",
+                  fontWeight: "600",
                 }}
               >
-                <Ionicons
-                  name={icon}
-                  size={14}
-                  color={active ? theme.primary : theme.textSecondary}
-                />
-                <Text
-                  style={{
-                    fontWeight: "700",
-                    fontSize: 13,
-                    color: active ? theme.primary : theme.textSecondary,
-                  }}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            );
-          })}
-          <Pressable
-            accessibilityLabel="Goal color"
-            onPress={() => {
-              void haptics.tap();
-              setIsColorPickerOpen(true);
-            }}
-            style={{
-              width: 44,
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: theme.border,
-              backgroundColor: theme.surface,
-            }}
-          >
+                + Add task
+              </Text>
+            </Pressable>
+          </>
+        );
+    }
+  };
+
+  return (
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: theme.background }}
+      edges={["bottom", "left", "right"]}
+    >
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        // Only this screen's own fields should lift the layout. Later steps
+        // have none, and the task editor's keyboard must not shift the dimmed
+        // screen behind its modal.
+        enabled={step <= LAST_TYPING_STEP}
+        keyboardVerticalOffset={
+          Platform.OS === "ios" ? insets.top + IOS_NAV_BAR_HEIGHT : 0
+        }
+      >
+        <View
+          style={{
+            flexDirection: "row",
+            gap: 6,
+            paddingHorizontal: 20,
+            marginTop: 12,
+          }}
+        >
+          {Array.from({ length: STEP_COUNT }, (_, index) => (
             <View
+              key={index}
               style={{
-                width: 18,
-                height: 18,
-                borderRadius: 9,
-                backgroundColor: color ?? autoColorPreview,
-                borderWidth: color ? 0 : 2,
-                borderColor: theme.border,
+                flex: 1,
+                height: 3,
+                borderRadius: 2,
+                backgroundColor:
+                  index <= step
+                    ? theme.primary
+                    : withAlpha(theme.textSecondary, 0.18),
               }}
             />
-          </Pressable>
+          ))}
         </View>
-        {isPublic ? (
-          <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-            Friends can follow along and nudge you.
-          </Text>
-        ) : null}
 
-        <Text
-          style={{
-            fontWeight: "700",
-            fontSize: 12,
-            letterSpacing: 0.6,
-            color: theme.textSecondary,
-            marginTop: 4,
-          }}
+        <Animated.View
+          key={step}
+          entering={FadeInRight.duration(220)}
+          exiting={FadeOutLeft.duration(160)}
+          style={{ flex: 1 }}
         >
-          WHEN TO START
-        </Text>
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          {(
-            [
-              { mode: "now", label: "Now", icon: "play" },
-              {
-                mode: "scheduled",
-                label: "On a date",
-                icon: "calendar-outline",
-              },
-              { mode: "draft", label: "Draft", icon: "document-outline" },
-            ] as const
-          ).map(({ mode, label, icon }) => {
-            const active = startMode === mode;
-            return (
-              <Pressable
-                key={mode}
-                onPress={() => {
-                  void haptics.toggle();
-                  setStartMode(mode);
-                  if (mode === "scheduled") {
-                    setIsStartPickerOpen(true);
-                  }
-                }}
-                style={{
-                  flex: 1,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 5,
-                  paddingVertical: 10,
-                  borderRadius: 10,
-                  borderWidth: 1,
-                  borderColor: active ? theme.primary : theme.border,
-                  backgroundColor: active
-                    ? withAlpha(theme.primary, 0.12)
-                    : theme.surface,
-                }}
-              >
-                <Ionicons
-                  name={icon}
-                  size={14}
-                  color={active ? theme.primary : theme.textSecondary}
-                />
-                <Text
-                  style={{
-                    fontWeight: "700",
-                    fontSize: 13,
-                    color: active ? theme.primary : theme.textSecondary,
-                  }}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        {startMode === "scheduled" ? (
-          <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-            {startDay && startDay > todayKey
-              ? `Tasks become due on ${format(new Date(`${startDay}T00:00:00`), "MMM d, yyyy")}.`
-              : "Pick a day — until then the goal waits in Scheduled."}
-          </Text>
-        ) : startMode === "draft" ? (
-          <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-            Drafts sit on the Goals tab until you start them.
-          </Text>
-        ) : null}
-
-        <Text
-          style={{
-            fontWeight: "700",
-            fontSize: 12,
-            letterSpacing: 0.6,
-            color: theme.textSecondary,
-            marginTop: 4,
-          }}
-        >
-          TASKS
-        </Text>
-        {draftTasks.map((task) => (
-          <View
-            key={task.key}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 10,
-              padding: 12,
-              borderWidth: 1,
-              borderColor: theme.border,
-              borderRadius: 10,
-              backgroundColor: theme.surface,
-            }}
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: 20, gap: 16 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontWeight: "700", color: theme.text }}>
-                {task.title}
-              </Text>
-              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-                {frequencyLabel(task)}
-              </Text>
-            </View>
+            {renderStep()}
+          </ScrollView>
+        </Animated.View>
+
+        {primaryAction ? (
+          <View style={{ padding: 20, paddingTop: 8 }}>
             <Pressable
-              onPress={() => removeDraftTask(task.key)}
-              hitSlop={8}
-              style={{ padding: 4, opacity: 0.5 }}
+              onPress={() => {
+                void haptics.press();
+                primaryAction.onPress();
+              }}
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                backgroundColor: theme.primary,
+                borderRadius: 14,
+                paddingVertical: 14,
+                alignItems: "center",
+                opacity: pressed ? 0.85 : 1,
+              })}
             >
-              <Ionicons
-                name="trash-outline"
-                size={16}
-                color={theme.textSecondary}
-              />
+              <Text
+                style={{ color: "#ffffff", fontWeight: "700", fontSize: 16 }}
+              >
+                {primaryAction.label}
+              </Text>
             </Pressable>
           </View>
-        ))}
-        <Pressable
-          onPress={() => {
-            void haptics.tap();
-            setIsAddingTask(true);
-          }}
-          style={{
-            backgroundColor: theme.surface,
-            borderWidth: 1,
-            borderColor: theme.border,
-            padding: 12,
-            borderRadius: 10,
-          }}
-        >
-          <Text
-            style={{
-              color: theme.textSecondary,
-              textAlign: "center",
-              fontWeight: "600",
-            }}
-          >
-            + Add Task
-          </Text>
-        </Pressable>
-
-        {showFriendPicker ? (
-          <>
-            <Text
-              style={{
-                fontWeight: "700",
-                fontSize: 12,
-                letterSpacing: 0.6,
-                color: theme.textSecondary,
-                marginTop: 4,
-              }}
-            >
-              DO IT WITH FRIENDS
-            </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
-            >
-              {friends.map((friend) => {
-                const selected = selectedFriendIds.includes(friend.userId);
-                return (
-                  <Pressable
-                    key={friend.userId}
-                    onPress={() => toggleFriend(friend.userId)}
-                    style={{ alignItems: "center", gap: 4, width: 64 }}
-                  >
-                    <View
-                      style={{
-                        borderWidth: 2,
-                        borderColor: selected ? theme.primary : "transparent",
-                        borderRadius: 24,
-                        padding: 2,
-                      }}
-                    >
-                      <Avatar
-                        userId={friend.userId}
-                        displayName={friend.displayName}
-                        avatarUri={friend.avatarUri}
-                        size="md"
-                      />
-                    </View>
-                    <Text
-                      numberOfLines={1}
-                      style={{
-                        fontSize: 11,
-                        fontWeight: selected ? "700" : "500",
-                        color: selected ? theme.primary : theme.textSecondary,
-                      }}
-                    >
-                      {friend.displayName}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </>
         ) : null}
-
-        <Pressable
-          onPress={() => void createGoal()}
-          style={{
-            backgroundColor: theme.primary,
-            padding: 12,
-            borderRadius: 10,
-            marginTop: 8,
-            opacity: canCreate ? 1 : 0.5,
-          }}
-        >
-          <Text
-            style={{ color: "white", textAlign: "center", fontWeight: "700" }}
-          >
-            {isCreating
-              ? "Creating…"
-              : startMode === "draft"
-                ? "Save Draft"
-                : "Create Goal"}
-          </Text>
-        </Pressable>
-      </ScrollView>
+      </KeyboardAvoidingView>
 
       <DatePickerModal
         visible={isDuePickerOpen}
         title="Reach this goal by…"
         initialDay={dueDay ?? undefined}
-        minDay={startDay && startDay > todayKey ? startDay : todayKey}
+        minDay={futureStartDay ?? todayKey}
         allowClear={Boolean(dueDay)}
         onSelect={(day) => setDueDay(day)}
         onClear={() => setDueDay(null)}
@@ -754,15 +581,10 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
         onSelect={(day) => setStartDay(day)}
         onClose={() => {
           setIsStartPickerOpen(false);
-          // Backing out without a (future) day just means "start now" —
-          // reflect that in the mode so the UI never over-promises.
-          setStartDay((current) => {
-            const kept = current && current > todayKey ? current : null;
-            if (!kept) {
-              setStartMode("now");
-            }
-            return kept;
-          });
+          // Backing out without a future day just means "start today".
+          setStartDay((current) =>
+            current && current > todayKey ? current : null,
+          );
         }}
       />
 
@@ -775,13 +597,14 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
       />
 
       <TaskEditorModal
-        visible={isAddingTask}
-        heading="New Task"
-        submitLabel="Add"
+        visible={isAddingTask || editingTaskKey !== null}
+        heading={editingTaskKey ? "Edit Task" : "New Task"}
+        submitLabel={editingTaskKey ? "Save" : "Add"}
+        initial={editingDraft}
         onSubmit={submitTaskEditor}
         onClose={() => {
           void haptics.tap();
-          setIsAddingTask(false);
+          closeTaskEditor();
         }}
       />
     </SafeAreaView>
