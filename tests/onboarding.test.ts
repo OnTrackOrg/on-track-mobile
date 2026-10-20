@@ -2,12 +2,25 @@ import { shouldShowAppTour } from "../onboarding";
 import { TOUR_STEPS } from "../components/tour/tourSteps";
 
 describe("shouldShowAppTour", () => {
-  it("shows the tour when this version has not been completed", () => {
-    expect(shouldShowAppTour({ hasCompletedTour: false })).toBe(true);
+  it("shows the tour for a first-time user on a fresh device", () => {
+    expect(
+      shouldShowAppTour({ hasCompletedTour: false, hasExistingData: false }),
+    ).toBe(true);
   });
 
-  it("skips the tour once this version was completed or skipped", () => {
-    expect(shouldShowAppTour({ hasCompletedTour: true })).toBe(false);
+  it("skips the tour once this device completed or skipped it", () => {
+    expect(
+      shouldShowAppTour({ hasCompletedTour: true, hasExistingData: false }),
+    ).toBe(false);
+    expect(
+      shouldShowAppTour({ hasCompletedTour: true, hasExistingData: true }),
+    ).toBe(false);
+  });
+
+  it("skips the tour for an account that already has goals", () => {
+    expect(
+      shouldShowAppTour({ hasCompletedTour: false, hasExistingData: true }),
+    ).toBe(false);
   });
 });
 

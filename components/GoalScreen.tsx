@@ -948,8 +948,9 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
         )}
 
         {/* Doing this together lives on its own page so this screen stays
-            about your own progress; this row is just the doorway. */}
-        {members.length > 1 || (isOwner && account && !isGoalCompleted) ? (
+            about your own progress; this row is just the doorway. Inviting
+            the first friend lives in the ⋯ menu. */}
+        {members.length > 1 ? (
           <Pressable
             onPress={() => {
               void haptics.navigate();
@@ -963,65 +964,44 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
               paddingVertical: 10,
             }}
           >
-            {members.length > 1 ? (
-              <View style={{ flexDirection: "row" }}>
-                {orderedMembers.slice(0, 4).map((member, index) => (
-                  <View
-                    key={member.userId}
-                    style={{
-                      marginLeft: index === 0 ? 0 : -10,
-                      borderWidth: 2,
-                      borderColor: theme.surface,
-                      borderRadius: 999,
-                    }}
-                  >
-                    <Avatar
-                      userId={member.userId}
-                      displayName={member.displayName}
-                      avatarUri={member.avatarUri}
-                      size="sm"
-                    />
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <View
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 15,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: withAlpha(theme.primary, 0.12),
-                }}
-              >
-                <Ionicons
-                  name="person-add-outline"
-                  size={15}
-                  color={theme.primary}
-                />
-              </View>
-            )}
+            <View style={{ flexDirection: "row" }}>
+              {orderedMembers.slice(0, 4).map((member, index) => (
+                <View
+                  key={member.userId}
+                  style={{
+                    marginLeft: index === 0 ? 0 : -10,
+                    borderWidth: 2,
+                    borderColor: theme.surface,
+                    borderRadius: 999,
+                  }}
+                >
+                  <Avatar
+                    userId={member.userId}
+                    displayName={member.displayName}
+                    avatarUri={member.avatarUri}
+                    size="sm"
+                  />
+                </View>
+              ))}
+            </View>
             <View style={{ flex: 1 }}>
               <Text style={{ fontWeight: "700", color: theme.text }}>
-                {members.length > 1 ? "Doing this together" : "Invite a friend"}
+                Doing this together
               </Text>
-              {members.length > 1 ? (
-                <Text
-                  numberOfLines={1}
-                  style={{ color: theme.textSecondary, fontSize: 12 }}
-                >
-                  {orderedMembers
-                    .filter((m) => m.userId !== account?.id)
-                    .map(
-                      (m) =>
-                        `${m.displayName.split(" ")[0]} ${Math.round(
-                          getMemberAdherence(goal, m.userId) * 100,
-                        )}%`,
-                    )
-                    .join(" · ")}
-                </Text>
-              ) : null}
+              <Text
+                numberOfLines={1}
+                style={{ color: theme.textSecondary, fontSize: 12 }}
+              >
+                {orderedMembers
+                  .filter((m) => m.userId !== account?.id)
+                  .map(
+                    (m) =>
+                      `${m.displayName.split(" ")[0]} ${Math.round(
+                        getMemberAdherence(goal, m.userId) * 100,
+                      )}%`,
+                  )
+                  .join(" · ")}
+              </Text>
             </View>
             <Ionicons
               name="chevron-forward"
@@ -1085,88 +1065,88 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           onReorder={(ids) => reorderGoalTasks(goal.id, ids)}
           onDragActiveChange={setDragging}
           renderItem={(item) => {
-          const selected = heatmapTaskId === item.id;
-          const canFilter = item.frequency !== "once";
-          return (
-            <Pressable
-              key={item.id}
-              onPress={
-                canFilter
-                  ? () => {
-                      void haptics.toggle();
-                      setHeatmapTaskId(selected ? null : item.id);
-                    }
-                  : undefined
-              }
-              style={{
-                ...card(theme, isDark),
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 10,
-                paddingHorizontal: 14,
-                paddingVertical: 12,
-                ...(selected
-                  ? {
-                      borderWidth: 1.5,
-                      borderColor: withAlpha(color, 0.55),
-                      backgroundColor: mix(color, 0.06, theme.surface),
-                    }
-                  : {}),
-              }}
-            >
-              <View
+            const selected = heatmapTaskId === item.id;
+            const canFilter = item.frequency !== "once";
+            return (
+              <Pressable
+                key={item.id}
+                onPress={
+                  canFilter
+                    ? () => {
+                        void haptics.toggle();
+                        setHeatmapTaskId(selected ? null : item.id);
+                      }
+                    : undefined
+                }
                 style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: color,
+                  ...card(theme, isDark),
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  ...(selected
+                    ? {
+                        borderWidth: 1.5,
+                        borderColor: withAlpha(color, 0.55),
+                        backgroundColor: mix(color, 0.06, theme.surface),
+                      }
+                    : {}),
                 }}
-              />
-              <View style={{ flex: 1 }}>
+              >
                 <View
                   style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 8,
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor: color,
                   }}
-                >
-                  <Text
+                />
+                <View style={{ flex: 1 }}>
+                  <View
                     style={{
-                      fontWeight: "700",
-                      color: theme.text,
-                      fontSize: 14,
-                      flexShrink: 1,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
                     }}
                   >
-                    {item.title}
-                  </Text>
-                  {renderStreakChip(item)}
-                </View>
-                <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-                  {taskSubtitle(item)}
-                </Text>
-              </View>
-              {selected ? (
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 4,
-                    paddingHorizontal: 8,
-                    paddingVertical: 3,
-                    borderRadius: 9999,
-                    backgroundColor: withAlpha(color, 0.14),
-                  }}
-                >
-                  <Ionicons name="stats-chart" size={10} color={color} />
-                  <Text style={{ color, fontSize: 10, fontWeight: "700" }}>
-                    SHOWING
+                    <Text
+                      style={{
+                        fontWeight: "700",
+                        color: theme.text,
+                        fontSize: 14,
+                        flexShrink: 1,
+                      }}
+                    >
+                      {item.title}
+                    </Text>
+                    {renderStreakChip(item)}
+                  </View>
+                  <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                    {taskSubtitle(item)}
                   </Text>
                 </View>
-              ) : null}
-              {renderTaskActionButtons(item)}
-            </Pressable>
-          );
+                {selected ? (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 4,
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                      borderRadius: 9999,
+                      backgroundColor: withAlpha(color, 0.14),
+                    }}
+                  >
+                    <Ionicons name="stats-chart" size={10} color={color} />
+                    <Text style={{ color, fontSize: 10, fontWeight: "700" }}>
+                      SHOWING
+                    </Text>
+                  </View>
+                ) : null}
+                {renderTaskActionButtons(item)}
+              </Pressable>
+            );
           }}
         />
 
@@ -1214,6 +1194,22 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                         setIsManaging(true);
                       },
                     ),
+                    ...(account && !isGoalCompleted
+                      ? [
+                          renderMenuItem(
+                            <Ionicons
+                              name="person-add-outline"
+                              size={17}
+                              color={theme.textSecondary}
+                            />,
+                            "Invite a friend",
+                            () => {
+                              void haptics.navigate();
+                              navigation.navigate("GoalMembers", { goalId });
+                            },
+                          ),
+                        ]
+                      : []),
                     renderMenuItem(
                       isGoalCompleted ? (
                         <Ionicons

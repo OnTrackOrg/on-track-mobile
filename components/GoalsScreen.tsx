@@ -20,6 +20,7 @@ import { mix, withAlpha } from "../utils/color";
 import { shouldPlayEntrance } from "../utils/entrance";
 import { Goal } from "../types";
 import { RootStackParamList } from "../navigation";
+import AchievedGoalModal from "./AchievedGoalModal";
 import DatePickerModal from "./DatePickerModal";
 import ProgressRing from "./ProgressRing";
 import { TourAnchor } from "./tour/TourAnchor";
@@ -46,6 +47,10 @@ export default function GoalsScreen() {
   const reorderGoals = useStore((s) => s.reorderGoals);
 
   const [achievedOpen, setAchievedOpen] = React.useState(false);
+  // Achieved trophy whose compressed read-only sheet is open.
+  const [achievedModalGoalId, setAchievedModalGoalId] = React.useState<
+    string | null
+  >(null);
   // A lifted card owns the touch; the page must not scroll under it.
   const [dragging, setDragging] = React.useState(false);
   // Goal whose "start on..." date picker is open.
@@ -571,8 +576,8 @@ export default function GoalsScreen() {
                   <Pressable
                     key={goal.id}
                     onPress={() => {
-                      void haptics.navigate();
-                      navigation.navigate("Goal", { goalId: goal.id });
+                      void haptics.tap();
+                      setAchievedModalGoalId(goal.id);
                     }}
                     style={{ alignItems: "center", gap: 6, width: 72 }}
                   >
@@ -635,6 +640,10 @@ export default function GoalsScreen() {
           }
         }}
         onClose={() => setStartingGoalId(null)}
+      />
+      <AchievedGoalModal
+        goalId={achievedModalGoalId}
+        onClose={() => setAchievedModalGoalId(null)}
       />
     </SafeAreaView>
   );

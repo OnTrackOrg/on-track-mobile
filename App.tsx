@@ -24,6 +24,7 @@ import GoalMembersScreen from "./components/GoalMembersScreen";
 import FindPeopleScreen from "./components/FindPeopleScreen";
 import GoalScreen from "./components/GoalScreen";
 import NewGoalScreen from "./components/NewGoalScreen";
+import AchievedGoalsScreen from "./components/AchievedGoalsScreen";
 import PrivacyScreen from "./components/PrivacyScreen";
 import InstructionsScreen from "./components/InstructionsScreen";
 import AppTour from "./components/tour/AppTour";
@@ -150,10 +151,46 @@ function ThemedNavigation() {
   );
   const adoptPersonalOrder = useStore((s) => s.adoptPersonalOrder);
   const markPersonalOrderSynced = useStore((s) => s.markPersonalOrderSynced);
-  const [showAppTour, setShowAppTour] = React.useState(false);
+  /**
+   * App tour gating (see onboarding.ts). The device flag is read during
+   * hydration; the show/skip decision then waits for the signed-in user's
+   * first sync to settle, so an established account never sees the tour.
+   */
+  const [hasCompletedTourOnDevice, setHasCompletedTourOnDevice] =
+    React.useState<boolean | null>(null);
+  const [initialSyncSettledUserId, setInitialSyncSettledUserId] =
+    React.useState<string | null>(null);
+  const [tourDecision, setTourDecision] = React.useState<{
+    userId: string;
+    show: boolean;
+  } | null>(null);
+  /**
+   * The tour is decided after the first sync, by which point the user may
+   * have pushed a screen (say, New Goal). Its tab switches would stack a
+   * second Tabs over that screen, so it waits until the root stack is back
+   * on Tabs. A fresh container starts there; onReady/onStateChange keep it
+   * current.
+   */
+  const [isRootOnTabs, setIsRootOnTabs] = React.useState(true);
+  const syncRootRoute = React.useCallback(() => {
+    if (!navigationRef.isReady()) {
+      return;
+    }
+    const root = navigationRef.getRootState();
+    setIsRootOnTabs(root.routes[root.index]?.name === "Tabs");
+  }, []);
   const [hasHydratedStore, setHasHydratedStore] = React.useState(false);
   const [hasCheckedSession, setHasCheckedSession] = React.useState(false);
   const [session, setSession] = React.useState<Session | null>(null);
+  /**
+   * `session` mirrored for the sign-in chains below: they outlive renders,
+   * and a sync that resolves after its account signed out must not settle
+   * (or decide the tour for) whoever is signed in by then.
+   */
+  const sessionUserIdRef = React.useRef<string | null>(null);
+  React.useLayoutEffect(() => {
+    sessionUserIdRef.current = session?.user.id ?? null;
+  }, [session]);
   const [authMode, setAuthMode] = React.useState<AuthMode>("sign-up");
   const [appleAvailable, setAppleAvailable] = React.useState(false);
 
@@ -292,7 +329,8 @@ function ThemedNavigation() {
        */
       const orderState = useStore.getState();
       if (
-        orderState.personalOrderRevision <= orderState.personalOrderSyncedRevision
+        orderState.personalOrderRevision <=
+        orderState.personalOrderSyncedRevision
       ) {
         try {
           const remoteOrder = await fetchPersonalOrder(user.id);
@@ -426,9 +464,7 @@ function ThemedNavigation() {
         return;
       }
 
-      setShowAppTour(
-        shouldShowAppTour({ hasCompletedTour: hasCompletedTour !== null }),
-      );
+      setHasCompletedTourOnDevice(hasCompletedTour !== null);
       setHasHydratedStore(true);
     };
 
@@ -438,6 +474,65 @@ function ThemedNavigation() {
       isCancelled = true;
     };
   }, []);
+
+  // Signed out (or not signed in yet): the next account starts fresh.
+  React.useEffect(() => {
+    if (session?.user) {
+      return;
+    }
+    setInitialSyncSettledUserId(null);
+    setTourDecision(null);
+  }, [session]);
+
+  /**
+   * Marks a user's first sync of this session as settled, whether it
+   * resolved or rejected. Dropped once that user is no longer signed in, so
+   * a stalled sync from a previous account can neither decide the tour for
+   * the next one nor unmount a tour it is already running.
+   */
+  const settleInitialSync = React.useCallback((userId: string) => {
+    if (sessionUserIdRef.current !== userId) {
+      return;
+    }
+    setInitialSyncSettledUserId(userId);
+  }, []);
+
+  /**
+   * Decide the tour exactly once per signed-in user, after their first sync
+   * has settled (a settled id for anyone else is ignored). A device that
+   * already completed it never asks again. An account that already has
+   * goals (owned or shared, achieved or not) is marked complete on this
+   * device too, so later launches skip the wait.
+   */
+  React.useEffect(() => {
+    const userId = session?.user.id ?? null;
+    if (
+      hasCompletedTourOnDevice !== false ||
+      userId === null ||
+      initialSyncSettledUserId !== userId ||
+      tourDecision?.userId === userId
+    ) {
+      return;
+    }
+    const { goals: ownGoals, sharedGoals } = useStore.getState();
+    const hasExistingData = ownGoals.length + sharedGoals.length > 0;
+    setTourDecision({
+      userId,
+      show: shouldShowAppTour({
+        hasCompletedTour: hasCompletedTourOnDevice,
+        hasExistingData,
+      }),
+    });
+    if (hasExistingData) {
+      setHasCompletedTourOnDevice(true);
+      void AsyncStorage.setItem(APP_TOUR_STORAGE_KEY, "true");
+    }
+  }, [
+    hasCompletedTourOnDevice,
+    initialSyncSettledUserId,
+    session,
+    tourDecision,
+  ]);
 
   React.useEffect(() => {
     let isActive = true;
@@ -460,15 +555,24 @@ function ThemedNavigation() {
         if (persistedSession?.user) {
           claimLocalData(persistedSession.user.id);
 
-          const syncedAccount = await ensureProfileForUser(
-            persistedSession.user,
-          );
+          try {
+            const syncedAccount = await ensureProfileForUser(
+              persistedSession.user,
+            );
 
-          if (isActive) {
-            setAccount(syncedAccount);
+            if (isActive) {
+              setAccount(syncedAccount);
+            }
+
+            await syncWithRemote(persistedSession.user);
+          } finally {
+            // Settled whether the profile or the sync resolved or failed:
+            // the tour decision must not wait on a network that may never
+            // answer.
+            if (isActive) {
+              settleInitialSync(persistedSession.user.id);
+            }
           }
-
-          await syncWithRemote(persistedSession.user);
           refreshSocialGraph(persistedSession.user.id);
         }
       } catch (error) {
@@ -527,6 +631,11 @@ function ThemedNavigation() {
           setAuthErrorMessage(
             "We signed you in, but could not finish syncing your profile yet.",
           );
+        })
+        .finally(() => {
+          // Settled whether the profile or the sync resolved or failed
+          // (same rule as the cold-start path above).
+          settleInitialSync(nextSession.user.id);
         });
     });
 
@@ -539,6 +648,7 @@ function ThemedNavigation() {
     refreshSocialGraph,
     setAccount,
     setCloudSyncEnabled,
+    settleInitialSync,
     syncWithRemote,
   ]);
 
@@ -642,7 +752,7 @@ function ThemedNavigation() {
   ]);
 
   const handleAppTourDone = React.useCallback(() => {
-    setShowAppTour(false);
+    setHasCompletedTourOnDevice(true);
     void AsyncStorage.setItem(APP_TOUR_STORAGE_KEY, "true");
   }, []);
 
@@ -849,6 +959,13 @@ function ThemedNavigation() {
     );
   }
 
+  const showAppTour =
+    hasCompletedTourOnDevice === false &&
+    tourDecision !== null &&
+    tourDecision.userId === session.user.id &&
+    tourDecision.show &&
+    isRootOnTabs;
+
   const baseNavTheme = isDark ? DarkTheme : DefaultTheme;
   const navTheme = {
     ...baseNavTheme,
@@ -867,11 +984,13 @@ function ThemedNavigation() {
       ref={navigationRef}
       theme={navTheme}
       onReady={() => {
+        syncRootRoute();
         const pending = pendingWidgetLinkRef.current;
         if (pending) {
           openWidgetLink(pending);
         }
       }}
+      onStateChange={syncRootRoute}
     >
       <Stack.Navigator
         screenOptions={{
@@ -900,6 +1019,11 @@ function ThemedNavigation() {
           options={{ title: "New Goal" }}
         />
         <Stack.Screen
+          name="AchievedGoals"
+          component={AchievedGoalsScreen}
+          options={{ title: "Achieved" }}
+        />
+        <Stack.Screen
           name="Friend"
           component={FriendScreen}
           options={{ title: "Friend" }}
@@ -925,7 +1049,9 @@ function ThemedNavigation() {
           options={{ title: "Privacy & Data" }}
         />
       </Stack.Navigator>
-      {/* Overlay tour of the real UI; runs once per device (issue #151). */}
+      {/* Overlay tour of the real UI, for first-time users only: once per
+          device, only when this account's first sync found no goals, and
+          only while the root stack is on Tabs (see isRootOnTabs). */}
       {showAppTour ? (
         <AppTour navigationRef={navigationRef} onDone={handleAppTourDone} />
       ) : null}
