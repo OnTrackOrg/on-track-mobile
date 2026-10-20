@@ -209,6 +209,73 @@ describe("dataSync mappers", () => {
   });
 });
 
+describe("multi-dose sync", () => {
+  it("writes one completion row per dose, numbered within each day", () => {
+    const day = new Date(2026, 9, 20);
+    const rows = __internal.buildCompletionPayload(
+      [
+        {
+          id: "task-1",
+          title: "Creatine",
+          frequency: "daily",
+          timesPerDay: 3,
+          completions: [day, day, new Date(2026, 9, 21)],
+        },
+      ],
+      ME,
+    );
+    expect(rows.map((row) => [row.completed_day, row.occurrence])).toEqual([
+      ["2026-10-20", 0],
+      ["2026-10-20", 1],
+      ["2026-10-21", 0],
+    ]);
+  });
+
+  it("reads timing columns and every dose row back", () => {
+    const [goal] = __internal.buildGoals(
+      ME,
+      [{ id: "goal-1", owner_user_id: ME, title: "Strength" }],
+      [
+        {
+          id: "task-1",
+          goal_id: "goal-1",
+          title: "Creatine",
+          frequency: "daily",
+          times_per_day: 2,
+          times: [
+            { at: "20:00", remind: true },
+            { at: "08:00", remind: false },
+          ],
+          reminder_lead_min: 15,
+          once_day: "2026-10-23",
+        },
+      ],
+      [
+        {
+          task_id: "task-1",
+          completed_by_user_id: ME,
+          completed_day: "2026-10-20",
+        },
+        {
+          task_id: "task-1",
+          completed_by_user_id: ME,
+          completed_day: "2026-10-20",
+        },
+      ],
+    );
+    expect(goal.tasks[0]).toMatchObject({
+      timesPerDay: 2,
+      times: [
+        { at: "08:00", remind: false },
+        { at: "20:00", remind: true },
+      ],
+      reminderLeadMin: 15,
+      onDay: undefined, // only one-offs keep a day
+    });
+    expect(goal.tasks[0].completions).toHaveLength(2);
+  });
+});
+
 describe("replaceRemoteGoalsForUser accessibility filter", () => {
   afterEach(() => {
     mockFrom.mockReset();

@@ -65,6 +65,7 @@ import { setAccountDeletedHandler } from "./lib/accountDeleted";
 import { supabase } from "./lib/supabase";
 import { reconcileAvatarWithProfile } from "./lib/avatar";
 import { registerPushTokenForCurrentUser } from "./lib/pushNotifications";
+import { initTaskReminders } from "./lib/taskReminders";
 import { useWidgetSync } from "./lib/widgetSync";
 import { WidgetLink, parseWidgetLink } from "./lib/widgetLinks";
 
@@ -414,6 +415,9 @@ function ThemedNavigation() {
     setAccountDeletedHandler(() => setShowAccountDeletedScreen(true));
     return () => setAccountDeletedHandler(null);
   }, []);
+
+  // Task reminders are local, so they work signed in or not.
+  React.useEffect(() => initTaskReminders(), []);
 
   // Avatars are shared via profiles.avatar_uri; reconcile the device photo
   // with the profile once per sign-in (upload local-only, adopt remote-only).

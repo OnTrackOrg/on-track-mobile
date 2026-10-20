@@ -309,6 +309,12 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
         title: editingTask.title,
         frequency: editingTask.frequency,
         customFrequency: editingTask.customFrequency,
+        timing: {
+          timesPerDay: editingTask.timesPerDay,
+          times: editingTask.times,
+          reminderLeadMin: editingTask.reminderLeadMin,
+          onDay: editingTask.onDay,
+        },
       }
     : undefined;
 
@@ -316,7 +322,13 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     if (editingTaskId) {
       updateTask(goalId, editingTaskId, value);
     } else {
-      addTask(goalId, value.title, value.frequency, value.customFrequency);
+      addTask(
+        goalId,
+        value.title,
+        value.frequency,
+        value.customFrequency,
+        value.timing,
+      );
     }
 
     void haptics.success();

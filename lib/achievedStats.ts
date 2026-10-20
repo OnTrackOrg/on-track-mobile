@@ -5,7 +5,7 @@ import {
   startOfWeek,
 } from "date-fns";
 import { Goal, Task } from "../types";
-import { getGoalStartDate, getTaskWeekdays } from "../store";
+import { getFullDays, getGoalStartDate, getTaskWeekdays } from "../store";
 
 /**
  * Read-only numbers for an achieved goal's compressed view. Everything is
@@ -105,7 +105,7 @@ export const longestDailyStreak = (
   for (const task of goal.tasks) {
     const weekdays = getTaskWeekdays(task);
     if (task.frequency !== "daily" && weekdays === null) continue;
-    const doneDays = new Set(task.completions.map(toDayKey));
+    const doneDays = new Set(getFullDays(task).map(toDayKey));
     let run = 0;
     for (let day = start; day <= end; day = addDays(day, 1)) {
       if (weekdays && !weekdays.includes(day.getDay())) continue;

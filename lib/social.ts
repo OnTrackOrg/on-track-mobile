@@ -1,5 +1,6 @@
 import { User } from "@supabase/supabase-js";
 import { FriendProfile, FriendRequest, Goal, GoalMember } from "../types";
+import { taskScheduleColumns } from "./dataSync";
 import { supabase } from "./supabase";
 
 /**
@@ -216,10 +217,7 @@ export const inviteFriendToGoal = async (
         id: task.id,
         goal_id: goal.id,
         title: task.title,
-        frequency: task.frequency,
-        custom_type: task.customFrequency?.type ?? null,
-        custom_target: task.customFrequency?.target ?? null,
-        custom_weekdays: task.customFrequency?.weekdays ?? null,
+        ...taskScheduleColumns(task),
         position: index,
       })),
       { onConflict: "id" },

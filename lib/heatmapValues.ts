@@ -1,5 +1,6 @@
 import { format } from "date-fns";
 import { Goal, Task } from "../types";
+import { getFullDays } from "../store";
 
 /** Per-day completion counts for one task (heatmap "count" mode). */
 export const taskHeatmapValues = (task: Task): Record<string, number> => {
@@ -21,7 +22,8 @@ export const ratioHeatmapValues = (tasks: Task[]): Record<string, number> => {
   if (recurring.length === 0) return {};
   const tasksByDate: Record<string, Set<string>> = {};
   for (const task of recurring) {
-    for (const date of task.completions) {
+    // A multi-dose task only counts on days every dose was logged.
+    for (const date of getFullDays(task)) {
       const key = format(date, "yyyy-MM-dd");
       (tasksByDate[key] ??= new Set()).add(task.id);
     }
