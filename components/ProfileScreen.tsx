@@ -34,7 +34,6 @@ import {
   getPersistedSession,
   isAppleSignInAvailable,
   linkAppleAccount,
-  linkGoogleAccount,
   signOut,
   SsoCancelledError,
   updateProfileNames,
@@ -104,9 +103,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
   const [isSavingName, setIsSavingName] = useState(false);
   const [linkedProviders, setLinkedProviders] = useState<string[] | null>(null);
   const [appleAvailable, setAppleAvailable] = useState(false);
-  const [linkingProvider, setLinkingProvider] = useState<
-    "apple" | "google" | null
-  >(null);
+  const [isLinkingApple, setIsLinkingApple] = useState(false);
 
   React.useEffect(() => {
     if (!settingsVisible || !account) return;
@@ -141,16 +138,12 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
     }
   };
 
-  const linkProvider = async (provider: "apple" | "google") => {
-    if (linkingProvider) return;
+  const linkApple = async () => {
+    if (isLinkingApple) return;
     void haptics.press();
-    setLinkingProvider(provider);
+    setIsLinkingApple(true);
     try {
-      if (provider === "apple") {
-        await linkAppleAccount();
-      } else {
-        await linkGoogleAccount();
-      }
+      await linkAppleAccount();
       setLinkedProviders(await getLinkedProviders());
       void haptics.success();
     } catch (error) {
@@ -162,7 +155,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
         );
       }
     } finally {
-      setLinkingProvider(null);
+      setIsLinkingApple(false);
     }
   };
   const [isImporting, setIsImporting] = useState(false);
@@ -1157,8 +1150,9 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                   />
                 </Pressable>
 
-                {/* Sign-in methods: link Apple / Google to this account so
-                    the same data opens with one tap next time. */}
+                {/* Sign-in methods: link Apple to this account so the same
+                    data opens with one tap next time. Google sign-in is
+                    retired; accounts that already linked it still list it. */}
                 <View style={{ marginTop: 12, gap: 6 }}>
                   <Text
                     style={{
@@ -1177,12 +1171,18 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                       { key: "google", label: "Google", icon: "logo-google" },
                     ] as const
                   )
-                    .filter((m) => m.key !== "apple" || appleAvailable)
+                    .filter((m) => {
+                      const linked = linkedProviders?.includes(m.key) ?? false;
+                      if (m.key === "google") return linked;
+                      return m.key !== "apple" || appleAvailable || linked;
+                    })
                     .map((method) => {
                       const linked =
                         linkedProviders?.includes(method.key) ?? false;
                       const canLink =
-                        method.key !== "email" && linkedProviders !== null;
+                        method.key === "apple" &&
+                        appleAvailable &&
+                        linkedProviders !== null;
                       return (
                         <View
                           key={method.key}
@@ -1208,19 +1208,15 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                             />
                           ) : canLink ? (
                             <Pressable
-                              onPress={() =>
-                                void linkProvider(
-                                  method.key as "apple" | "google",
-                                )
-                              }
-                              disabled={linkingProvider !== null}
+                              onPress={() => void linkApple()}
+                              disabled={isLinkingApple}
                               hitSlop={6}
                               style={{
                                 paddingHorizontal: 10,
                                 paddingVertical: 4,
                                 borderRadius: 9999,
                                 backgroundColor: withAlpha(theme.primary, 0.12),
-                                opacity: linkingProvider ? 0.5 : 1,
+                                opacity: isLinkingApple ? 0.5 : 1,
                               }}
                             >
                               <Text
@@ -1230,9 +1226,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                                   fontSize: 12,
                                 }}
                               >
-                                {linkingProvider === method.key
-                                  ? "Linking…"
-                                  : "Link"}
+                                {isLinkingApple ? "Linking…" : "Link"}
                               </Text>
                             </Pressable>
                           ) : null}
@@ -1398,95 +1392,97 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
             </ScrollView>
           </View>
         </View>
-      </Modal>
-      <Modal
-        animationType="fade"
-        transparent
-        visible={isEditingName}
-        onRequestClose={() => setIsEditingName(false)}
-      >
-        <View
-          style={{
-            flex: 1,
-            justifyContent: "center",
-            padding: 24,
-            backgroundColor: "rgba(15, 23, 42, 0.35)",
-          }}
+        {/* Inside the settings modal: iOS will not present a second
+            sibling modal over one that is already showing. */}
+        <Modal
+          animationType="fade"
+          transparent
+          visible={isEditingName}
+          onRequestClose={() => setIsEditingName(false)}
         >
-          <Pressable
-            onPress={() => setIsEditingName(false)}
+          <View
             style={{
-              position: "absolute",
-              top: 0,
-              right: 0,
-              bottom: 0,
-              left: 0,
+              flex: 1,
+              justifyContent: "center",
+              padding: 24,
+              backgroundColor: "rgba(15, 23, 42, 0.35)",
             }}
-          />
-          <View style={{ ...card(theme, isDark), padding: 16, gap: 12 }}>
-            <Text
-              style={{ fontWeight: "700", fontSize: 18, color: theme.text }}
-            >
-              Your name
-            </Text>
-            <LabeledTextField
-              label="Display name"
-              value={nameDraft}
-              onChangeText={setNameDraft}
-              autoCapitalize="words"
-              placeholder="Adam"
-              editable={!isSavingName}
+          >
+            <Pressable
+              onPress={() => setIsEditingName(false)}
+              style={{
+                position: "absolute",
+                top: 0,
+                right: 0,
+                bottom: 0,
+                left: 0,
+              }}
             />
-            <LabeledTextField
-              label="Username"
-              value={usernameDraft}
-              onChangeText={(text) =>
-                setUsernameDraft(sanitizeUsernameInput(text))
-              }
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder="adam"
-              editable={!isSavingName}
-            />
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <Pressable
-                onPress={() => {
-                  void haptics.tap();
-                  setIsEditingName(false);
-                }}
-                style={{
-                  flex: 1,
-                  padding: 12,
-                  borderRadius: 10,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  alignItems: "center",
-                }}
+            <View style={{ ...card(theme, isDark), padding: 16, gap: 12 }}>
+              <Text
+                style={{ fontWeight: "700", fontSize: 18, color: theme.text }}
               >
-                <Text style={{ color: theme.textSecondary, fontWeight: "600" }}>
-                  Cancel
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => void saveNames()}
-                disabled={isSavingName || nameDraft.trim().length === 0}
-                style={{
-                  flex: 1,
-                  padding: 12,
-                  borderRadius: 10,
-                  backgroundColor: theme.primary,
-                  alignItems: "center",
-                  opacity:
-                    isSavingName || nameDraft.trim().length === 0 ? 0.5 : 1,
-                }}
-              >
-                <Text style={{ color: "#ffffff", fontWeight: "700" }}>
-                  {isSavingName ? "Saving…" : "Save"}
-                </Text>
-              </Pressable>
+                Your name
+              </Text>
+              <LabeledTextField
+                label="Display name"
+                value={nameDraft}
+                onChangeText={setNameDraft}
+                autoCapitalize="words"
+                editable={!isSavingName}
+              />
+              <LabeledTextField
+                label="Username"
+                value={usernameDraft}
+                onChangeText={(text) =>
+                  setUsernameDraft(sanitizeUsernameInput(text))
+                }
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!isSavingName}
+              />
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Pressable
+                  onPress={() => {
+                    void haptics.tap();
+                    setIsEditingName(false);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: 12,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                    alignItems: "center",
+                  }}
+                >
+                  <Text
+                    style={{ color: theme.textSecondary, fontWeight: "600" }}
+                  >
+                    Cancel
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => void saveNames()}
+                  disabled={isSavingName || nameDraft.trim().length === 0}
+                  style={{
+                    flex: 1,
+                    padding: 12,
+                    borderRadius: 10,
+                    backgroundColor: theme.primary,
+                    alignItems: "center",
+                    opacity:
+                      isSavingName || nameDraft.trim().length === 0 ? 0.5 : 1,
+                  }}
+                >
+                  <Text style={{ color: "#ffffff", fontWeight: "700" }}>
+                    {isSavingName ? "Saving…" : "Save"}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
           </View>
-        </View>
+        </Modal>
       </Modal>
     </SafeAreaView>
   );

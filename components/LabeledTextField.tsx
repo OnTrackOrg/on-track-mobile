@@ -5,7 +5,7 @@ import { useTheme } from "../contexts/ThemeContext";
 
 type LabeledTextFieldProps = {
   label: string;
-  placeholder: string;
+  placeholder?: string;
   value: string;
   onChangeText: (value: string) => void;
   helpText?: string;
@@ -55,8 +55,9 @@ export default function LabeledTextField({
           backgroundColor: theme.surface,
           flexDirection: "row",
           alignItems: "center",
-          paddingLeft: 12,
           paddingRight: 8,
+          // Clips iOS's AutoFill highlight to the rounded field.
+          overflow: "hidden",
         }}
       >
         <TextInput
@@ -65,6 +66,8 @@ export default function LabeledTextField({
           onChangeText={onChangeText}
           style={{
             flex: 1,
+            alignSelf: "stretch",
+            paddingLeft: 12,
             paddingVertical: 12,
             color: theme.text,
             backgroundColor: "transparent",

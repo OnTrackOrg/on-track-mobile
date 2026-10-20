@@ -252,8 +252,6 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
             <TextInput
               value={title}
               onChangeText={setTitle}
-              placeholder="Run a half marathon"
-              placeholderTextColor={theme.textSecondary}
               autoFocus
               returnKeyType="next"
               submitBehavior="submit"
@@ -279,8 +277,6 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
             <TextInput
               value={target}
               onChangeText={setTarget}
-              placeholder="200 lbs, 10% BF"
-              placeholderTextColor={theme.textSecondary}
               autoFocus
               returnKeyType="next"
               submitBehavior="submit"
