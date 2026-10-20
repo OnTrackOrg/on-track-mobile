@@ -14,7 +14,6 @@ export type RootStackParamList = {
   NewGoal: undefined;
   AchievedGoals: undefined;
   Friend: { friend: FriendProfile };
-  GoalMembers: { goalId: string };
   FindPeople: undefined;
   Privacy: undefined;
   Instructions: undefined;

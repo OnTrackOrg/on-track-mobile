@@ -1,5 +1,5 @@
 import { User } from "@supabase/supabase-js";
-import { Goal, GoalMember, Task, TaskTime } from "../types";
+import { Goal, Task, TaskTime } from "../types";
 import { normalizeTaskTiming } from "../store";
 import { makeUuid } from "./ids";
 import { supabase } from "./supabase";
@@ -41,35 +41,14 @@ type CompletionRow = {
   completed_day: string;
 };
 
-type MembershipRow = {
-  goal_id: string;
-  user_id: string;
-};
-
-type ProfileRow = {
-  id: string;
-  username: string | null;
-  display_name: string | null;
-  avatar_uri?: string | null;
-};
-
 type ExistingRemoteGraph = {
   goalIds: string[];
   taskIds: string[];
 };
 
-export type ReplaceRemoteGoalsResult = {
-  // Shared-goal task ids the flush skipped because they are no longer
-  // accessible (owner deleted the task, or we were removed from the goal).
-  // The caller prunes these locally per social-model.md invariant 2.
-  droppedTaskIds: string[];
-};
-
 export type AccessibleGoals = {
   owned: Goal[];
-  // Goals I am a member of (I can complete tasks on these).
-  shared: Goal[];
-  // Friends' public goals I am NOT a member of: read-only, follow + nudge.
+  // Friends' public goals: read-only, follow + nudge.
   friendsPublic: Goal[];
 };
 
@@ -152,27 +131,20 @@ const byPositionThenCreated = (
   return toTimestamp(left.created_at) - toTimestamp(right.created_at);
 };
 
+// A goal's task list with its OWNER's completions: mine on my goals, my
+// friend's on theirs. Nobody else can log on a goal.
 const buildTasks = (
-  currentUserId: string,
-  otherMemberIds: string[],
+  ownerUserId: string,
   taskRows: TaskRow[],
   completionRows: CompletionRow[],
 ): Task[] => {
-  const myCompletionsByTaskId = new Map<string, Date[]>();
-  const memberDayKeysByTaskId = new Map<string, Record<string, string[]>>();
+  const completionsByTaskId = new Map<string, Date[]>();
 
   for (const completion of completionRows) {
-    if (completion.completed_by_user_id === currentUserId) {
-      const existingDates = myCompletionsByTaskId.get(completion.task_id) ?? [];
-      existingDates.push(toDate(completion.completed_day));
-      myCompletionsByTaskId.set(completion.task_id, existingDates);
-    } else {
-      const byUser = memberDayKeysByTaskId.get(completion.task_id) ?? {};
-      (byUser[completion.completed_by_user_id] ??= []).push(
-        completion.completed_day,
-      );
-      memberDayKeysByTaskId.set(completion.task_id, byUser);
-    }
+    if (completion.completed_by_user_id !== ownerUserId) continue;
+    const existingDates = completionsByTaskId.get(completion.task_id) ?? [];
+    existingDates.push(toDate(completion.completed_day));
+    completionsByTaskId.set(completion.task_id, existingDates);
   }
 
   return [...taskRows].sort(byPositionThenCreated).map((task) => ({
@@ -198,38 +170,15 @@ const buildTasks = (
       reminderLeadMin: task.reminder_lead_min ?? undefined,
       onDay: task.once_day ?? undefined,
     }),
-    completions: myCompletionsByTaskId.get(task.id) ?? [],
-    // Every other member gets an entry (even when empty) so goalAsSeenBy can
-    // distinguish "member with no completions" from "the current user".
-    memberCompletions:
-      otherMemberIds.length === 0
-        ? undefined
-        : Object.fromEntries(
-            otherMemberIds.map((userId) => [
-              userId,
-              memberDayKeysByTaskId.get(task.id)?.[userId] ?? [],
-            ]),
-          ),
+    completions: completionsByTaskId.get(task.id) ?? [],
   }));
 };
 
 const buildGoals = (
-  currentUserId: string,
   goalRows: GoalRow[],
   taskRows: TaskRow[],
   completionRows: CompletionRow[],
-  membershipRows: MembershipRow[] = [],
-  profileRows: ProfileRow[] = [],
 ): Goal[] => {
-  const profilesById = new Map(profileRows.map((row) => [row.id, row]));
-
-  const memberIdsByGoalId = new Map<string, string[]>();
-  for (const membership of membershipRows) {
-    const existing = memberIdsByGoalId.get(membership.goal_id) ?? [];
-    existing.push(membership.user_id);
-    memberIdsByGoalId.set(membership.goal_id, existing);
-  }
-
   const tasksByGoalId = new Map<string, TaskRow[]>();
   for (const task of taskRows) {
     const existingTasks = tasksByGoalId.get(task.goal_id) ?? [];
@@ -237,50 +186,24 @@ const buildGoals = (
     tasksByGoalId.set(task.goal_id, existingTasks);
   }
 
-  return [...goalRows].sort(byPositionThenCreated).map((goal) => {
-    const memberIds = [
+  return [...goalRows].sort(byPositionThenCreated).map((goal) => ({
+    id: goal.id,
+    title: goal.title,
+    target: goal.target ?? undefined,
+    createdAt: toTimestamp(goal.created_at),
+    completedAt: toOptionalTimestamp(goal.completed_at),
+    isDraft: goal.is_draft ? true : undefined,
+    startDay: goal.start_day ?? undefined,
+    dueDay: goal.due_day ?? undefined,
+    color: goal.color ?? undefined,
+    isPublic: goal.visibility === "public" ? true : undefined,
+    ownerUserId: goal.owner_user_id,
+    tasks: buildTasks(
       goal.owner_user_id,
-      ...(memberIdsByGoalId.get(goal.id) ?? []).filter(
-        (userId) => userId !== goal.owner_user_id,
-      ),
-    ];
-
-    const members: GoalMember[] = memberIds.map((userId) => {
-      const profile = profilesById.get(userId);
-      return {
-        userId,
-        username: profile?.username ?? "",
-        displayName: profile?.display_name ?? "Member",
-        isOwner: userId === goal.owner_user_id,
-        avatarUri: profile?.avatar_uri ?? undefined,
-      };
-    });
-
-    const otherMemberIds = memberIds.filter(
-      (userId) => userId !== currentUserId,
-    );
-
-    return {
-      id: goal.id,
-      title: goal.title,
-      target: goal.target ?? undefined,
-      createdAt: toTimestamp(goal.created_at),
-      completedAt: toOptionalTimestamp(goal.completed_at),
-      isDraft: goal.is_draft ? true : undefined,
-      startDay: goal.start_day ?? undefined,
-      dueDay: goal.due_day ?? undefined,
-      color: goal.color ?? undefined,
-      isPublic: goal.visibility === "public" ? true : undefined,
-      ownerUserId: goal.owner_user_id,
-      members,
-      tasks: buildTasks(
-        currentUserId,
-        otherMemberIds,
-        tasksByGoalId.get(goal.id) ?? [],
-        completionRows,
-      ),
-    };
-  });
+      tasksByGoalId.get(goal.id) ?? [],
+      completionRows,
+    ),
+  }));
 };
 
 type CompletionInsertRow = {
@@ -335,9 +258,8 @@ const buildCompletionPayload = (
 
 /**
  * Read path: one fetch for everything this user can see under RLS (owned
- * goals + goals they are a member of), normalized into the owned/shared
- * split the store keeps. My completion rows become Date[] `completions`;
- * other members' rows become `memberCompletions` day-key maps.
+ * goals + friends' public goals), split into the store's two slices. Each
+ * goal's tasks carry its owner's completions.
  */
 export const fetchAccessibleGoals = async (
   user: User,
@@ -356,7 +278,7 @@ export const fetchAccessibleGoals = async (
   const typedGoalRows = (goalRows ?? []) as GoalRow[];
 
   if (typedGoalRows.length === 0) {
-    return { owned: [], shared: [], friendsPublic: [] };
+    return { owned: [], friendsPublic: [] };
   }
 
   const goalIds = typedGoalRows.map((goal) => goal.id);
@@ -393,64 +315,15 @@ export const fetchAccessibleGoals = async (
     return (completionRows ?? []) as CompletionRow[];
   });
 
-  const typedMembershipRows = await inChunks(goalIds, async (chunk) => {
-    const { data: membershipRows, error: membershipsError } = await supabase
-      .from("goal_memberships")
-      .select("goal_id, user_id")
-      .in("goal_id", chunk);
-
-    if (membershipsError) {
-      throw membershipsError;
-    }
-
-    return (membershipRows ?? []) as MembershipRow[];
-  });
-
-  const profileIds = Array.from(
-    new Set([
-      ...typedGoalRows.map((goal) => goal.owner_user_id),
-      ...typedMembershipRows.map((membership) => membership.user_id),
-    ]),
-  );
-
-  const typedProfileRows = await inChunks(profileIds, async (chunk) => {
-    const { data: profileRows, error: profilesError } = await supabase
-      .from("public_profiles")
-      .select("id, username, display_name, avatar_uri")
-      .in("id", chunk);
-
-    if (profilesError) {
-      throw profilesError;
-    }
-
-    return (profileRows ?? []) as ProfileRow[];
-  });
-
   const allGoals = buildGoals(
-    user.id,
     typedGoalRows,
     typedTaskRows,
     typedCompletionRows,
-    typedMembershipRows,
-    typedProfileRows,
-  );
-
-  const myMembershipGoalIds = new Set(
-    typedMembershipRows
-      .filter((membership) => membership.user_id === user.id)
-      .map((membership) => membership.goal_id),
   );
 
   return {
     owned: allGoals.filter((goal) => goal.ownerUserId === user.id),
-    shared: allGoals.filter(
-      (goal) =>
-        goal.ownerUserId !== user.id && myMembershipGoalIds.has(goal.id),
-    ),
-    friendsPublic: allGoals.filter(
-      (goal) =>
-        goal.ownerUserId !== user.id && !myMembershipGoalIds.has(goal.id),
-    ),
+    friendsPublic: allGoals.filter((goal) => goal.ownerUserId !== user.id),
   };
 };
 
@@ -492,19 +365,14 @@ const loadExistingRemoteGraph = async (
 };
 
 /**
- * Write path per social-model.md invariants 1-2:
- * - goal/task upserts and orphan deletes are scoped to goals OWNED by me
- * - my completion rows are flushed (delete + reinsert) for my tasks AND for
- *   shared-goal tasks; other members' rows are never touched
- * - a pre-insert accessibility check drops completion writes for tasks I can
- *   no longer see, so the flush never wedges on FK/RLS errors; those ids are
- *   returned as droppedTaskIds for local pruning
+ * Write path: upsert my goals and tasks, replace my completion rows on them
+ * (delete + reinsert), then delete my remote tasks and goals that no longer
+ * exist locally. Everything is scoped to goals I own.
  */
 export const replaceRemoteGoalsForUser = async (
   user: User,
   goals: Goal[],
-  sharedGoals: Goal[] = [],
-): Promise<ReplaceRemoteGoalsResult> => {
+): Promise<void> => {
   const existingGraph = await loadExistingRemoteGraph(user);
 
   const goalPayload = goals.map((goal, index) => ({
@@ -534,12 +402,6 @@ export const replaceRemoteGoalsForUser = async (
     })),
   );
 
-  const sharedTasks = sharedGoals.flatMap((goal) => goal.tasks);
-  const completionSourceTasks = [
-    ...goals.flatMap((goal) => goal.tasks),
-    ...sharedTasks,
-  ];
-
   if (goalPayload.length > 0) {
     const { error } = await supabase
       .from("goals")
@@ -559,43 +421,11 @@ export const replaceRemoteGoalsForUser = async (
   }
 
   const localTaskIds = taskPayload.map((task) => task.id);
-  const sharedTaskIds = sharedTasks.map((task) => task.id);
-  const candidateTaskIds = Array.from(
-    new Set([...existingGraph.taskIds, ...localTaskIds, ...sharedTaskIds]),
+  const completionScopeTaskIds = Array.from(
+    new Set([...existingGraph.taskIds, ...localTaskIds]),
   );
 
-  // Pre-insert accessibility filter (invariant 2): a select tells us which
-  // candidate tasks still exist and are visible under RLS.
-  const accessibleTaskIds = new Set(
-    (
-      await inChunks(candidateTaskIds, async (chunk) => {
-        const { data: accessibleRows, error: accessibleError } = await supabase
-          .from("tasks")
-          .select("id")
-          .in("id", chunk);
-
-        if (accessibleError) {
-          throw accessibleError;
-        }
-
-        return (accessibleRows ?? []) as Array<{ id: string }>;
-      })
-    ).map((row) => row.id),
-  );
-
-  const droppedTaskIds = [
-    ...new Set([...localTaskIds, ...sharedTaskIds]),
-  ].filter((taskId) => !accessibleTaskIds.has(taskId));
-
-  const deleteScopeTaskIds = candidateTaskIds.filter((taskId) =>
-    accessibleTaskIds.has(taskId),
-  );
-  const completionPayload = buildCompletionPayload(
-    completionSourceTasks,
-    user.id,
-  ).filter((row) => accessibleTaskIds.has(row.task_id));
-
-  await inChunks(deleteScopeTaskIds, async (chunk) => {
+  await inChunks(completionScopeTaskIds, async (chunk) => {
     const { error: deleteCompletionsError } = await supabase
       .from("task_completions")
       .delete()
@@ -609,6 +439,10 @@ export const replaceRemoteGoalsForUser = async (
     return [];
   });
 
+  const completionPayload = buildCompletionPayload(
+    goals.flatMap((goal) => goal.tasks),
+    user.id,
+  );
   if (completionPayload.length > 0) {
     const { error } = await supabase
       .from("task_completions")
@@ -640,69 +474,6 @@ export const replaceRemoteGoalsForUser = async (
     }
     return [];
   });
-
-  return { droppedTaskIds };
-};
-
-/**
- * Completions-only flush for users whose owned-goal cloud sync is off
- * (they skipped the import prompt): my completion toggles on shared-goal
- * tasks still have to reach the server (invariant 1) without ever uploading
- * the owned goals the user declined to import. Same delete+reinsert and
- * invariant-2 accessibility filter as the full flush.
- */
-export const flushSharedCompletionsForUser = async (
-  user: User,
-  sharedGoals: Goal[],
-): Promise<void> => {
-  const sharedTasks = sharedGoals.flatMap((goal) => goal.tasks);
-  if (sharedTasks.length === 0) {
-    return;
-  }
-
-  const taskIds = sharedTasks.map((task) => task.id);
-  const accessibleTaskIds = new Set(
-    (
-      await inChunks(taskIds, async (chunk) => {
-        const { data, error } = await supabase
-          .from("tasks")
-          .select("id")
-          .in("id", chunk);
-        if (error) {
-          throw error;
-        }
-        return (data ?? []) as Array<{ id: string }>;
-      })
-    ).map((row) => row.id),
-  );
-
-  await inChunks(
-    taskIds.filter((taskId) => accessibleTaskIds.has(taskId)),
-    async (chunk) => {
-      const { error } = await supabase
-        .from("task_completions")
-        .delete()
-        .eq("completed_by_user_id", user.id)
-        .in("task_id", chunk);
-      if (error) {
-        throw error;
-      }
-      return [];
-    },
-  );
-
-  const completionPayload = buildCompletionPayload(
-    sharedTasks.filter((task) => accessibleTaskIds.has(task.id)),
-    user.id,
-  );
-  if (completionPayload.length > 0) {
-    const { error } = await supabase
-      .from("task_completions")
-      .insert(completionPayload);
-    if (error) {
-      throw error;
-    }
-  }
 };
 
 export const deleteRemoteAccountDataForUser = async (
@@ -710,9 +481,8 @@ export const deleteRemoteAccountDataForUser = async (
 ): Promise<void> => {
   /**
    * Every user-scoped table (goals -> tasks -> completions, friendships,
-   * goal_memberships, template_commitments, plus my completion rows on other
-   * people's goals) references profiles(id) with ON DELETE CASCADE, so one
-   * profile delete removes the whole graph.
+   * template_commitments) references profiles(id) with ON DELETE CASCADE,
+   * so one profile delete removes the whole graph.
    */
   const { error: deleteProfileError } = await supabase
     .from("profiles")

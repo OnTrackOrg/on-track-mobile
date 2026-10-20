@@ -4,14 +4,14 @@
 
 # OnTrack
 
-OnTrack is a social habit tracking mobile app built with React Native and Expo. Goals and tasks are stored locally first and synced to a Supabase account, with friends, shared goals, and a curated goal template catalog on top.
+OnTrack is a social habit tracking mobile app built with React Native and Expo. Goals and tasks are stored locally first and synced to a Supabase account, with friends, public goals, and a curated goal template catalog on top.
 
 ## What the app does
 
 - Create goals with tasks and track daily completions
 - View progress with heatmaps, progress rings, and streaks
 - Add friends (request/accept) and search for people
-- Share goals with friends via goal memberships and see each member's adherence
+- Follow friends' public goals and nudge them
 - Browse curated public goal templates and commit to them as private goals
 - Sync data to a Supabase account (local-first, background flush)
 
@@ -84,7 +84,7 @@ OnTrack/
 
 - `README.md`: quick start and repo overview
 - `TODO.md`: lightweight backlog notes not yet formalized as issues
-- `docs/social-model.md`: friends, shared goals, templates, and the sync invariants
+- `docs/social-model.md`: friends, public goals, templates, and the sync invariants
 - `docs/account-sync-foundation.md`: auth, session persistence, and the local-data import flow
 - adocs/app-store-submission-checklist.md`: App Review prep
 - `docs/supabase-branching.md`: Supabase environment workflow

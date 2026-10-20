@@ -55,7 +55,6 @@ describe("buildWidgetSnapshot", () => {
   it("summarises today and tomorrow", () => {
     const snapshot = buildWidgetSnapshot({
       goals: [run, read],
-      sharedGoals: [],
       postponedTasks: {},
       accent: "#3b82f6",
       now: NOW,
@@ -79,7 +78,6 @@ describe("buildWidgetSnapshot", () => {
   it("carries the Goals-tab card data for each active goal", () => {
     const [today] = buildWidgetSnapshot({
       goals: [run, read],
-      sharedGoals: [],
       postponedTasks: {},
       accent: "#3b82f6",
       now: NOW,
@@ -105,7 +103,6 @@ describe("buildWidgetSnapshot", () => {
   it("ranks the goal with the most undone work first", () => {
     const [today] = buildWidgetSnapshot({
       goals: [run, read],
-      sharedGoals: [],
       postponedTasks: {},
       accent: "#3b82f6",
       now: NOW,
@@ -113,28 +110,25 @@ describe("buildWidgetSnapshot", () => {
     expect(today.autoOrder).toEqual(["read", "run"]);
   });
 
-  it("skips drafts, scheduled and achieved goals but keeps shared ones", () => {
+  it("skips drafts, scheduled and achieved goals", () => {
     const draft = goal("draft", [task("d1")], { isDraft: true });
     const scheduled = goal("later", [task("l1")], { startDay: "2026-09-20" });
     const achieved = goal("won", [task("w1")], { completedAt: NOW.getTime() });
-    const shared = goal("shared", [task("s1")]);
 
     const [today] = buildWidgetSnapshot({
       goals: [run, draft, scheduled, achieved],
-      sharedGoals: [shared],
       postponedTasks: {},
       accent: "#3b82f6",
       now: NOW,
     }).days;
 
-    expect(today.goals.map((g) => g.id)).toEqual(["run", "shared"]);
-    expect(today.total).toBe(3);
+    expect(today.goals.map((g) => g.id)).toEqual(["run"]);
+    expect(today.total).toBe(2);
   });
 
   it("leaves postponed tasks out of the day's total, like the Today tab", () => {
     const [today] = buildWidgetSnapshot({
       goals: [read],
-      sharedGoals: [],
       postponedTasks: { [format(NOW, "yyyy-MM-dd")]: ["b1"] },
       accent: "#3b82f6",
       now: NOW,
@@ -147,7 +141,6 @@ describe("buildWidgetSnapshot", () => {
   it("reports nothing due with no goals", () => {
     const [today] = buildWidgetSnapshot({
       goals: [],
-      sharedGoals: [],
       postponedTasks: {},
       accent: "#3b82f6",
       now: NOW,

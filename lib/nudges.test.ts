@@ -8,7 +8,7 @@ jest.mock("./supabase", () => ({
 
 import { Goal } from "../types";
 import {
-  getNudgeCandidates,
+  getFriendPublicGoals,
   markNudgeSent,
   nudgeRetryMinutes,
   wasRecentlyNudged,
@@ -16,150 +16,39 @@ import {
   NUDGE_COOLDOWN_MS,
 } from "./nudges";
 
-const OWNER_ID = "00000000-0000-4000-8000-000000000001";
-const ME_ID = "00000000-0000-4000-8000-000000000009";
-
 const FRIEND_ID = "00000000-0000-4000-8000-000000000002";
+const OTHER_ID = "00000000-0000-4000-8000-000000000003";
 const REFERENCE_DATE = new Date(2026, 6, 23);
 
-const sharedGoal = (
-  id: string,
-  title: string,
-  memberCompletions: string[] = [],
-): Goal => ({
+const friendGoal = (id: string, overrides: Partial<Goal> = {}): Goal => ({
   id,
-  title,
+  title: `Goal ${id}`,
   createdAt: new Date(2026, 6, 20).getTime(),
-  members: [
-    {
-      userId: "00000000-0000-4000-8000-000000000001",
-      username: "owner",
-      displayName: "Owner",
-      isOwner: true,
-    },
-    {
-      userId: FRIEND_ID,
-      username: "friend",
-      displayName: "Friend",
-      isOwner: false,
-    },
-  ],
+  ownerUserId: FRIEND_ID,
+  isPublic: true,
   tasks: [
-    {
-      id: `${id}-task`,
-      title: "Daily task",
-      frequency: "daily",
-      completions: [],
-      memberCompletions: {
-        [FRIEND_ID]: memberCompletions,
-      },
-    },
+    { id: `${id}-task`, title: "Run", frequency: "daily", completions: [] },
   ],
+  ...overrides,
 });
 
-describe("getNudgeCandidates", () => {
-  it("returns active shared goals", () => {
-    const result = getNudgeCandidates(
-      [sharedGoal("1", "Drink water")],
-      FRIEND_ID,
-      REFERENCE_DATE,
-    );
-
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({
-      goal: { id: "1", title: "Drink water" },
-      adherence: 0,
-    });
-  });
-
-  it("excludes completed and private goals but keeps consistent ones", () => {
-    const completed = {
-      ...sharedGoal("1", "Completed"),
-      completedAt: new Date(2026, 6, 22).getTime(),
-    };
-    const privateGoal: Goal = {
-      ...sharedGoal("2", "Private"),
-      members: undefined,
-    };
-    // High adherence no longer hides a goal — friends can always be nudged.
-    const consistent = sharedGoal("3", "Consistent", [
-      "2026-07-20",
-      "2026-07-21",
-      "2026-07-22",
-      "2026-07-23",
-    ]);
-
-    const result = getNudgeCandidates(
-      [completed, privateGoal, consistent],
-      FRIEND_ID,
-      REFERENCE_DATE,
-    );
-    expect(result.map(({ goal }) => goal.title)).toEqual(["Consistent"]);
-    expect(result[0].adherence).toBe(1);
-  });
-
-  it("includes a friend's public goal I am not a member of, flagged public-only", () => {
-    const publicGoal: Goal = {
-      id: "4",
-      title: "Public run",
-      createdAt: new Date(2026, 6, 20).getTime(),
-      ownerUserId: FRIEND_ID,
-      isPublic: true,
-      members: [
-        {
-          userId: FRIEND_ID,
-          username: "friend",
-          displayName: "Friend",
-          isOwner: true,
-        },
-      ],
-      tasks: [
-        {
-          id: "4-task",
-          title: "Run",
-          frequency: "daily",
-          completions: [],
-          memberCompletions: { [FRIEND_ID]: ["2026-07-23"] },
-        },
-      ],
-    };
-
-    const result = getNudgeCandidates(
-      [publicGoal, sharedGoal("1", "Shared")],
-      FRIEND_ID,
-      REFERENCE_DATE,
-      ME_ID,
-    );
-
-    expect(result.map(({ goal }) => goal.id)).toEqual(["1", "4"]);
-    expect(result.find(({ goal }) => goal.id === "4")?.isPublicOnly).toBe(true);
-    expect(result.find(({ goal }) => goal.id === "1")?.isPublicOnly).toBe(true);
-  });
-
-  it("marks goals I am part of as not public-only", () => {
-    const result = getNudgeCandidates(
-      [sharedGoal("1", "Shared")],
-      FRIEND_ID,
-      REFERENCE_DATE,
-      OWNER_ID,
-    );
-    expect(result[0].isPublicOnly).toBe(false);
-  });
-
-  it("puts the least-adherent shared goal first", () => {
-    const result = getNudgeCandidates(
+describe("getFriendPublicGoals", () => {
+  it("keeps the friend's started, unachieved public goals in their order", () => {
+    const result = getFriendPublicGoals(
       [
-        sharedGoal("1", "Some progress", ["2026-07-23"]),
-        sharedGoal("2", "No progress"),
+        friendGoal("1"),
+        friendGoal("2", { completedAt: new Date(2026, 6, 22).getTime() }),
+        friendGoal("3", { isPublic: undefined }),
+        friendGoal("4", { isDraft: true }),
+        friendGoal("5", { startDay: "2026-08-01" }),
+        friendGoal("6", { ownerUserId: OTHER_ID }),
+        friendGoal("7"),
       ],
       FRIEND_ID,
       REFERENCE_DATE,
     );
 
-    expect(result.map(({ goal }) => goal.title)).toEqual([
-      "No progress",
-      "Some progress",
-    ]);
+    expect(result.map((goal) => goal.id)).toEqual(["1", "7"]);
   });
 });
 

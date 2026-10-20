@@ -10,7 +10,6 @@ import { getGoalColor } from "../utils/goalColors";
 import { withAlpha } from "../utils/color";
 import { ratioHeatmapValues } from "../lib/heatmapValues";
 import { describeTaskSchedule } from "../lib/taskSchedule";
-import { leaveGoal } from "../lib/social";
 import {
   activeDays,
   getAchievedWindow,
@@ -49,15 +48,9 @@ export default function AchievedGoalModal({
   }, [goalId]);
   const resolvedId = goalId ?? shownGoalId;
 
-  const ownedGoal = useStore((s) => s.goals.find((g) => g.id === resolvedId));
-  const sharedGoal = useStore((s) =>
-    s.sharedGoals.find((g) => g.id === resolvedId),
-  );
-  const goal = ownedGoal ?? sharedGoal;
-  const account = useStore((s) => s.account);
+  const goal = useStore((s) => s.goals.find((g) => g.id === resolvedId));
   const reactivateGoal = useStore((s) => s.reactivateGoal);
   const deleteGoal = useStore((s) => s.deleteGoal);
-  const setSharedGoals = useStore((s) => s.setSharedGoals);
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
 
   const stats = React.useMemo(() => {
@@ -85,13 +78,6 @@ export default function AchievedGoalModal({
     onClose();
   };
 
-  const isOwner =
-    Boolean(ownedGoal) || (Boolean(goal) && account?.id === goal?.ownerUserId);
-  // Members can leave only while signed in; with nothing to offer, the ⋯
-  // button itself stays off the sheet.
-  const canLeave = !isOwner && account !== null;
-  const hasMenu = isOwner || canLeave;
-
   const confirmReactivateGoal = () => {
     if (!goal) return;
     void haptics.warning();
@@ -117,7 +103,7 @@ export default function AchievedGoalModal({
     void haptics.warning();
     Alert.alert(
       "Delete goal?",
-      `This permanently removes "${goal.title}", its tasks, and everyone's history for it.`,
+      `This permanently removes "${goal.title}", its tasks, and its history.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -127,44 +113,6 @@ export default function AchievedGoalModal({
             void haptics.destructive();
             deleteGoal(goal.id);
             close();
-          },
-        },
-      ],
-    );
-  };
-
-  const confirmLeaveGoal = () => {
-    if (!goal || !account) return;
-    void haptics.warning();
-    Alert.alert(
-      "Leave goal?",
-      `"${goal.title}" will disappear from your goals. The owner keeps the goal.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Leave",
-          style: "destructive",
-          onPress: () => {
-            void (async () => {
-              try {
-                await leaveGoal(goal.id, account.id);
-                setSharedGoals(
-                  useStore
-                    .getState()
-                    .sharedGoals.filter((g) => g.id !== goal.id),
-                );
-                void haptics.success();
-                close();
-              } catch (error) {
-                void haptics.error();
-                Alert.alert(
-                  "Couldn't leave goal",
-                  error instanceof Error
-                    ? error.message
-                    : "Try again once you're online.",
-                );
-              }
-            })();
           },
         },
       ],
@@ -269,13 +217,11 @@ export default function AchievedGoalModal({
           >
             {goal.title}
           </Text>
-          {hasMenu ? (
-            <IconButton
-              icon="ellipsis-horizontal"
-              circular
-              onPress={() => setIsMenuOpen(true)}
-            />
-          ) : null}
+          <IconButton
+            icon="ellipsis-horizontal"
+            circular
+            onPress={() => setIsMenuOpen(true)}
+          />
           <IconButton icon="close" circular onPress={close} />
         </View>
         <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
@@ -438,46 +384,32 @@ export default function AchievedGoalModal({
                 elevation: 6,
               }}
             >
-              {isOwner
-                ? [
-                    renderMenuItem(
-                      <Ionicons
-                        name="refresh-outline"
-                        size={17}
-                        color={theme.textSecondary}
-                      />,
-                      "Move back to active",
-                      confirmReactivateGoal,
-                    ),
-                    <View
-                      key="divider"
-                      style={{
-                        height: 1,
-                        backgroundColor: theme.border,
-                        marginVertical: 4,
-                      }}
-                    />,
-                    renderMenuItem(
-                      <Ionicons
-                        name="trash-outline"
-                        size={17}
-                        color={theme.danger}
-                      />,
-                      "Delete goal",
-                      confirmDeleteGoal,
-                      true,
-                    ),
-                  ]
-                : renderMenuItem(
-                    <Ionicons
-                      name="exit-outline"
-                      size={17}
-                      color={theme.danger}
-                    />,
-                    "Leave goal",
-                    confirmLeaveGoal,
-                    true,
-                  )}
+              {renderMenuItem(
+                <Ionicons
+                  name="refresh-outline"
+                  size={17}
+                  color={theme.textSecondary}
+                />,
+                "Move back to active",
+                confirmReactivateGoal,
+              )}
+              <View
+                style={{
+                  height: 1,
+                  backgroundColor: theme.border,
+                  marginVertical: 4,
+                }}
+              />
+              {renderMenuItem(
+                <Ionicons
+                  name="trash-outline"
+                  size={17}
+                  color={theme.danger}
+                />,
+                "Delete goal",
+                confirmDeleteGoal,
+                true,
+              )}
             </View>
           </Pressable>
         ) : null}

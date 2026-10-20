@@ -33,15 +33,13 @@ const getDayDate = (dayKey: string): Date => {
   return new Date(year, month - 1, day);
 };
 
-// Active goals reorder by press-and-hold (SortableList). The order is the
-// user's own (store.personalOrder): it never touches the shared position
-// columns, so members of a shared goal each keep their own arrangement.
+// Active goals reorder by press-and-hold (SortableList), saved as the
+// user's personal order (store.personalOrder).
 export default function GoalsScreen() {
   const { theme, isDark } = useTheme();
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const goals = useStore((s) => s.goals);
-  const sharedGoals = useStore((s) => s.sharedGoals);
   const startGoal = useStore((s) => s.startGoal);
   const personalOrder = useStore((s) => s.personalOrder);
   const reorderGoals = useStore((s) => s.reorderGoals);
@@ -65,19 +63,11 @@ export default function GoalsScreen() {
 
   const today = new Date();
   const statusOf = (g: Goal) => getGoalLifecycleStatus(g, today);
-  const activeOwned = goals.filter((g) => statusOf(g) === "active");
-  // Shared drafts stay visible to invited members too (start is owner-only).
-  const drafts = [...goals, ...sharedGoals].filter(
-    (g) => statusOf(g) === "draft",
-  );
-  const scheduled = [...goals, ...sharedGoals].filter(
-    (g) => statusOf(g) === "scheduled",
-  );
+  const drafts = goals.filter((g) => statusOf(g) === "draft");
+  const scheduled = goals.filter((g) => statusOf(g) === "scheduled");
   const achieved = goals.filter((g) => g.completedAt !== undefined);
-  const activeShared = sharedGoals.filter((g) => statusOf(g) === "active");
-  // One list, owned then shared by default, in the user's own order.
   const activeGoals = applyOrder(
-    [...activeOwned, ...activeShared],
+    goals.filter((g) => statusOf(g) === "active"),
     personalOrder.goals,
   );
   const goalKey = (goal: Goal) => goal.id;
@@ -455,8 +445,7 @@ export default function GoalsScreen() {
           </TourAnchor>
         </View>
 
-        {activeOwned.length === 0 &&
-        activeShared.length === 0 &&
+        {activeGoals.length === 0 &&
         drafts.length === 0 &&
         scheduled.length === 0 ? (
           <TourAnchor anchorKey="goals-card">

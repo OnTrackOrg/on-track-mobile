@@ -28,7 +28,6 @@ const goal = (tasks: Task[], overrides: Partial<Goal> = {}): Goal => ({
 const plan = (goals: Goal[], postponedTasks = {}) =>
   planTaskReminders({
     goals,
-    sharedGoals: [],
     postponedTasks,
     now: NOW,
     horizonDays: 2,
@@ -103,7 +102,6 @@ describe("planTaskReminders", () => {
   it("keeps only the soonest reminders up to the limit", () => {
     const reminders = planTaskReminders({
       goals: [goal([task()])],
-      sharedGoals: [],
       postponedTasks: {},
       now: NOW,
       horizonDays: 7,

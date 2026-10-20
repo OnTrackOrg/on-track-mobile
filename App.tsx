@@ -20,7 +20,6 @@ import TodayScreen from "./components/TodayScreen";
 import GoalsScreen from "./components/GoalsScreen";
 import ProfileScreen from "./components/ProfileScreen";
 import FriendScreen from "./components/FriendScreen";
-import GoalMembersScreen from "./components/GoalMembersScreen";
 import FindPeopleScreen from "./components/FindPeopleScreen";
 import GoalScreen from "./components/GoalScreen";
 import NewGoalScreen from "./components/NewGoalScreen";
@@ -53,15 +52,14 @@ import {
 } from "./lib/auth";
 import {
   fetchAccessibleGoals,
-  flushSharedCompletionsForUser,
   replaceRemoteGoalsForUser,
 } from "./lib/dataSync";
-import { importLocalDataToCloud, pruneDroppedTaskIds } from "./lib/importLocal";
+import { importLocalDataToCloud } from "./lib/importLocal";
 import { fetchPersonalOrder, pushPersonalOrder } from "./lib/orderSync";
 import { fetchSocialGraph } from "./lib/social";
 import { setAccountDeletedHandler } from "./lib/accountDeleted";
 import { supabase } from "./lib/supabase";
-import { reconcileAvatarWithProfile } from "./lib/avatar";
+import { loadMyAvatar, reconcileAvatarWithProfile } from "./lib/avatar";
 import { registerPushTokenForCurrentUser } from "./lib/pushNotifications";
 import { initTaskReminders } from "./lib/taskReminders";
 import { useWidgetSync } from "./lib/widgetSync";
@@ -135,7 +133,6 @@ function ThemedNavigation() {
   const goals = useStore((s) => s.goals);
   const setAccount = useStore((s) => s.setAccount);
   const setGoals = useStore((s) => s.setGoals);
-  const setSharedGoals = useStore((s) => s.setSharedGoals);
   const setFriendGoals = useStore((s) => s.setFriendGoals);
   const setSocialGraph = useStore((s) => s.setSocialGraph);
   const claimLocalData = useStore((s) => s.claimLocalData);
@@ -209,10 +206,9 @@ function ThemedNavigation() {
       return;
     }
     pendingWidgetLinkRef.current = null;
-    const { goals: ownGoals, sharedGoals } = useStore.getState();
     if (
       link.screen === "goal" &&
-      [...ownGoals, ...sharedGoals].some((goal) => goal.id === link.goalId)
+      useStore.getState().goals.some((goal) => goal.id === link.goalId)
     ) {
       navigationRef.navigate("Goal", { goalId: link.goalId });
       return;
@@ -259,12 +255,7 @@ function ThemedNavigation() {
       const revisionToSync = s.syncRevision;
 
       try {
-        const { droppedTaskIds } = await replaceRemoteGoalsForUser(
-          user,
-          s.goals,
-          s.sharedGoals,
-        );
-        pruneDroppedTaskIds(droppedTaskIds);
+        await replaceRemoteGoalsForUser(user, s.goals);
         markGoalsSynced(revisionToSync);
         return true;
       } catch (error) {
@@ -299,24 +290,12 @@ function ThemedNavigation() {
   const syncWithRemote = React.useCallback(
     async (user: User) => {
       const preSync = useStore.getState();
+      // Goals stay local until the user explicitly imports them.
       if (preSync.cloudSyncEnabled) {
         await flushSerialized(user);
-      } else if (preSync.syncRevision > preSync.lastSyncedRevision) {
-        /**
-         * Owned goals stay local until the user explicitly imports, but my
-         * completion toggles on shared goals still have to reach the server
-         * (invariant 1) before the fetch below may replace sharedGoals.
-         */
-        const revisionToSync = preSync.syncRevision;
-        try {
-          await flushSharedCompletionsForUser(user, preSync.sharedGoals);
-          markGoalsSynced(revisionToSync);
-        } catch (error) {
-          console.error("Failed to flush shared completions", error);
-        }
       }
 
-      const { owned, shared, friendsPublic } = await fetchAccessibleGoals(user);
+      const { owned, friendsPublic } = await fetchAccessibleGoals(user);
       // Friends' public goals are never written from this device, so they
       // can always be replaced regardless of the dirty check below.
       setFriendGoals(friendsPublic);
@@ -348,30 +327,23 @@ function ThemedNavigation() {
       if (s.cloudSyncEnabled) {
         if (!dirty) {
           setGoals(owned);
-          setSharedGoals(shared);
         }
       } else if (owned.length > 0) {
         if (!dirty) {
-          // Owned cloud data exists, so the cloud copy wins (pre-social behavior).
+          // Cloud data exists, so the cloud copy wins.
           setGoals(owned);
-          setSharedGoals(shared);
           setCloudSyncEnabled(true);
         }
       } else {
-        if (!dirty) {
-          setSharedGoals(shared);
-        }
         setCloudSyncEnabled(s.goals.length === 0);
       }
     },
     [
       adoptPersonalOrder,
       flushSerialized,
-      markGoalsSynced,
       setCloudSyncEnabled,
       setFriendGoals,
       setGoals,
-      setSharedGoals,
     ],
   );
 
@@ -417,8 +389,13 @@ function ThemedNavigation() {
   // Task reminders are local, so they work signed in or not.
   React.useEffect(() => initTaskReminders(), []);
 
-  // Avatars are shared via profiles.avatar_uri; reconcile the device photo
-  // with the profile once per sign-in (upload local-only, adopt remote-only).
+  // My photo from the device copy first; the sign-in reconcile below then
+  // brings it in line with the profile.
+  React.useEffect(() => {
+    void loadMyAvatar();
+  }, []);
+
+  // Bring my photo in line with profiles.avatar_uri once per sign-in.
   React.useEffect(() => {
     if (!session?.user) {
       return;
@@ -503,7 +480,7 @@ function ThemedNavigation() {
    * Decide the tour exactly once per signed-in user, after their first sync
    * has settled (a settled id for anyone else is ignored). A device that
    * already completed it never asks again. An account that already has
-   * goals (owned or shared, achieved or not) is marked complete on this
+   * goals (achieved or not) is marked complete on this
    * device too, so later launches skip the wait.
    */
   React.useEffect(() => {
@@ -516,8 +493,7 @@ function ThemedNavigation() {
     ) {
       return;
     }
-    const { goals: ownGoals, sharedGoals } = useStore.getState();
-    const hasExistingData = ownGoals.length + sharedGoals.length > 0;
+    const hasExistingData = useStore.getState().goals.length > 0;
     setTourDecision({
       userId,
       show: shouldShowAppTour({
@@ -1024,12 +1000,7 @@ function ThemedNavigation() {
         <Stack.Screen
           name="Friend"
           component={FriendScreen}
-          options={{ title: "Friend" }}
-        />
-        <Stack.Screen
-          name="GoalMembers"
-          component={GoalMembersScreen}
-          options={{ title: "Doing this together" }}
+          options={{ title: "Friends" }}
         />
         <Stack.Screen
           name="FindPeople"

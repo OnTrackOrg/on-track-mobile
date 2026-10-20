@@ -71,7 +71,6 @@ describe("reminder notification actions", () => {
           ],
         },
       ],
-      sharedGoals: [],
     });
     cleanup = initTaskReminders();
   });

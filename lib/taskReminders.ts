@@ -54,14 +54,12 @@ const dayKeyToDate = (key: string): Date => {
 /** Pure: which reminders should be pending right now. */
 export const planTaskReminders = ({
   goals,
-  sharedGoals,
   postponedTasks,
   now,
   horizonDays = HORIZON_DAYS,
   limit = MAX_SCHEDULED,
 }: {
   goals: Goal[];
-  sharedGoals: Goal[];
   postponedTasks: Record<string, string[]>;
   now: Date;
   horizonDays?: number;
@@ -75,7 +73,7 @@ export const planTaskReminders = ({
     const day = format(date, "yyyy-MM-dd");
     const postponed = new Set(postponedTasks[day] ?? []);
 
-    for (const goal of [...goals, ...sharedGoals]) {
+    for (const goal of goals) {
       if (goal.completedAt !== undefined || !hasGoalStarted(goal, date)) {
         continue;
       }
@@ -131,7 +129,6 @@ const rebuild = async () => {
     status === "granted"
       ? planTaskReminders({
           goals: state.goals,
-          sharedGoals: state.sharedGoals,
           postponedTasks: state.postponedTasks,
           now: new Date(),
         })
@@ -146,7 +143,7 @@ const rebuild = async () => {
     if (!request.identifier.startsWith(SNOOZE_PREFIX)) return false;
     const data = request.content.data;
     if (!isReminderData(data)) return true;
-    const task = [...state.goals, ...state.sharedGoals]
+    const task = state.goals
       .find((goal) => goal.id === data.goalId)
       ?.tasks.find((item) => item.id === data.taskId);
     return !task || getDosesOnDate(task, dayKeyToDate(data.day)) > data.dose;
@@ -236,13 +233,7 @@ const handleResponse = async (
   if (response.actionIdentifier === ACTION_DONE) {
     await waitForHydration();
     const state = useStore.getState();
-    const isShared = !state.goals.some((goal) => goal.id === data.goalId);
-    state.logTaskDose(
-      data.goalId,
-      data.taskId,
-      isShared,
-      dayKeyToDate(data.day),
-    );
+    state.logTaskDose(data.goalId, data.taskId, dayKeyToDate(data.day));
   } else if (response.actionIdentifier === ACTION_SNOOZE) {
     await Notifications.scheduleNotificationAsync({
       identifier: `${SNOOZE_PREFIX}${data.taskId}:${data.day}:${data.dose}`,
@@ -322,7 +313,6 @@ export const initTaskReminders = (): (() => void) => {
   const unsubscribeStore = useStore.subscribe((state, previous) => {
     if (
       state.goals !== previous.goals ||
-      state.sharedGoals !== previous.sharedGoals ||
       state.postponedTasks !== previous.postponedTasks
     ) {
       scheduleSync();

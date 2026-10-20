@@ -88,41 +88,14 @@ Deno.serve(async (request) => {
     return json({ error: "Completed goals cannot be nudged" }, 400);
   }
 
-  const { data: memberships, error: membershipError } = await adminClient
-    .from("goal_memberships")
-    .select("user_id")
-    .eq("goal_id", goal.id)
-    .in("user_id", [user.id, recipientUserId]);
-  if (membershipError) {
-    return json({ error: "Could not verify goal membership" }, 500);
+  // Goals have one owner, and friends follow the public ones: the recipient
+  // must own this goal and it must be public (the same rule that lets the
+  // sender see it).
+  if (goal.owner_user_id !== recipientUserId) {
+    return json({ error: "That goal isn't your friend's" }, 403);
   }
-  const participantIds = new Set([
-    goal.owner_user_id as string,
-    ...(memberships ?? []).map((membership) => membership.user_id as string),
-  ]);
-  if (!participantIds.has(recipientUserId)) {
-    return json({ error: "Your friend isn't part of this goal" }, 403);
-  }
-
-  // Members can always nudge each other. Anyone else needs the goal to be
-  // public and to be friends with its owner (the same rule that lets them
-  // see it).
-  if (!participantIds.has(user.id)) {
-    let allowed = goal.visibility === "public";
-    if (allowed && goal.owner_user_id !== recipientUserId) {
-      const { data: friendsWithOwner, error: ownerFriendError } =
-        await adminClient.rpc("are_users_friends", {
-          left_user_id: user.id,
-          right_user_id: goal.owner_user_id,
-        });
-      if (ownerFriendError) {
-        return json({ error: "Could not verify goal access" }, 500);
-      }
-      allowed = friendsWithOwner === true;
-    }
-    if (!allowed) {
-      return json({ error: "You can't see this goal" }, 403);
-    }
+  if (goal.visibility !== "public") {
+    return json({ error: "You can't see this goal" }, 403);
   }
 
   const windowStart = new Date(Date.now() - NUDGE_WINDOW_MS);

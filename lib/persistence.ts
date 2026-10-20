@@ -8,5 +8,7 @@ export const STORAGE_KEYS = {
   themePreference: "ontrack-theme",
   accentTheme: "ontrack-accent-theme",
   avatar: "ontrack-avatar",
+  // Set while a picked photo hasn't reached profiles.avatar_uri yet.
+  avatarPendingUpload: "ontrack-avatar-pending-upload",
   legacyThemePreference: "theme",
 } as const;

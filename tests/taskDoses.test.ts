@@ -112,7 +112,7 @@ describe("multi-dose days", () => {
   it("counts Today's totals in doses", () => {
     const creatine = task({ timesPerDay: 3, completions: [day(20)] });
     const walk = task({ id: "task-2", title: "Walk", completions: [day(20)] });
-    const { totals } = getTodayItems([goal([creatine, walk])], [], day(20));
+    const { totals } = getTodayItems([goal([creatine, walk])], day(20));
     expect(totals).toMatchObject({ done: 2, total: 4 });
   });
 });
@@ -139,7 +139,6 @@ describe("dose store actions", () => {
   beforeEach(() => {
     useStore.setState({
       goals: [goal([task({ timesPerDay: 2 })])],
-      sharedGoals: [],
     });
   });
 
@@ -161,18 +160,18 @@ describe("dose store actions", () => {
 
   it("logTaskDose never logs past a full day", () => {
     const { logTaskDose } = useStore.getState();
-    logTaskDose("goal-1", "task-1", false, day(20));
-    logTaskDose("goal-1", "task-1", false, day(20));
-    logTaskDose("goal-1", "task-1", false, day(20));
+    logTaskDose("goal-1", "task-1", day(20));
+    logTaskDose("goal-1", "task-1", day(20));
+    logTaskDose("goal-1", "task-1", day(20));
     expect(doses()).toBe(2);
   });
 
   it("removeTaskDose undoes one dose and bumps the sync revision", () => {
     const { logTaskDose, removeTaskDose } = useStore.getState();
-    logTaskDose("goal-1", "task-1", false, day(20));
-    logTaskDose("goal-1", "task-1", false, day(20));
+    logTaskDose("goal-1", "task-1", day(20));
+    logTaskDose("goal-1", "task-1", day(20));
     const revision = useStore.getState().syncRevision;
-    removeTaskDose("goal-1", "task-1", false, day(20));
+    removeTaskDose("goal-1", "task-1", day(20));
     expect(doses()).toBe(1);
     expect(useStore.getState().syncRevision).toBe(revision + 1);
   });

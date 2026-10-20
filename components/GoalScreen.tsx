@@ -20,7 +20,6 @@ import {
   getGoalLifecycleStatus,
   getGoalStartDate,
   getGoalStreak,
-  getMemberAdherence,
   getTaskWeekdays,
 } from "../store";
 import { useTheme } from "../contexts/ThemeContext";
@@ -32,7 +31,6 @@ import { getGoalColor, goalColor } from "../utils/goalColors";
 import { mix, withAlpha } from "../utils/color";
 import { RootStackParamList } from "../navigation";
 import TrackingDateControls from "./TrackingDateControls";
-import Avatar from "./Avatar";
 import DatePickerModal from "./DatePickerModal";
 import Heatmap from "./Heatmap";
 import GoalColorPicker from "./GoalColorPicker";
@@ -42,18 +40,12 @@ import TaskEditorModal, { TaskEditorValue } from "./TaskEditorModal";
 import SortableList from "./SortableList";
 import { applyOrder } from "../lib/personalOrder";
 import { card } from "./ui";
-import { leaveGoal } from "../lib/social";
 
 type GoalProps = NativeStackScreenProps<RootStackParamList, "Goal">;
 
 export default function GoalScreen({ navigation, route }: GoalProps) {
   const { goalId } = route.params;
-  const ownedGoal = useStore((s) => s.goals.find((g) => g.id === goalId));
-  const sharedGoal = useStore((s) =>
-    s.sharedGoals.find((g) => g.id === goalId),
-  );
-  const goal = ownedGoal ?? sharedGoal;
-  const account = useStore((s) => s.account);
+  const goal = useStore((s) => s.goals.find((g) => g.id === goalId));
   const selectedDate = useStore((s) => s.selectedDate);
   const addTask = useStore((s) => s.addTask);
   const updateTask = useStore((s) => s.updateTask);
@@ -63,7 +55,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const startGoal = useStore((s) => s.startGoal);
   const deleteTask = useStore((s) => s.deleteTask);
   const deleteGoal = useStore((s) => s.deleteGoal);
-  const setSharedGoals = useStore((s) => s.setSharedGoals);
   const personalTaskOrder = useStore((s) =>
     goal ? s.personalOrder.tasks[goal.id] : undefined,
   );
@@ -73,13 +64,10 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const isOwner =
-    Boolean(ownedGoal) || (Boolean(goal) && account?.id === goal?.ownerUserId);
-
   // Generic edit mode (issue #167): goal/task management actions stay hidden
-  // until the owner opens it.
+  // until it's opened.
   const [isManaging, setIsManaging] = React.useState(false);
-  // The ⋯ actions menu holding Edit / Complete / Delete (or Leave).
+  // The ⋯ actions menu holding Edit / Complete / Delete.
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
   const [isEditing, setIsEditing] = React.useState(false);
   const [editingTaskId, setEditingTaskId] = React.useState<string | null>(null);
@@ -218,7 +206,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
     void haptics.warning();
     Alert.alert(
       "Delete goal?",
-      `This permanently removes "${goal.title}", its tasks, and everyone's history for it.`,
+      `This permanently removes "${goal.title}", its tasks, and its history.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -228,44 +216,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             void haptics.destructive();
             deleteGoal(goalId);
             navigation.goBack();
-          },
-        },
-      ],
-    );
-  };
-
-  const confirmLeaveGoal = () => {
-    if (!account) return;
-    void haptics.warning();
-    Alert.alert(
-      "Leave goal?",
-      `"${goal.title}" will disappear from your goals. The owner keeps the goal.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Leave",
-          style: "destructive",
-          onPress: () => {
-            void (async () => {
-              try {
-                await leaveGoal(goalId, account.id);
-                setSharedGoals(
-                  useStore
-                    .getState()
-                    .sharedGoals.filter((g) => g.id !== goalId),
-                );
-                void haptics.success();
-                navigation.goBack();
-              } catch (error) {
-                void haptics.error();
-                Alert.alert(
-                  "Couldn't leave goal",
-                  error instanceof Error
-                    ? error.message
-                    : "Try again once you're online.",
-                );
-              }
-            })();
           },
         },
       ],
@@ -359,13 +309,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
       ),
   );
 
-  const members = goal.members ?? [];
-  const orderedMembers = [
-    ...members.filter((m) => m.userId === account?.id),
-    ...members.filter((m) => m.userId !== account?.id),
-  ];
-  // ponytail: heatmaps show MY completions only, even on shared goals —
-  // same semantics as the old per-goal Consistency screen.
   const recurringTasks = goal.tasks.filter((t) => t.frequency !== "once");
   const heatmapTask =
     recurringTasks.find((t) => t.id === heatmapTaskId) ?? null;
@@ -449,7 +392,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
 
   // Task management is tucked behind the generic Edit control (issue #167).
   const renderTaskActionButtons = (item: Task) =>
-    isOwner && isManaging ? (
+    isManaging ? (
       <Pressable
         onPress={() => startEditingTask(item.id)}
         hitSlop={6}
@@ -552,11 +495,11 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 accessibilityLabel={
                   goal.isPublic ? "Public goal" : "Private goal"
                 }
-                disabled={!(isOwner && isManaging)}
+                disabled={!isManaging}
                 onPress={confirmVisibilityChange}
                 hitSlop={8}
                 style={
-                  isOwner && isManaging
+                  isManaging
                     ? {
                         ...editControlStyle,
                         backgroundColor: goal.isPublic
@@ -571,15 +514,15 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
               >
                 <PrivacyLock
                   open={Boolean(goal.isPublic)}
-                  size={isOwner && isManaging ? 19 : 16}
+                  size={isManaging ? 19 : 16}
                   color={
-                    goal.isPublic && isOwner && isManaging
+                    goal.isPublic && isManaging
                       ? theme.primary
                       : theme.textSecondary
                   }
                 />
               </Pressable>
-              {isOwner && isManaging ? (
+              {isManaging ? (
                 <Pressable
                   accessibilityLabel="Change color"
                   onPress={() => {
@@ -599,7 +542,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                   />
                 </Pressable>
               ) : null}
-              {isOwner && isManaging ? (
+              {isManaging ? (
                 <Pressable
                   onPress={() => {
                     void haptics.tap();
@@ -728,7 +671,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
 
         {/* Due date chip: editing-only affordance (achieved goals keep
             their history without an overdue warning) */}
-        {!isGoalCompleted && isOwner && isManaging ? (
+        {!isGoalCompleted && isManaging ? (
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             <Pressable
               onPress={() => {
@@ -796,30 +739,28 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             <Text style={{ flex: 1, color: theme.text, fontWeight: "700" }}>
               Draft — not started yet
             </Text>
-            {isOwner ? (
-              <Pressable
-                onPress={() => {
-                  void haptics.tap();
-                  setIsStartPickerOpen(true);
-                }}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 4,
-                  paddingHorizontal: 12,
-                  paddingVertical: 7,
-                  borderRadius: 9999,
-                  backgroundColor: theme.primary,
-                }}
+            <Pressable
+              onPress={() => {
+                void haptics.tap();
+                setIsStartPickerOpen(true);
+              }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 9999,
+                backgroundColor: theme.primary,
+              }}
+            >
+              <Ionicons name="play" size={12} color="#ffffff" />
+              <Text
+                style={{ color: "#ffffff", fontWeight: "700", fontSize: 13 }}
               >
-                <Ionicons name="play" size={12} color="#ffffff" />
-                <Text
-                  style={{ color: "#ffffff", fontWeight: "700", fontSize: 13 }}
-                >
-                  Start
-                </Text>
-              </Pressable>
-            ) : null}
+                Start
+              </Text>
+            </Pressable>
           </View>
         ) : null}
         {lifecycleStatus === "scheduled" && goal.startDay ? (
@@ -839,19 +780,17 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             <Text style={{ flex: 1, color: theme.text, fontWeight: "700" }}>
               Starts {format(goalStartDate, "MMM d, yyyy")}
             </Text>
-            {isOwner ? (
-              <Pressable
-                onPress={() => {
-                  void haptics.tap();
-                  setIsStartPickerOpen(true);
-                }}
-                hitSlop={6}
-              >
-                <Text style={{ color: theme.primary, fontWeight: "700" }}>
-                  Change
-                </Text>
-              </Pressable>
-            ) : null}
+            <Pressable
+              onPress={() => {
+                void haptics.tap();
+                setIsStartPickerOpen(true);
+              }}
+              hitSlop={6}
+            >
+              <Text style={{ color: theme.primary, fontWeight: "700" }}>
+                Change
+              </Text>
+            </Pressable>
           </View>
         ) : null}
 
@@ -959,70 +898,6 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           </View>
         )}
 
-        {/* Doing this together lives on its own page so this screen stays
-            about your own progress; this row is just the doorway. Inviting
-            the first friend lives in the ⋯ menu. */}
-        {members.length > 1 ? (
-          <Pressable
-            onPress={() => {
-              void haptics.navigate();
-              navigation.navigate("GoalMembers", { goalId });
-            }}
-            style={{
-              ...card(theme, isDark),
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 10,
-              paddingVertical: 10,
-            }}
-          >
-            <View style={{ flexDirection: "row" }}>
-              {orderedMembers.slice(0, 4).map((member, index) => (
-                <View
-                  key={member.userId}
-                  style={{
-                    marginLeft: index === 0 ? 0 : -10,
-                    borderWidth: 2,
-                    borderColor: theme.surface,
-                    borderRadius: 999,
-                  }}
-                >
-                  <Avatar
-                    userId={member.userId}
-                    displayName={member.displayName}
-                    avatarUri={member.avatarUri}
-                    size="sm"
-                  />
-                </View>
-              ))}
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontWeight: "700", color: theme.text }}>
-                Doing this together
-              </Text>
-              <Text
-                numberOfLines={1}
-                style={{ color: theme.textSecondary, fontSize: 12 }}
-              >
-                {orderedMembers
-                  .filter((m) => m.userId !== account?.id)
-                  .map(
-                    (m) =>
-                      `${m.displayName.split(" ")[0]} ${Math.round(
-                        getMemberAdherence(goal, m.userId) * 100,
-                      )}%`,
-                  )
-                  .join(" · ")}
-              </Text>
-            </View>
-            <Ionicons
-              name="chevron-forward"
-              size={16}
-              color={theme.textSecondary}
-            />
-          </Pressable>
-        ) : null}
-
         {/* Tasks */}
         <View
           style={{
@@ -1033,7 +908,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
           }}
         >
           <Text style={{ fontWeight: "700", color: theme.text }}>Tasks</Text>
-          {isOwner && isManaging ? (
+          {isManaging ? (
             <Pressable
               onPress={() => {
                 void haptics.tap();
@@ -1068,8 +943,8 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
             </Text>
           ) : null}
         </View>
-        {/* Press and hold a task to reorder it. The order is this user's
-            own (store.personalOrder), never the goal's shared task order. */}
+        {/* Press and hold a task to reorder it, saved as the user's
+            personal order (store.personalOrder). */}
         <SortableList
           items={applyOrder(goal.tasks, personalTaskOrder)}
           keyOf={taskKey}
@@ -1192,84 +1067,52 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
                 elevation: 6,
               }}
             >
-              {isOwner
-                ? [
-                    renderMenuItem(
-                      <Ionicons
-                        name="create-outline"
-                        size={17}
-                        color={theme.textSecondary}
-                      />,
-                      "Edit goal & tasks",
-                      () => {
-                        void haptics.toggle();
-                        setIsManaging(true);
-                      },
-                    ),
-                    ...(account && !isGoalCompleted
-                      ? [
-                          renderMenuItem(
-                            <Ionicons
-                              name="person-add-outline"
-                              size={17}
-                              color={theme.textSecondary}
-                            />,
-                            "Invite a friend",
-                            () => {
-                              void haptics.navigate();
-                              navigation.navigate("GoalMembers", { goalId });
-                            },
-                          ),
-                        ]
-                      : []),
-                    renderMenuItem(
-                      isGoalCompleted ? (
-                        <Ionicons
-                          name="refresh-outline"
-                          size={17}
-                          color={theme.textSecondary}
-                        />
-                      ) : (
-                        <MaterialCommunityIcons
-                          name="flag-checkered"
-                          size={17}
-                          color={theme.success}
-                        />
-                      ),
-                      isGoalCompleted ? "Move back to active" : "Complete goal",
-                      isGoalCompleted
-                        ? confirmReactivateGoal
-                        : confirmCompleteGoal,
-                    ),
-                    <View
-                      key="divider"
-                      style={{
-                        height: 1,
-                        backgroundColor: theme.border,
-                        marginVertical: 4,
-                      }}
-                    />,
-                    renderMenuItem(
-                      <Ionicons
-                        name="trash-outline"
-                        size={17}
-                        color={theme.danger}
-                      />,
-                      "Delete goal",
-                      confirmDeleteGoal,
-                      true,
-                    ),
-                  ]
-                : renderMenuItem(
-                    <Ionicons
-                      name="exit-outline"
-                      size={17}
-                      color={theme.danger}
-                    />,
-                    "Leave goal",
-                    confirmLeaveGoal,
-                    true,
-                  )}
+              {renderMenuItem(
+                <Ionicons
+                  name="create-outline"
+                  size={17}
+                  color={theme.textSecondary}
+                />,
+                "Edit goal & tasks",
+                () => {
+                  void haptics.toggle();
+                  setIsManaging(true);
+                },
+              )}
+              {renderMenuItem(
+                isGoalCompleted ? (
+                  <Ionicons
+                    name="refresh-outline"
+                    size={17}
+                    color={theme.textSecondary}
+                  />
+                ) : (
+                  <MaterialCommunityIcons
+                    name="flag-checkered"
+                    size={17}
+                    color={theme.success}
+                  />
+                ),
+                isGoalCompleted ? "Move back to active" : "Complete goal",
+                isGoalCompleted ? confirmReactivateGoal : confirmCompleteGoal,
+              )}
+              <View
+                style={{
+                  height: 1,
+                  backgroundColor: theme.border,
+                  marginVertical: 4,
+                }}
+              />
+              {renderMenuItem(
+                <Ionicons
+                  name="trash-outline"
+                  size={17}
+                  color={theme.danger}
+                />,
+                "Delete goal",
+                confirmDeleteGoal,
+                true,
+              )}
             </View>
           </Pressable>
         </Modal>

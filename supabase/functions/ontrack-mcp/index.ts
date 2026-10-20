@@ -201,7 +201,7 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   mcp.tool("list_goals", {
     description:
       "List the goals visible to the signed-in user: their own goals plus " +
-      "goals shared by accepted friends. Each goal includes its tasks and " +
+      "accepted friends' public goals. Each goal includes its tasks and " +
       "lifecycle status (draft, scheduled, active, achieved).",
     inputSchema: z.object({
       status: z
@@ -223,8 +223,8 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
 
   mcp.tool("get_goal", {
     description:
-      "Get one goal in detail: tasks with schedules, members, and every " +
-      "member's completions from the last 30 days.",
+      "Get one goal in detail: its owner, tasks with schedules, and the " +
+      "owner's completions from the last 30 days.",
     inputSchema: z.object({
       goal_id: z.string().describe("Goal id (uuid) from list_goals or search."),
     }),
@@ -257,12 +257,19 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
       }
       const { data: task, error: taskError } = await db
         .from("tasks")
-        .select("id,title,times_per_day,archived_at,goals(id,title,completed_at)")
+        .select(
+          "id,title,times_per_day,archived_at,goals(id,title,completed_at,owner_user_id)",
+        )
         .eq("id", args.task_id)
         .maybeSingle();
       if (taskError) throw new Error(`Could not load task: ${taskError.message}`);
       if (!task) throw new Error("Task not found or not visible to this user");
       if (task.archived_at) throw new Error("This task has been archived");
+      const owner = (task.goals as { owner_user_id?: string } | null)
+        ?.owner_user_id;
+      if (owner !== user.id) {
+        throw new Error("You can only log tasks on your own goals");
+      }
       // Multi-dose tasks log one row per dose, numbered from 0 each day.
       const { count, error: countError } = await db
         .from("task_completions")
@@ -509,7 +516,7 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
 
   mcp.tool("list_friends", {
     description:
-      "List the user's accepted friends (people whose shared goals they can " +
+      "List the user's accepted friends (people whose public goals they can " +
       "see and nudge).",
     inputSchema: z.object({}),
     handler: async () => {
@@ -624,14 +631,12 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
         `Status: ${detail.status}`,
         detail.start_day ? `Starts: ${detail.start_day}` : null,
         detail.due_day ? `Due: ${detail.due_day}` : null,
-        `Members: ${detail.members.map((m) => m.display_name).join(", ")}`,
+        `Owner: ${detail.owner}`,
         "",
         "## Tasks (completions from the last 30 days)",
         ...detail.tasks.map((task) => {
-          const completions = task.completions
-            .map((c) => `${c.display_name}: ${c.days.length}x`)
-            .join(", ");
-          return `- ${task.title} (${task.frequency}) — ${completions || "none"}`;
+          const count = task.completed_days.length;
+          return `- ${task.title} (${task.frequency}) — ${count ? `${count}x` : "none"}`;
         }),
       ].filter((line): line is string => line !== null);
       return structuredResult({
@@ -661,32 +666,18 @@ const loadGoalDetail = async (
   if (!data) throw new Error("Goal not found or not visible to this user");
   const goal = data as unknown as GoalRow;
 
-  const { data: memberships, error: membershipError } = await db
-    .from("goal_memberships")
-    .select("user_id,role")
-    .eq("goal_id", goalId);
-  if (membershipError) {
-    throw new Error(`Could not load members: ${membershipError.message}`);
-  }
-  const memberIds = [
-    goal.owner_user_id,
-    ...(memberships ?? []).map((m) => m.user_id as string),
-  ];
-  const profiles = await fetchProfiles(db, memberIds);
+  const profiles = await fetchProfiles(db, [goal.owner_user_id]);
 
   const tasks = activeTasks(goal);
   const taskIds = tasks.map((task) => task.id);
-  let completions: {
-    task_id: string;
-    completed_by_user_id: string;
-    completed_day: string;
-  }[] = [];
+  let completions: { task_id: string; completed_day: string }[] = [];
   if (taskIds.length) {
     const since = addDays(todayUtc(), -30);
     const { data: rows, error: completionsError } = await db
       .from("task_completions")
-      .select("task_id,completed_by_user_id,completed_day")
+      .select("task_id,completed_day")
       .in("task_id", taskIds)
+      .eq("completed_by_user_id", goal.owner_user_id)
       .gte("completed_day", since)
       .order("completed_day", { ascending: false });
     if (completionsError) {
@@ -706,28 +697,17 @@ const loadGoalDetail = async (
     start_day: goal.start_day,
     due_day: goal.due_day,
     mine: goal.owner_user_id === user.id,
-    members: [...new Set(memberIds)].map((id) => ({
-      user_id: id,
-      display_name: id === user.id ? "me" : displayName(profiles, id),
-      is_owner: id === goal.owner_user_id,
-    })),
+    owner:
+      goal.owner_user_id === user.id
+        ? "me"
+        : displayName(profiles, goal.owner_user_id),
     tasks: tasks.map((task) => ({
       id: task.id,
       title: task.title,
       frequency: describeFrequency(task),
-      completions: memberIds
-        .map((memberId) => ({
-          user_id: memberId,
-          display_name: memberId === user.id ? "me" : displayName(profiles, memberId),
-          days: completions
-            .filter(
-              (row) =>
-                row.task_id === task.id &&
-                row.completed_by_user_id === memberId,
-            )
-            .map((row) => row.completed_day),
-        }))
-        .filter((entry) => entry.days.length > 0),
+      completed_days: completions
+        .filter((row) => row.task_id === task.id)
+        .map((row) => row.completed_day),
     })),
   };
 };

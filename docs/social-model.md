@@ -1,8 +1,13 @@
-# Social model (Turn 3)
+# Social model
 
-How OnTrack's social features work: friends, shared goals, public goal
-templates, and the sync rules that keep multi-user data safe. This supersedes
-the single-owner model described in `account-sync-foundation.md`.
+How OnTrack's social features work: friends, public goals, nudges, public
+goal templates, and the sync rules that keep each account's data safe.
+
+Shared goals (several members logging on one goal) were retired in Oct 2026
+(`20261021000000_retire_shared_goals.sql`): every goal has exactly one owner,
+and friends follow each other through public goals. The migration gave each
+member their own copy of every shared goal, with their completion history
+moved onto it.
 
 ## Concepts
 
@@ -10,25 +15,19 @@ the single-owner model described in `account-sync-foundation.md`.
   `accepted`. Decline, cancel, and unfriend are all row deletion; there is no
   denied/tombstone state. Accepting can only flip `status` (column-level
   grant), never the participants.
-- **Shared goal**: a normal goal plus `goal_memberships` rows. Only existing
-  friends can be invited, and inviting adds the member immediately (no
-  invite/accept handshake). Members complete tasks; only the owner edits the
-  goal/tasks or completes/deletes the goal. Members can leave; owners can
-  remove members.
 - **Public goal**: `goals.visibility = 'public'`. A public goal (its tasks
-  and every member's completions) is readable by all accepted friends of
-  the owner, who can follow it on the owner's friend page and nudge them
-  without being a member. Goals default to private; the owner toggles this
-  at creation or from the goal's ⋯ menu. On the client it is `Goal.isPublic`
-  and the flush writes `visibility` ('public' / 'private'). The store keeps
-  friends' public goals I am not a member of in `friendGoals` (read-only,
-  replaced on every fetch).
+  and its owner's completions) is readable by all accepted friends of the
+  owner, who follow it on the Friends page and nudge. Goals default to
+  private; the owner toggles this at creation or from the goal's ⋯ menu. On
+  the client it is `Goal.isPublic` and the flush writes `visibility`
+  ('public' / 'private'). The store keeps friends' public goals in
+  `friendGoals` (read-only, replaced on every fetch).
 - **Goal color**: `goals.color` is an optional owner-chosen accent
   (`#rrggbb`); NULL keeps the id-derived color (`utils/goalColors.ts`).
 - **Nudge**: a push saying "<name> nudged you" with the goal title, nothing
-  else. Allowed between members of a goal, and from any friend of the owner
-  on a public goal. The `send-nudge` function logs each delivery in `nudges`
-  and enforces one nudge per sender + recipient + goal per hour (429 with
+  else. Allowed from any accepted friend on the owner's public goal. The
+  `send-nudge` function logs each delivery in `nudges` and enforces one
+  nudge per sender + recipient + goal per hour (429 with
   `retryAfterMinutes`); the client only surfaces the wait when it is hit.
 - **Public goal template**: a curated row in `goal_templates` (title,
   tagline, author, jsonb task snapshots). Not a goal row: browsing templates
@@ -38,83 +37,58 @@ the single-owner model described in `account-sync-foundation.md`.
   read from the `template_commit_counts` view (individual commitment rows are
   visible only to their owner).
 - **Profile visibility**: `profiles` is self-only under RLS. All cross-user
-  display (search, avatars, friends list) reads the 3-column
-  `public_profiles` view (id, username, display_name), so `profiles.email`
-  is structurally unreachable by other users. People search and mutual-friend
+  display (search, avatars, friends list) reads the `public_profiles` view
+  (id, username, display_name, avatar_uri), so `profiles.email` is
+  structurally unreachable by other users. People search and mutual-friend
   counts go through the `search_people(text)` / `mutual_friends_count(uuid)`
   definer functions. All of these are revoked from `anon`.
+- **Profile photo**: `profiles.avatar_uri` (a small data URI) is the source
+  of truth. The device keeps a copy for offline display and one shared store
+  (`lib/avatar.ts`) so every screen updates at once. On sign-in the profile
+  photo wins, unless a photo picked on this device never finished uploading,
+  which is uploaded instead.
 
 ## Client data model
 
-`Task.completions: Date[]` stays exactly what it always was: **the current
-user's** completions. Other members' completions arrive as
-`Task.memberCompletions: Record<userId, string[]>` (yyyy-MM-dd day keys, the
-same encoding as `completed_day`). This keeps every existing selector
-(`getGoalProgress`, `getGoalStreak`, heatmaps) working untouched
-for "me"; member views are computed by swapping completions in via the
-`goalAsSeenBy(goal, userId)` adapter and reusing the same selectors.
-
-`Goal` gains `ownerUserId` and `members: GoalMember[]`
-(`{userId, username, displayName, isOwner}`; members includes the owner so
-avatar rows and "Doing this together" need no special-casing).
+`Task.completions: Date[]` holds the goal owner's completions: mine on my
+goals, my friend's on theirs. Every selector (`getGoalProgress`,
+`getGoalStreak`, heatmaps) works the same on both.
 
 The store keeps two slices:
 
 - `goals`: goals I own. Local-first source of truth, synced by the revision
-  flush exactly as before.
-- `sharedGoals`: goals I'm a member of. Server-authoritative and read-only
-  on this device **except** toggling my own completions. Structural edits are
-  not offered in the UI and would be rejected by RLS anyway.
+  flush.
+- `friendGoals`: friends' public goals. Server-authoritative and read-only.
 
 ## Sync rules (the invariants)
 
-1. **The flush only writes what I own, plus my own completion rows.**
-   `replaceRemoteGoalsForUser` upserts/deletes goals and tasks **owned by
-   me** only. My completions are flushed (delete+reinsert of _my_ rows) for
-   my tasks and shared-goal tasks. `visibility` and `color` are written by
-   the flush like any other owned-goal column.
-2. **Pre-insert accessibility filter.** Before the completions
-   delete+reinsert, one `tasks.select('id').in(taskIds)` drops rows for tasks
-   I can no longer see (owner deleted the task, or I was removed from the
-   goal). This is what prevents the flush from ever wedging on FK/RLS errors.
-   Completions for dropped tasks are also pruned locally.
-3. **Never heal by refetch.** A failed flush keeps local state and retries
+1. **The flush only writes what I own.** `replaceRemoteGoalsForUser`
+   upserts/deletes goals and tasks owned by me and replaces my completion
+   rows on them (delete + reinsert of my rows only). `visibility` and
+   `color` are written like any other column. Only a goal's owner can log
+   completions on it (RLS).
+2. **Never heal by refetch.** A failed flush keeps local state and retries
    (next mutation or app foreground). Replacing local state to "recover"
    from a partial flush is how history gets erased.
-4. **Flush before fetch.** No code path may `setGoals(remote)` while
+3. **Flush before fetch.** No code path may `setGoals(remote)` while
    `syncRevision > lastSyncedRevision`. Hydrate and foreground refresh flush
    first, then fetch.
-5. **Hydrate gates on owned goals only.** Shared goals can appear remotely
-   with zero action on this device (a friend invited me), so
-   `remoteGoals.length > 0` is no longer evidence that this account has cloud
-   data: only **owned** remote goals enable cloud sync or replace local
-   goals. The import prompt logic keys on owned goals; `sharedGoals` hydrates
-   independently whenever there is a session.
-6. **Social actions are online one-shots.** Friend requests,
-   accept/decline/unfriend, invites, member removal/leave, search, and
-   template commits call Supabase directly with optimistic UI where cheap and
-   an error toast otherwise. They do not ride the revision flush. Inviting
-   from an offline device is unavailable (the goal still gets created
-   locally; invite once online).
+4. **Hydrate gates on owned goals.** Only owned remote goals enable cloud
+   sync or replace local goals; `friendGoals` is replaced on every fetch.
+5. **Social actions are online one-shots.** Friend requests,
+   accept/decline/unfriend, search, nudges, and template commits call
+   Supabase directly with optimistic UI where cheap and an error toast
+   otherwise. They do not ride the revision flush.
 
-## Ownership edge cases
+## Edge cases
 
-- Owner removes a member (or member leaves): the goal disappears from the
-  member's `sharedGoals` on their next fetch; their completion rows remain
-  but are invisible to them. No orphan adoption.
-- Owner deletes a goal: cascades tasks, completions (all members'), and
-  memberships. Members lose that history; this is the documented trade-off.
-- Owner deletes their account: `auth.users` deletion cascades through
-  `profiles` to goals → tasks → completions → friendships → memberships →
-  commitments. Shared goals they owned vanish for members.
-
-## "Doing this together" metric
-
-A member's bar is their **8-week adherence**: the mean of
-`getGoalProgress(goalAsSeenBy(goal, member), day).percent` over the last 56
-days (clamped to the goal's age, minimum 1 day). It matches the goal detail
-heatmap's window and reuses the exact frequency semantics of the rest of the
-app.
+- A friend makes a goal private or unfriends me: it disappears from my
+  Friends page on the next fetch.
+- A user deletes their account: `auth.users` deletion cascades through
+  `profiles` to goals → tasks → completions → friendships → commitments.
+- `goal_memberships` is empty and closed (no policies) but still exists so
+  builds from before the retirement keep getting an empty, error-free
+  answer. Drop it once those builds are gone.
 
 ## Sign-in methods
 

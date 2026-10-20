@@ -29,16 +29,15 @@ export default function AchievedGoalsScreen({
 }: AchievedGoalsProps) {
   const { theme, isDark } = useTheme();
   const goals = useStore((s) => s.goals);
-  const sharedGoals = useStore((s) => s.sharedGoals);
   const [selected, setSelected] = React.useState<string | null>(null);
   const [entranceOn] = React.useState(() => shouldPlayEntrance("achieved"));
 
   const achieved = React.useMemo(
     () =>
-      [...goals, ...sharedGoals]
+      goals
         .filter((g) => g.completedAt !== undefined)
         .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)),
-    [goals, sharedGoals],
+    [goals],
   );
 
   // Nothing left to list (the last one was moved back or deleted): this

@@ -48,7 +48,6 @@ import TrackingDateControls from "./TrackingDateControls";
 import ProgressRing from "./ProgressRing";
 import { TourAnchor } from "./tour/TourAnchor";
 import Confetti from "./Confetti";
-import { AvatarStack } from "./Avatar";
 import { card } from "./ui";
 import DoseRing from "./DoseRing";
 import { Task, TaskTime } from "../types";
@@ -271,17 +270,6 @@ function TaskRow({
           </Text>
         </View>
       ) : null}
-      {item.isShared && item.goal.members && item.goal.members.length > 1 ? (
-        <AvatarStack
-          users={item.goal.members.map((member) => ({
-            userId: member.userId,
-            displayName: member.displayName,
-            avatarUri: member.avatarUri,
-          }))}
-          size="sm"
-          max={3}
-        />
-      ) : null}
     </Pressable>
   );
 
@@ -351,7 +339,6 @@ function TaskRow({
 
 export default function TodayScreen() {
   const goals = useStore((s) => s.goals);
-  const sharedGoals = useStore((s) => s.sharedGoals);
   const selectedDate = useStore((s) => s.selectedDate);
   const setSelectedDate = useStore((s) => s.setSelectedDate);
   const postponedTasks = useStore((s) => s.postponedTasks);
@@ -361,9 +348,6 @@ export default function TodayScreen() {
   const undoPostponeTask = useStore((s) => s.undoPostponeTask);
   const toggleTaskCompletion = useStore((s) => s.toggleTaskCompletion);
   const removeTaskDose = useStore((s) => s.removeTaskDose);
-  const toggleSharedTaskCompletion = useStore(
-    (s) => s.toggleSharedTaskCompletion,
-  );
   const { theme, isDark } = useTheme();
 
   // Entrance rise-in plays once per session for this tab.
@@ -408,15 +392,8 @@ export default function TodayScreen() {
   );
 
   const { todo, done, postponed, totals } = React.useMemo(
-    () =>
-      getTodayItems(
-        goals,
-        sharedGoals,
-        selectedDate,
-        postponedTaskIds,
-        personalOrder,
-      ),
-    [goals, sharedGoals, selectedDate, postponedTaskIds, personalOrder],
+    () => getTodayItems(goals, selectedDate, postponedTaskIds, personalOrder),
+    [goals, selectedDate, postponedTaskIds, personalOrder],
   );
   const allDone = totals.total > 0 && totals.done === totals.total;
   // Timed rows lead in order of their next open dose; the rest keep the
@@ -434,7 +411,7 @@ export default function TodayScreen() {
 
   const hasCompletionsOnDate = React.useMemo(
     () =>
-      [...goals, ...sharedGoals].some((goal) =>
+      goals.some((goal) =>
         goal.tasks.some(
           (task) =>
             task.frequency !== "once" &&
@@ -443,7 +420,7 @@ export default function TodayScreen() {
             ),
         ),
       ),
-    [goals, sharedGoals, dateKey],
+    [goals, dateKey],
   );
 
   const toggleItem = (item: TodayItem, completing: boolean) => {
@@ -467,16 +444,12 @@ export default function TodayScreen() {
       // Completing lands harder than un-checking.
       void (completing ? haptics.press() : haptics.tap());
     }
-    if (item.isShared) {
-      toggleSharedTaskCompletion(item.goal.id, item.task.id, selectedDate);
-    } else {
-      toggleTaskCompletion(item.goal.id, item.task.id, selectedDate);
-    }
+    toggleTaskCompletion(item.goal.id, item.task.id, selectedDate);
   };
 
   const undoDose = (item: TodayItem) => {
     void haptics.tap();
-    removeTaskDose(item.goal.id, item.task.id, item.isShared, selectedDate);
+    removeTaskDose(item.goal.id, item.task.id, selectedDate);
   };
 
   return (

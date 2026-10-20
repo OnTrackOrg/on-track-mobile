@@ -67,11 +67,9 @@ export default function AppTour({ navigationRef, onDone }: AppTourProps) {
   const { theme, isDark } = useTheme();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const goals = useStore((s) => s.goals);
-  const sharedGoals = useStore((s) => s.sharedGoals);
   const hasActiveGoals = React.useMemo(
-    () =>
-      [...goals, ...sharedGoals].some((goal) => goal.completedAt === undefined),
-    [goals, sharedGoals],
+    () => goals.some((goal) => goal.completedAt === undefined),
+    [goals],
   );
 
   const [launchGone, setLaunchGone] = React.useState(
