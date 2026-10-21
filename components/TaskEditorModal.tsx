@@ -1,7 +1,6 @@
 import React from "react";
 import {
   Alert,
-  KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
@@ -12,7 +11,11 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import Animated, { SlideInDown } from "react-native-reanimated";
+import Animated, {
+  SlideInDown,
+  useAnimatedKeyboard,
+  useAnimatedStyle,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { addDays, format } from "date-fns";
 import { useTheme } from "../contexts/ThemeContext";
@@ -93,6 +96,16 @@ export default function TaskEditorModal({
 }: TaskEditorModalProps) {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
+  // KeyboardAvoidingView never lifts this sheet inside the Modal on iOS, so
+  // the keyboard covered the whole editor. Track the keyboard frame directly;
+  // the sheet's home-indicator padding can tuck behind the keyboard.
+  const keyboard = useAnimatedKeyboard();
+  const keyboardLift = useAnimatedStyle(() => ({
+    paddingBottom:
+      Platform.OS === "ios"
+        ? Math.max(keyboard.height.value - insets.bottom, 0)
+        : 0,
+  }));
 
   const [title, setTitle] = React.useState("");
   const [frequency, setFrequency] = React.useState<Frequency>("daily");
@@ -647,13 +660,15 @@ export default function TaskEditorModal({
       visible={visible}
       onRequestClose={close}
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={{
-          flex: 1,
-          justifyContent: "flex-end",
-          backgroundColor: "rgba(15, 23, 42, 0.35)",
-        }}
+      <Animated.View
+        style={[
+          {
+            flex: 1,
+            justifyContent: "flex-end",
+            backgroundColor: "rgba(15, 23, 42, 0.35)",
+          },
+          keyboardLift,
+        ]}
       >
         <Pressable
           onPress={close}
@@ -1025,7 +1040,7 @@ export default function TaskEditorModal({
             ) : null}
           </ScrollView>
         </Animated.View>
-      </KeyboardAvoidingView>
+      </Animated.View>
       <DatePickerModal
         visible={isDayPickerOpen}
         title="Do this on…"
