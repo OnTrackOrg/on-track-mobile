@@ -20,13 +20,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { addDays, format } from "date-fns";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
-import { CustomFrequency, Frequency, TaskTime, TaskTiming } from "../types";
+import { CustomFrequency, Frequency, TaskTiming } from "../types";
 import {
   MAX_TIMES_PER_DAY,
   QUICK_TIMES,
-  REMINDER_LEADS,
   WEEKDAY_LETTERS,
-  describeLead,
   describeTaskCadence,
   formatClock,
   minutesToTime,
@@ -70,8 +68,7 @@ const getMaxCustomTarget = (type: CustomFrequency["type"]) =>
 const normalizeCustomTarget = (target: number, type: CustomFrequency["type"]) =>
   Math.min(getMaxCustomTarget(type), Math.max(1, target));
 
-const sortTimes = (times: TaskTime[]) =>
-  [...times].sort((a, b) => a.at.localeCompare(b.at));
+const sortTimes = (times: string[]) => [...times].sort();
 
 const describeDay = (day: string): string => {
   const today = new Date();
@@ -82,8 +79,8 @@ const describeDay = (day: string): string => {
 
 /**
  * Shared task editor used by GoalScreen (add/edit) and NewGoalScreen (draft
- * tasks), so schedules — weekday pinning, times of day, doses per day and
- * reminders — behave identically in both places.
+ * tasks), so schedules — weekday pinning, doses per day and reminders —
+ * behave identically in both places.
  */
 export default function TaskEditorModal({
   visible,
@@ -113,11 +110,10 @@ export default function TaskEditorModal({
   const [customTarget, setCustomTarget] = React.useState(3);
   const [weekdays, setWeekdays] = React.useState<number[]>([]);
   const [perDay, setPerDay] = React.useState(1);
-  const [times, setTimes] = React.useState<TaskTime[] | null>(null);
-  const [lead, setLead] = React.useState(0);
+  const [reminders, setReminders] = React.useState<string[]>([]);
   const [onDay, setOnDay] = React.useState<string | null>(null);
   const [isRepeatOpen, setIsRepeatOpen] = React.useState(false);
-  const [openTimeRow, setOpenTimeRow] = React.useState<number | null>(null);
+  const [openReminder, setOpenReminder] = React.useState<number | null>(null);
   const [isDayPickerOpen, setIsDayPickerOpen] = React.useState(false);
 
   // Re-seed the fields each time the modal opens for a (possibly different)
@@ -140,16 +136,14 @@ export default function TaskEditorModal({
     setWeekdays(initialWeekdays);
     const timing = initial?.timing;
     setPerDay(timing?.timesPerDay ?? 1);
-    setTimes(timing?.times ?? null);
-    setLead(timing?.reminderLeadMin ?? 0);
+    setReminders(timing?.reminders ?? []);
     setOnDay(timing?.onDay ?? null);
     setIsRepeatOpen(false);
-    setOpenTimeRow(null);
+    setOpenReminder(null);
   }, [initial, visible]);
 
   const isOnce = frequency === "once";
   const doses = isOnce ? 1 : perDay;
-  const anyBell = times?.some((time) => time.remind) ?? false;
 
   const stepperType: CustomFrequency["type"] =
     customMode === "monthly" ? "monthly" : "weekly";
@@ -176,18 +170,6 @@ export default function TaskEditorModal({
   const selectFrequency = (next: Frequency) => {
     void haptics.toggle();
     setFrequency(next);
-    if (next === "once") {
-      setTimes((prev) => (prev ? prev.slice(0, 1) : prev));
-      setOpenTimeRow(null);
-    } else if (frequency === "once" && times && perDay > 1) {
-      // Back from a one-off: the extra doses get fresh, evenly spread times.
-      setTimes(
-        spreadTimes(perDay).map((at, i) => ({
-          at: i === 0 ? times[0].at : at,
-          remind: times[0].remind,
-        })),
-      );
-    }
     // Custom keeps its sub-options visible; the rest close the row.
     if (next !== "custom") setIsRepeatOpen(false);
   };
@@ -200,93 +182,83 @@ export default function TaskEditorModal({
     }
     void haptics.toggle();
     setPerDay(next);
-    setOpenTimeRow(null);
-    if (times) {
-      setTimes(spreadTimes(next).map((at) => ({ at, remind: anyBell })));
-    }
   };
 
-  const addTimes = () => {
-    void haptics.toggle();
-    setTimes(spreadTimes(doses).map((at) => ({ at, remind: false })));
-    setOpenTimeRow(null);
-  };
-
-  const clearTimes = () => {
-    void haptics.toggle();
-    setTimes(null);
-    setOpenTimeRow(null);
-  };
-
-  const setTimeAt = (index: number, at: string) => {
-    setTimes((prev) =>
-      prev
-        ? prev.map((time, i) => (i === index ? { ...time, at } : time))
-        : prev,
+  const allowReminders = async (): Promise<boolean> => {
+    if (await ensureReminderPermission()) return true;
+    void haptics.warning();
+    Alert.alert(
+      "Notifications are off",
+      "Allow notifications for OnTrack in Settings to get reminders.",
+      [
+        { text: "Not now", style: "cancel" },
+        { text: "Open Settings", onPress: () => void Linking.openSettings() },
+      ],
     );
+    return false;
   };
 
-  const toggleTimeRow = (index: number) => {
+  // First reminder(s): one per dose, spread across the day.
+  const turnOnReminders = async () => {
+    if (!(await allowReminders())) return;
+    void haptics.toggle();
+    const seeded = spreadTimes(doses);
+    setReminders(seeded);
+    setOpenReminder(seeded.length === 1 ? 0 : null);
+  };
+
+  const turnOffReminders = () => {
+    void haptics.toggle();
+    setReminders([]);
+    setOpenReminder(null);
+  };
+
+  // Another reminder an hour after the latest, opened for picking a time.
+  const addReminder = () => {
+    if (reminders.length >= MAX_TIMES_PER_DAY) {
+      void haptics.warning();
+      return;
+    }
+    void haptics.toggle();
+    const latest = reminders.length
+      ? timeToMinutes(reminders[reminders.length - 1])
+      : 8 * 60;
+    const next = sortTimes([...reminders, minutesToTime(latest + 60)]);
+    setReminders(next);
+    setOpenReminder(next.length - 1);
+  };
+
+  const removeReminder = (index: number) => {
+    void haptics.toggle();
+    setReminders((prev) => prev.filter((_, i) => i !== index));
+    setOpenReminder(null);
+  };
+
+  const toggleReminderRow = (index: number) => {
     void haptics.tap();
-    // Settle the order when a row closes so the numbers read top to bottom.
-    setTimes((prev) => (prev ? sortTimes(prev) : prev));
-    setOpenTimeRow((current) => (current === index ? null : index));
+    // Settle the order when a row closes so times read top to bottom.
+    setReminders(sortTimes);
+    setOpenReminder((current) => (current === index ? null : index));
   };
 
   const pickQuickTime = (index: number, at: string) => {
     void haptics.toggle();
-    setTimes((prev) =>
-      prev
-        ? sortTimes(
-            prev.map((time, i) => (i === index ? { ...time, at } : time)),
-          )
-        : prev,
+    setReminders((prev) =>
+      sortTimes(prev.map((time, i) => (i === index ? at : time))),
     );
-    setOpenTimeRow(null);
+    setOpenReminder(null);
   };
 
-  const nudgeTime = (index: number, delta: number) => {
-    if (!times) return;
-    const minutes = timeToMinutes(times[index].at) + delta;
+  const nudgeReminder = (index: number, delta: number) => {
+    const minutes = timeToMinutes(reminders[index]) + delta;
     if (minutes < 0 || minutes > 23 * 60 + 59) {
       void haptics.warning();
       return;
     }
     void haptics.toggle();
-    setTimeAt(index, minutesToTime(minutes));
-  };
-
-  const toggleBell = async (index: number) => {
-    if (!times) return;
-    const turningOn = !times[index].remind;
-    if (turningOn && !(await ensureReminderPermission())) {
-      void haptics.warning();
-      Alert.alert(
-        "Notifications are off",
-        "Allow notifications for OnTrack in Settings to get reminders.",
-        [
-          { text: "Not now", style: "cancel" },
-          { text: "Open Settings", onPress: () => void Linking.openSettings() },
-        ],
-      );
-      return;
-    }
-    void haptics.toggle();
-    setTimes((prev) =>
-      prev
-        ? prev.map((time, i) =>
-            i === index ? { ...time, remind: turningOn } : time,
-          )
-        : prev,
+    setReminders((prev) =>
+      prev.map((time, i) => (i === index ? minutesToTime(minutes) : time)),
     );
-  };
-
-  const cycleLead = () => {
-    void haptics.toggle();
-    const index = REMINDER_LEADS.indexOf(
-      lead as (typeof REMINDER_LEADS)[number],
-    );
-    setLead(REMINDER_LEADS[(index + 1) % REMINDER_LEADS.length]);
   };
 
   const submit = () => {
@@ -323,8 +295,7 @@ export default function TaskEditorModal({
       customFrequency,
       timing: {
         timesPerDay: doses,
-        times: times ? sortTimes(times.slice(0, doses)) : undefined,
-        reminderLeadMin: lead,
+        reminders: reminders.length > 0 ? sortTimes(reminders) : undefined,
         onDay: isOnce ? (onDay ?? undefined) : undefined,
       },
     });
@@ -504,8 +475,8 @@ export default function TaskEditorModal({
     </View>
   );
 
-  const renderTimeRow = (time: TaskTime, index: number) => {
-    const isOpen = openTimeRow === index;
+  const renderReminderRow = (time: string, index: number) => {
+    const isOpen = openReminder === index;
     return (
       <View
         key={index}
@@ -523,22 +494,9 @@ export default function TaskEditorModal({
             paddingVertical: 8,
           }}
         >
-          <View
-            style={{
-              width: 22,
-              height: 22,
-              borderRadius: 11,
-              backgroundColor: theme.primary,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Text style={{ color: "#ffffff", fontSize: 12, fontWeight: "800" }}>
-              {index + 1}
-            </Text>
-          </View>
+          {rowIcon("notifications-outline")}
           <Pressable
-            onPress={() => toggleTimeRow(index)}
+            onPress={() => toggleReminderRow(index)}
             style={{
               flex: 1,
               flexDirection: "row",
@@ -555,7 +513,7 @@ export default function TaskEditorModal({
                 fontVariant: ["tabular-nums"],
               }}
             >
-              {formatClock(time.at)}
+              {formatClock(time)}
             </Text>
             <Ionicons
               name={isOpen ? "chevron-up" : "chevron-down"}
@@ -564,25 +522,20 @@ export default function TaskEditorModal({
             />
           </Pressable>
           <Pressable
-            onPress={() => void toggleBell(index)}
-            accessibilityLabel={
-              time.remind ? "Turn reminder off" : "Turn reminder on"
-            }
+            onPress={() => removeReminder(index)}
+            accessibilityLabel="Remove reminder"
+            hitSlop={6}
             style={{
               width: 36,
               height: 36,
-              borderRadius: 18,
-              backgroundColor: time.remind
-                ? theme.primary + "20"
-                : "transparent",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
             <Ionicons
-              name={time.remind ? "notifications" : "notifications-off-outline"}
-              size={18}
-              color={time.remind ? theme.primary : theme.textSecondary}
+              name="close-circle"
+              size={20}
+              color={theme.textSecondary}
             />
           </Pressable>
         </View>
@@ -592,13 +545,13 @@ export default function TaskEditorModal({
               flexDirection: "row",
               flexWrap: "wrap",
               gap: 6,
-              paddingLeft: 46,
+              paddingLeft: 42,
               paddingRight: 14,
               paddingBottom: 12,
             }}
           >
             {QUICK_TIMES.map((at) => {
-              const active = at === time.at;
+              const active = at === time;
               return (
                 <Pressable
                   key={at}
@@ -624,7 +577,7 @@ export default function TaskEditorModal({
             {[-NUDGE_MINUTES, NUDGE_MINUTES].map((delta) => (
               <Pressable
                 key={delta}
-                onPress={() => nudgeTime(index, delta)}
+                onPress={() => nudgeReminder(index, delta)}
                 accessibilityLabel={
                   delta < 0 ? "15 minutes earlier" : "15 minutes later"
                 }
@@ -890,11 +843,11 @@ export default function TaskEditorModal({
                   {stepper(`${perDay}×`, adjustPerDay)}
                 </View>
               )}
-              {times ? null : (
+              {reminders.length > 0 ? null : (
                 <>
                   {divider}
                   <Pressable
-                    onPress={addTimes}
+                    onPress={() => void turnOnReminders()}
                     style={{
                       flexDirection: "row",
                       alignItems: "center",
@@ -903,7 +856,7 @@ export default function TaskEditorModal({
                       paddingVertical: 12,
                     }}
                   >
-                    {rowIcon("time-outline")}
+                    {rowIcon("notifications-outline")}
                     <Text
                       style={{
                         flex: 1,
@@ -912,10 +865,10 @@ export default function TaskEditorModal({
                         color: theme.text,
                       }}
                     >
-                      Time
+                      Remind me
                     </Text>
                     <Text style={{ fontSize: 15, color: theme.textSecondary }}>
-                      Any time
+                      Off
                     </Text>
                     <Ionicons
                       name="chevron-forward"
@@ -927,7 +880,7 @@ export default function TaskEditorModal({
               )}
             </View>
 
-            {times ? (
+            {reminders.length > 0 ? (
               <>
                 <View
                   style={{
@@ -945,9 +898,9 @@ export default function TaskEditorModal({
                       color: theme.textSecondary,
                     }}
                   >
-                    {doses === 1 ? "TIME" : "TIMES"}
+                    REMIND ME
                   </Text>
-                  <Pressable onPress={clearTimes} hitSlop={8}>
+                  <Pressable onPress={turnOffReminders} hitSlop={8}>
                     <Text
                       style={{
                         fontSize: 13,
@@ -955,7 +908,7 @@ export default function TaskEditorModal({
                         color: theme.primary,
                       }}
                     >
-                      Any time
+                      Off
                     </Text>
                   </Pressable>
                 </View>
@@ -966,40 +919,21 @@ export default function TaskEditorModal({
                     overflow: "hidden",
                   }}
                 >
-                  {times.slice(0, doses).map(renderTimeRow)}
-                </View>
-                {anyBell ? (
-                  <View
-                    style={{
-                      backgroundColor: theme.background,
-                      borderRadius: 12,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                      paddingHorizontal: 14,
-                      paddingVertical: 10,
-                    }}
-                  >
-                    {rowIcon("alarm-outline")}
-                    <Text
-                      style={{
-                        flex: 1,
-                        fontSize: 15,
-                        fontWeight: "600",
-                        color: theme.text,
-                      }}
-                    >
-                      Notify
-                    </Text>
+                  {reminders.map(renderReminderRow)}
+                  {reminders.length < MAX_TIMES_PER_DAY ? (
                     <Pressable
-                      onPress={cycleLead}
-                      hitSlop={8}
+                      onPress={addReminder}
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
-                        gap: 4,
+                        gap: 10,
+                        paddingHorizontal: 14,
+                        paddingVertical: 12,
+                        borderTopWidth: 1,
+                        borderTopColor: theme.border,
                       }}
                     >
+                      {rowIcon("add")}
                       <Text
                         style={{
                           fontSize: 15,
@@ -1007,16 +941,11 @@ export default function TaskEditorModal({
                           color: theme.primary,
                         }}
                       >
-                        {describeLead(lead)}
+                        Add reminder
                       </Text>
-                      <Ionicons
-                        name="chevron-expand"
-                        size={14}
-                        color={theme.primary}
-                      />
                     </Pressable>
-                  </View>
-                ) : null}
+                  ) : null}
+                </View>
               </>
             ) : null}
 

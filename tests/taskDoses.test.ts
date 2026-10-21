@@ -6,6 +6,7 @@ import {
   getTaskBucketsForDate,
   getTodayItems,
   normalizeTaskTiming,
+  remindersFromLegacyTimes,
   useStore,
 } from "../store";
 import { Goal, Task } from "../types";
@@ -31,39 +32,38 @@ describe("normalizeTaskTiming", () => {
   it("drops every field for a plain untimed task", () => {
     expect(normalizeTaskTiming("daily", { timesPerDay: 1 })).toEqual({
       timesPerDay: undefined,
-      times: undefined,
-      reminderLeadMin: undefined,
+      reminders: undefined,
       onDay: undefined,
     });
   });
 
-  it("keeps sorted times only when there is one per dose", () => {
-    const timing = normalizeTaskTiming("daily", {
-      timesPerDay: 2,
-      times: [
-        { at: "21:00", remind: true },
-        { at: "08:00", remind: false },
-      ],
-      reminderLeadMin: 15,
-    });
-    expect(timing.times?.map((t) => t.at)).toEqual(["08:00", "21:00"]);
-    expect(timing.reminderLeadMin).toBe(15);
-
+  it("keeps valid reminders sorted and de-duplicated, whatever the doses", () => {
     expect(
       normalizeTaskTiming("daily", {
         timesPerDay: 3,
-        times: [{ at: "08:00", remind: false }],
-      }).times,
+        reminders: ["21:00", "08:00", "21:00", "25:00"],
+      }).reminders,
+    ).toEqual(["08:00", "21:00"]);
+    expect(
+      normalizeTaskTiming("daily", { reminders: [] }).reminders,
     ).toBeUndefined();
   });
 
-  it("forgets the lead time when no bell is on", () => {
+  it("turns the retired times of day into reminders", () => {
     expect(
-      normalizeTaskTiming("daily", {
-        times: [{ at: "08:00", remind: false }],
-        reminderLeadMin: 15,
-      }).reminderLeadMin,
+      remindersFromLegacyTimes(
+        [
+          { at: "08:00", remind: false },
+          { at: "20:00", remind: true },
+          { at: "00:05", remind: true },
+        ],
+        15,
+      ),
+    ).toEqual(["19:45", "00:00"]);
+    expect(
+      remindersFromLegacyTimes([{ at: "08:00", remind: false }]),
     ).toBeUndefined();
+    expect(remindersFromLegacyTimes(null)).toBeUndefined();
   });
 
   it("gives one-offs a single dose and keeps their day", () => {
@@ -180,19 +180,14 @@ describe("dose store actions", () => {
     useStore.getState().updateTask("goal-1", "task-1", {
       timing: {
         timesPerDay: 2,
-        times: [
-          { at: "20:00", remind: true },
-          { at: "08:00", remind: true },
-        ],
-        reminderLeadMin: 5,
+        reminders: ["20:00", "08:00"],
       },
     });
     const saved = useStore.getState().goals[0].tasks[0];
-    expect(saved.times?.map((t) => t.at)).toEqual(["08:00", "20:00"]);
-    expect(saved.reminderLeadMin).toBe(5);
+    expect(saved.reminders).toEqual(["08:00", "20:00"]);
 
     // Edits that leave timing out keep it.
     useStore.getState().updateTask("goal-1", "task-1", { title: "Creatine" });
-    expect(useStore.getState().goals[0].tasks[0].times).toHaveLength(2);
+    expect(useStore.getState().goals[0].tasks[0].reminders).toHaveLength(2);
   });
 });
