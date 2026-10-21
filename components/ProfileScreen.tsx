@@ -33,6 +33,7 @@ import {
   getPersistedSession,
   isAppleSignInAvailable,
   linkAppleAccount,
+  linkGoogleAccount,
   signOut,
   SsoCancelledError,
   updateProfileNames,
@@ -102,7 +103,9 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
   const [isSavingName, setIsSavingName] = useState(false);
   const [linkedProviders, setLinkedProviders] = useState<string[] | null>(null);
   const [appleAvailable, setAppleAvailable] = useState(false);
-  const [isLinkingApple, setIsLinkingApple] = useState(false);
+  const [linkingProvider, setLinkingProvider] = useState<
+    "apple" | "google" | null
+  >(null);
 
   React.useEffect(() => {
     if (!settingsVisible || !account) return;
@@ -137,12 +140,16 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
     }
   };
 
-  const linkApple = async () => {
-    if (isLinkingApple) return;
+  const linkProvider = async (provider: "apple" | "google") => {
+    if (linkingProvider) return;
     void haptics.press();
-    setIsLinkingApple(true);
+    setLinkingProvider(provider);
     try {
-      await linkAppleAccount();
+      if (provider === "apple") {
+        await linkAppleAccount();
+      } else {
+        await linkGoogleAccount();
+      }
       setLinkedProviders(await getLinkedProviders());
       void haptics.success();
     } catch (error) {
@@ -154,7 +161,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
         );
       }
     } finally {
-      setIsLinkingApple(false);
+      setLinkingProvider(null);
     }
   };
   const [isImporting, setIsImporting] = useState(false);
@@ -1123,9 +1130,9 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                   />
                 </Pressable>
 
-                {/* Sign-in methods: link Apple to this account so the same
-                    data opens with one tap next time. Google sign-in is
-                    retired; accounts that already linked it still list it. */}
+                {/* Sign-in methods: link Apple / Google to this account so
+                    the same data opens with one tap next time. All three can
+                    be active at once. */}
                 <View style={{ marginTop: 12, gap: 6 }}>
                   <Text
                     style={{
@@ -1146,16 +1153,15 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                   )
                     .filter((m) => {
                       const linked = linkedProviders?.includes(m.key) ?? false;
-                      if (m.key === "google") return linked;
                       return m.key !== "apple" || appleAvailable || linked;
                     })
                     .map((method) => {
                       const linked =
                         linkedProviders?.includes(method.key) ?? false;
                       const canLink =
-                        method.key === "apple" &&
-                        appleAvailable &&
-                        linkedProviders !== null;
+                        linkedProviders !== null &&
+                        (method.key === "google" ||
+                          (method.key === "apple" && appleAvailable));
                       return (
                         <View
                           key={method.key}
@@ -1181,15 +1187,19 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                             />
                           ) : canLink ? (
                             <Pressable
-                              onPress={() => void linkApple()}
-                              disabled={isLinkingApple}
+                              onPress={() =>
+                                void linkProvider(
+                                  method.key as "apple" | "google",
+                                )
+                              }
+                              disabled={linkingProvider !== null}
                               hitSlop={6}
                               style={{
                                 paddingHorizontal: 10,
                                 paddingVertical: 4,
                                 borderRadius: 9999,
                                 backgroundColor: withAlpha(theme.primary, 0.12),
-                                opacity: isLinkingApple ? 0.5 : 1,
+                                opacity: linkingProvider ? 0.5 : 1,
                               }}
                             >
                               <Text
@@ -1199,7 +1209,9 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                                   fontSize: 12,
                                 }}
                               >
-                                {isLinkingApple ? "Linking…" : "Link"}
+                                {linkingProvider === method.key
+                                  ? "Linking…"
+                                  : "Link"}
                               </Text>
                             </Pressable>
                           ) : null}

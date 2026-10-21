@@ -17,14 +17,19 @@ The app now includes social features: friend requests, public goals (a goal mark
 
 ## Sign in with Apple (Guideline 4.8)
 
-The app offers Sign in with Apple alongside email. Apple's rule: any app
-offering third-party login must also offer Sign in with Apple, so if another
-provider ever comes back, Apple has to stay. Backend setup that lives outside this repo:
+The app offers Sign in with Apple and Google alongside email. Apple's rule:
+any app offering third-party login must also offer Sign in with Apple, so
+keep both or neither. Backend setup that lives outside this repo:
 
 - Supabase Auth → Apple provider is enabled with client IDs
   `com.adamlincodesexpo.ontrack` (release) and `host.exp.Exponent` (Expo Go
   testing). Native sign-in needs no secret. Remove `host.exp.Exponent`
   before launch if you don't want Expo Go clients accepted.
+- Google: an OAuth client in Google Cloud (Web application type, with
+  `https://plwzrlwwqyrcvhaehrzm.supabase.co/auth/v1/callback` as an
+  authorized redirect URI); its client ID + secret are set on Supabase Auth →
+  Google. The same web client serves the app (system browser) and the MCP
+  consent page.
 - Redirect allow list holds `ontrack://auth/callback` plus `exp://**` for
   development.
 - `ios.usesAppleSignIn` is set in app.json, which adds the entitlement to
