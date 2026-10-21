@@ -21,7 +21,36 @@ friends.
   `OnTrackOrg/consent`, generated from `consent.ts` — regenerate and push when
   editing). It can't be served by the function itself: supabase.co rewrites
   Edge Function HTML to `text/plain` unless the project has a custom domain.
-  The function's `/consent` route 302-redirects to the hosted page.
+  The function's `/consent` route 302-redirects to the hosted page. The same
+  repo hosts `icon.png` (a copy of `assets/icon.png`), which the server
+  advertises in `serverInfo.icons`.
+
+  Regenerate with (anon key from `supabase projects api-keys`):
+
+  ```bash
+  deno eval 'import { consentPage } from "./supabase/functions/ontrack-mcp/consent.ts"; await Deno.writeTextFile("../consent/index.html", consentPage({ supabaseUrl: "https://plwzrlwwqyrcvhaehrzm.supabase.co", anonKey: Deno.env.get("ANON_KEY")! }))'
+  ```
+
+- **Sign-in options on the consent page**: email/password, or Sign in with
+  Apple through Supabase's web OAuth flow (PKCE; Apple posts back to
+  `https://<project-ref>.supabase.co/auth/v1/callback`, which redirects to
+  the consent page with `?code=`). The web flow needs more than the native
+  app's id-token flow:
+  1. Apple Developer → Identifiers → **Services ID** (e.g.
+     `com.adamlincodesexpo.ontrack.web`) with Sign In with Apple enabled,
+     primary App ID `com.adamlincodesexpo.ontrack`, domain
+     `<project-ref>.supabase.co`, return URL
+     `https://<project-ref>.supabase.co/auth/v1/callback`.
+  2. Apple Developer → Keys → a **Sign in with Apple** key (download the
+     `.p8` once; note Key ID and Team ID).
+  3. `node scripts/apple-client-secret.mjs --team-id … --key-id …
+     --services-id … --key …/AuthKey_….p8` prints the client secret JWT.
+     Apple caps it at 6 months — rotate before it expires.
+  4. Supabase Auth → Apple provider: put the Services ID **first** in Client
+     IDs (the web flow uses the first one; keep the app bundle id and
+     `host.exp.Exponent` after it) and paste the JWT as the Secret Key.
+  5. `https://ontrackorg.github.io/consent/**` must be in the redirect
+     allow list (Authentication → URL Configuration). Done 2026-10-21.
 
 ## Tools
 
@@ -57,10 +86,16 @@ friends.
 
 ## Connecting a client
 
-- **ChatGPT**: Settings → Apps & Connectors → enable developer mode → create a
-  connector with the `/mcp` URL above and OAuth authentication. ChatGPT walks
-  the user through the OnTrack sign-in and consent page. (Custom connectors
-  require a paid ChatGPT plan.)
+- **ChatGPT**: Settings → Apps & Connectors → Advanced settings → Developer
+  mode on, then Settings → Apps & Connectors → Create: name OnTrack, the
+  `/mcp` URL above, OAuth authentication. Upload `assets/icon.png` as the
+  connector icon there — ChatGPT shows its own placeholder otherwise and does
+  not read `serverInfo.icons`. ChatGPT walks the user through the OnTrack
+  sign-in and consent page; the app's Profile → "AI assistant" prompt
+  carries the same steps for end users. (Custom connectors require a paid
+  ChatGPT plan.)
+- **Claude** (web/desktop): Settings → Connectors → Add custom connector with
+  the `/mcp` URL.
 - **Claude Code**:
 
   ```bash

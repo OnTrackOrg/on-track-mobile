@@ -200,6 +200,24 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
     version: "1.0.0",
     schemaAdapter: (schema) => z.toJSONSchema(schema as z.ZodType),
   });
+  // mcp-lite 0.8 only forwards name/version in `serverInfo`; the MCP spec
+  // (2025-11-25) also lets a server advertise a title, website and icons,
+  // which clients use for the connector listing. Clients that predate it
+  // ignore the extra fields. (ChatGPT's connector icon is uploaded in its own
+  // "Manage" dialog, not read from here.)
+  (mcp as unknown as { serverInfo: Record<string, unknown> }).serverInfo = {
+    name: "ontrack",
+    title: "OnTrack",
+    version: "1.0.0",
+    websiteUrl: "https://ontrackorg.github.io/consent/",
+    icons: [
+      {
+        src: "https://ontrackorg.github.io/consent/icon.png",
+        mimeType: "image/png",
+        sizes: ["1024x1024"],
+      },
+    ],
+  };
 
   mcp.tool("list_goals", {
     description:
