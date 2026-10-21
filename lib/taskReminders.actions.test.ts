@@ -38,7 +38,7 @@ const response = (actionIdentifier: string, date = 1) => ({
           goalId: "goal-1",
           taskId: "task-1",
           day: "2026-10-20",
-          dose: 1,
+          slot: 1,
         },
       },
     },

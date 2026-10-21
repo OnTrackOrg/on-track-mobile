@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import { Task, TaskTime } from "../types";
+import { Task } from "../types";
 import { getTaskTimesPerDay, getTaskWeekdays } from "../store";
 
 export const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"] as const;
@@ -29,21 +29,11 @@ export const formatWeekdays = (weekdays: number[]): string => {
   return names.join(", ");
 };
 
-// Times of day ----------------------------------------------------------------
+// Doses and reminder times ----------------------------------------------------
 
 export const MAX_TIMES_PER_DAY = 24;
 
-/** Reminder lead times the Notify row cycles through, in minutes. */
-export const REMINDER_LEADS = [0, 5, 15, 60] as const;
-
-export const describeLead = (minutes: number): string =>
-  minutes === 0
-    ? "At time"
-    : minutes % 60 === 0
-      ? `${minutes / 60} hr before`
-      : `${minutes} min before`;
-
-/** Quick picks offered under each time row. */
+/** Quick picks offered under each reminder row. */
 export const QUICK_TIMES = [
   "07:00",
   "08:00",
@@ -68,7 +58,7 @@ export const minutesToTime = (total: number): string => {
 };
 
 /**
- * `n` times spread evenly across 08:00–21:00 (one dose lands at 09:00),
+ * `n` reminder times spread evenly across 08:00–21:00 (one lands at 09:00),
  * snapped to the half hour, or the quarter hour past six a day.
  */
 export const spreadTimes = (n: number): string[] => {
@@ -92,11 +82,6 @@ export const formatClock = (at: string): string => {
   });
 };
 
-const describeTimes = (times: TaskTime[]): string =>
-  times.length <= 3
-    ? times.map((time) => formatClock(time.at)).join(", ")
-    : `${times.length}× a day from ${formatClock(times[0].at)}`;
-
 /** Bare cadence, e.g. "daily", "Tue & Thu", "3 times per week", "once". */
 export const describeTaskCadence = (task: {
   frequency: Task["frequency"];
@@ -116,21 +101,16 @@ export const describeTaskCadence = (task: {
 /**
  * One-line schedule label shared by Today rows, goal task rows, and the new
  * goal screen, so schedules read the same everywhere: the cadence, then a
- * one-off's day, then its times of day or doses per day.
+ * one-off's day, then its doses per day.
  */
 export const describeTaskSchedule = (
-  task: Pick<
-    Task,
-    "frequency" | "customFrequency" | "timesPerDay" | "times" | "onDay"
-  >,
+  task: Pick<Task, "frequency" | "customFrequency" | "timesPerDay" | "onDay">,
 ): string => {
   const parts = [describeTaskCadence(task)];
   if (task.frequency === "once" && task.onDay) {
     parts.push(format(new Date(`${task.onDay}T00:00:00`), "EEE, MMM d"));
   }
-  if (task.times?.length) {
-    parts.push(describeTimes(task.times));
-  } else if (getTaskTimesPerDay(task) > 1) {
+  if (getTaskTimesPerDay(task) > 1) {
     parts.push(`${getTaskTimesPerDay(task)}× a day`);
   }
   return parts.join(" · ");

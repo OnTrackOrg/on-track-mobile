@@ -154,10 +154,13 @@ export const getDosesOnDate = (task: Task, date: Date): number => {
     .length;
 };
 
+const MAX_REMINDERS = 24;
+const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 /**
- * Canonical timing for a frequency: one-offs get a single dose, times are
- * kept only when there is one per dose, and empty fields are dropped so
- * untimed tasks persist exactly as before.
+ * Canonical timing for a frequency: one-offs get a single dose, reminders
+ * are valid, unique, and sorted, and empty fields are dropped so plain tasks
+ * persist exactly as before.
  */
 export const normalizeTaskTiming = (
   frequency: Frequency,
@@ -167,18 +170,37 @@ export const normalizeTaskTiming = (
     frequency === "once"
       ? 1
       : Math.min(24, Math.max(1, Math.round(timing.timesPerDay ?? 1)));
-  const times =
-    timing.times && timing.times.length === perDay
-      ? [...timing.times].sort((a, b) => a.at.localeCompare(b.at))
-      : undefined;
-  const lead = timing.reminderLeadMin ?? 0;
+  const reminders = [...new Set(timing.reminders ?? [])]
+    .filter((at) => HH_MM.test(at))
+    .sort()
+    .slice(0, MAX_REMINDERS);
   return {
     timesPerDay: perDay > 1 ? perDay : undefined,
-    times,
-    reminderLeadMin:
-      times?.some((time) => time.remind) && lead > 0 ? lead : undefined,
+    reminders: reminders.length > 0 ? reminders : undefined,
     onDay: frequency === "once" ? timing.onDay : undefined,
   };
+};
+
+/** Times of day as stored before reminders replaced them (Oct 2026). */
+export type LegacyTaskTime = { at: string; remind: boolean };
+
+/**
+ * Reminders from the retired times-of-day fields: each belled time, moved
+ * earlier by the old lead. Unbelled times only marked when a dose was due,
+ * so they drop out.
+ */
+export const remindersFromLegacyTimes = (
+  times: LegacyTaskTime[] | null | undefined,
+  leadMin = 0,
+): string[] | undefined => {
+  const reminders = (times ?? [])
+    .filter((time) => time.remind && HH_MM.test(time.at))
+    .map((time) => {
+      const [hours, minutes] = time.at.split(":").map(Number);
+      const total = Math.max(0, hours * 60 + minutes - leadMin);
+      return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+    });
+  return reminders.length > 0 ? reminders : undefined;
 };
 
 const fullDaysCache = new WeakMap<Task, Date[]>();

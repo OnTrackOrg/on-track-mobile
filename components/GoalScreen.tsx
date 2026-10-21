@@ -261,8 +261,7 @@ export default function GoalScreen({ navigation, route }: GoalProps) {
         customFrequency: editingTask.customFrequency,
         timing: {
           timesPerDay: editingTask.timesPerDay,
-          times: editingTask.times,
-          reminderLeadMin: editingTask.reminderLeadMin,
+          reminders: editingTask.reminders,
           onDay: editingTask.onDay,
         },
       }

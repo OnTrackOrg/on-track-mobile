@@ -1,6 +1,10 @@
 import { User } from "@supabase/supabase-js";
-import { Goal, Task, TaskTime } from "../types";
-import { normalizeTaskTiming } from "../store";
+import { Goal, Task } from "../types";
+import {
+  LegacyTaskTime,
+  normalizeTaskTiming,
+  remindersFromLegacyTimes,
+} from "../store";
 import { makeUuid } from "./ids";
 import { supabase } from "./supabase";
 
@@ -28,7 +32,9 @@ type TaskRow = {
   custom_target?: number | null;
   custom_weekdays?: number[] | null;
   times_per_day?: number | null;
-  times?: TaskTime[] | null;
+  // Reminders, stored in the shape of the retired times of day so older
+  // builds keep reading them: every entry belled, lead always 0.
+  times?: LegacyTaskTime[] | null;
   reminder_lead_min?: number | null;
   once_day?: string | null;
   position?: number | null;
@@ -166,8 +172,10 @@ const buildTasks = (
         : undefined,
     ...normalizeTaskTiming(task.frequency, {
       timesPerDay: task.times_per_day ?? undefined,
-      times: task.times ?? undefined,
-      reminderLeadMin: task.reminder_lead_min ?? undefined,
+      reminders: remindersFromLegacyTimes(
+        task.times,
+        task.reminder_lead_min ?? 0,
+      ),
       onDay: task.once_day ?? undefined,
     }),
     completions: completionsByTaskId.get(task.id) ?? [],
@@ -222,8 +230,8 @@ export const taskScheduleColumns = (task: Task) => ({
   custom_target: task.customFrequency?.target ?? null,
   custom_weekdays: task.customFrequency?.weekdays ?? null,
   times_per_day: task.timesPerDay ?? 1,
-  times: task.times ?? null,
-  reminder_lead_min: task.reminderLeadMin ?? 0,
+  times: task.reminders?.map((at) => ({ at, remind: true })) ?? null,
+  reminder_lead_min: 0,
   once_day: task.onDay ?? null,
 });
 

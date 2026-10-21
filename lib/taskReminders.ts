@@ -5,16 +5,18 @@ import { Goal } from "../types";
 import {
   getDosesOnDate,
   getTaskBucketsForDate,
+  getTaskTimesPerDay,
   hasGoalStarted,
   useStore,
 } from "../store";
-import { formatClock, timeToMinutes } from "./taskSchedule";
+import { timeToMinutes } from "./taskSchedule";
 
 /**
  * Task reminders are local notifications, rebuilt from the store whenever
- * goals change: the soonest belled times over the next week whose dose is
- * still open. Logging a dose (in the app, or from the notification's own
- * "Mark done" button) drops its reminder on the next rebuild.
+ * goals change: the soonest reminder times over the next week on days the
+ * task still has doses open. Finishing the day (in the app, or from the
+ * notification's own "Mark done" button) drops its reminders on the next
+ * rebuild.
  */
 
 const KIND = "task-reminder";
@@ -34,8 +36,8 @@ export type ReminderData = {
   kind: typeof KIND;
   goalId: string;
   taskId: string;
-  day: string; // "yyyy-MM-dd" the dose belongs to
-  dose: number; // 0-based
+  day: string; // "yyyy-MM-dd" the reminder belongs to
+  slot: number; // index into the task's reminders
 };
 
 export type PlannedReminder = {
@@ -79,28 +81,23 @@ export const planTaskReminders = ({
       }
       // Only tasks still due that day: done, postponed, and off-days drop out.
       for (const task of getTaskBucketsForDate(goal, date, postponed).pending) {
-        if (!task.times?.some((time) => time.remind)) continue;
-        const logged = getDosesOnDate(task, date);
-        const lead = task.reminderLeadMin ?? 0;
-        const total = task.times.length;
+        if (!task.reminders?.length) continue;
+        const perDay = getTaskTimesPerDay(task);
+        const left = perDay - getDosesOnDate(task, date);
+        if (left <= 0) continue;
 
-        task.times.forEach((time, dose) => {
-          if (!time.remind || dose < logged) return;
+        task.reminders.forEach((at, slot) => {
           const fireAt = new Date(date);
-          fireAt.setMinutes(timeToMinutes(time.at) - lead);
+          fireAt.setMinutes(timeToMinutes(at));
           if (fireAt <= now) return;
           planned.push({
-            id: `${REMINDER_PREFIX}${task.id}:${day}:${dose}`,
+            id: `${REMINDER_PREFIX}${task.id}:${day}:${slot}`,
             fireAt,
             title: task.title,
-            body: [
-              total > 1 ? `${dose + 1} of ${total}` : null,
-              goal.title,
-              formatClock(time.at),
-            ]
+            body: [perDay > 1 ? `${left} of ${perDay} to go` : null, goal.title]
               .filter(Boolean)
               .join(" · "),
-            data: { kind: KIND, goalId: goal.id, taskId: task.id, day, dose },
+            data: { kind: KIND, goalId: goal.id, taskId: task.id, day, slot },
           });
         });
       }
@@ -138,7 +135,7 @@ const rebuild = async () => {
     .join("\n");
 
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-  // A snooze outlives rebuilds until its dose gets logged.
+  // A snooze outlives rebuilds until its day is done.
   const staleSnoozes = scheduled.filter((request) => {
     if (!request.identifier.startsWith(SNOOZE_PREFIX)) return false;
     const data = request.content.data;
@@ -146,7 +143,10 @@ const rebuild = async () => {
     const task = state.goals
       .find((goal) => goal.id === data.goalId)
       ?.tasks.find((item) => item.id === data.taskId);
-    return !task || getDosesOnDate(task, dayKeyToDate(data.day)) > data.dose;
+    return (
+      !task ||
+      getDosesOnDate(task, dayKeyToDate(data.day)) >= getTaskTimesPerDay(task)
+    );
   });
   await Promise.all(
     staleSnoozes.map((request) =>
@@ -236,7 +236,7 @@ const handleResponse = async (
     state.logTaskDose(data.goalId, data.taskId, dayKeyToDate(data.day));
   } else if (response.actionIdentifier === ACTION_SNOOZE) {
     await Notifications.scheduleNotificationAsync({
-      identifier: `${SNOOZE_PREFIX}${data.taskId}:${data.day}:${data.dose}`,
+      identifier: `${SNOOZE_PREFIX}${data.taskId}:${data.day}:${data.slot}`,
       content: {
         title: request.content.title ?? "",
         body: request.content.body ?? "",

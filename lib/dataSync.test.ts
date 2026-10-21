@@ -6,7 +6,11 @@ jest.mock("./supabase", () => ({
 
 import type { User } from "@supabase/supabase-js";
 import { Goal } from "../types";
-import { __internal, replaceRemoteGoalsForUser } from "./dataSync";
+import {
+  __internal,
+  replaceRemoteGoalsForUser,
+  taskScheduleColumns,
+} from "./dataSync";
 
 const ME = "00000000-0000-4000-8000-0000000000aa";
 const FRIEND = "00000000-0000-4000-8000-0000000000bb";
@@ -243,14 +247,29 @@ describe("multi-dose sync", () => {
     );
     expect(goal.tasks[0]).toMatchObject({
       timesPerDay: 2,
-      times: [
-        { at: "08:00", remind: false },
-        { at: "20:00", remind: true },
-      ],
-      reminderLeadMin: 15,
+      // Belled times become reminders, moved earlier by the old lead.
+      reminders: ["19:45"],
       onDay: undefined, // only one-offs keep a day
     });
     expect(goal.tasks[0].completions).toHaveLength(2);
+  });
+
+  it("writes reminders as belled times with no lead", () => {
+    expect(
+      taskScheduleColumns({
+        id: "task-1",
+        title: "Creatine",
+        frequency: "daily",
+        reminders: ["08:00", "20:00"],
+        completions: [],
+      }),
+    ).toMatchObject({
+      times: [
+        { at: "08:00", remind: true },
+        { at: "20:00", remind: true },
+      ],
+      reminder_lead_min: 0,
+    });
   });
 });
 

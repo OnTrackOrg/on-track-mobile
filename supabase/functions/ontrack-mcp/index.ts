@@ -114,12 +114,15 @@ const describeCadence = (task: TaskRow) => {
   return `${task.custom_target ?? "?"} times per ${unit}`;
 };
 
-// e.g. "daily, 3 times a day at 08:00, 14:30, 21:00"
+// e.g. "daily, 3 times a day, reminders at 08:00, 21:00". tasks.times holds
+// the task's reminder times; unbelled entries are leftovers from when it
+// held times of day.
 const describeFrequency = (task: TaskRow) => {
   const parts = [describeCadence(task)];
   if (task.times_per_day > 1) parts.push(`${task.times_per_day} times a day`);
-  if (task.times?.length) {
-    parts.push(`at ${task.times.map((time) => time.at).join(", ")}`);
+  const reminders = (task.times ?? []).filter((time) => time.remind);
+  if (reminders.length > 0) {
+    parts.push(`reminders at ${reminders.map((time) => time.at).join(", ")}`);
   }
   return parts.join(", ");
 };

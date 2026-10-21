@@ -34,7 +34,6 @@ import {
   TodayItem,
 } from "../store";
 import {
-  describeTaskCadence,
   describeTaskSchedule,
   formatClock,
   timeToMinutes,
@@ -50,14 +49,20 @@ import { TourAnchor } from "./tour/TourAnchor";
 import Confetti from "./Confetti";
 import { card } from "./ui";
 import DoseRing from "./DoseRing";
-import { Task, TaskTime } from "../types";
+import { Task } from "../types";
 
 // Pips beside the title stop at this many doses; the ring still shows all.
 const MAX_PIPS = 8;
 
-/** The time of the first dose still open on `date`, if the task has times. */
-const nextOpenTime = (task: Task, date: Date): TaskTime | undefined =>
-  task.times?.[getDosesOnDate(task, date)];
+/** The task's next reminder on `date` that is still ahead, if any. */
+const nextReminder = (task: Task, date: Date): string | undefined => {
+  const now = new Date();
+  return task.reminders?.find((at) => {
+    const fireAt = new Date(date);
+    fireAt.setHours(0, timeToMinutes(at), 0, 0);
+    return fireAt > now;
+  });
+};
 
 const postponeBlockReason = (task: Task): string => {
   if (task.frequency === "daily") {
@@ -109,12 +114,10 @@ function TaskRow({
   const perDay = getTaskTimesPerDay(item.task);
   const logged = Math.min(getDosesOnDate(item.task, date), perDay);
   const isPartial = !isDone && perDay > 1;
-  const nextTime = isDone ? undefined : nextOpenTime(item.task, date);
+  const reminderAt = isDone ? undefined : nextReminder(item.task, date);
   const subtitle = isPartial
     ? `${logged}/${perDay} today`
-    : !isDone && item.task.times
-      ? describeTaskCadence(item.task)
-      : describeTaskSchedule(item.task);
+    : describeTaskSchedule(item.task);
 
   const handleSwipeOpen = () => {
     if (!postponeAllowed) {
@@ -243,7 +246,7 @@ function TaskRow({
           )}
         </Text>
       </View>
-      {nextTime ? (
+      {reminderAt ? (
         <View
           style={{
             flexDirection: "row",
@@ -255,9 +258,7 @@ function TaskRow({
             backgroundColor: withAlpha(theme.primary, 0.12),
           }}
         >
-          {nextTime.remind ? (
-            <Ionicons name="notifications" size={11} color={theme.primary} />
-          ) : null}
+          <Ionicons name="notifications" size={11} color={theme.primary} />
           <Text
             style={{
               color: theme.primary,
@@ -266,7 +267,7 @@ function TaskRow({
               fontVariant: ["tabular-nums"],
             }}
           >
-            {formatClock(nextTime.at)}
+            {formatClock(reminderAt)}
           </Text>
         </View>
       ) : null}
@@ -396,16 +397,6 @@ export default function TodayScreen() {
     [goals, selectedDate, postponedTaskIds, personalOrder],
   );
   const allDone = totals.total > 0 && totals.done === totals.total;
-  // Timed rows lead in order of their next open dose; the rest keep the
-  // personal order after them (the sort is stable).
-  const sortedTodo = React.useMemo(() => {
-    const nextMinutes = (item: TodayItem) => {
-      const time = nextOpenTime(item.task, selectedDate);
-      return time ? timeToMinutes(time.at) : Number.POSITIVE_INFINITY;
-    };
-    return [...todo].sort((a, b) => nextMinutes(a) - nextMinutes(b));
-  }, [todo, selectedDate]);
-
   // "Not today" only makes sense on the actual current day.
   const isViewingToday = dateKey === format(new Date(), "yyyy-MM-dd");
 
@@ -597,7 +588,7 @@ export default function TodayScreen() {
                 {todo.length} left
               </Text>
             </View>
-            {sortedTodo.map((item, index) => (
+            {todo.map((item, index) => (
               <TaskRow
                 key={`${item.goal.id}:${item.task.id}`}
                 item={item}
