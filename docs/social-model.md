@@ -92,18 +92,16 @@ The store keeps two slices:
 
 ## Sign-in methods
 
-Sign in with Apple (native `signInWithIdToken`, nonce-checked) sits above
-email + password. Email sign-up asks for nothing but email and
+Sign in with Apple (native `signInWithIdToken`, nonce-checked) and Google
+(Supabase OAuth in the system browser, PKCE, redirect
+`ontrack://auth/callback` or `exp://…/--/auth/callback` in Expo Go) sit
+above email + password. Email sign-up asks for nothing but email and
 password; display name and username are derived from the email and edited
 from Profile. Supabase links a provider sign-in to an existing account
 automatically when the verified email matches; Profile → Account also lists
-sign-in methods with a Link button for Apple (`linkIdentity`, manual
-linking enabled in the auth config) so an email-and-password user can add it
-without creating a second account.
-
-Google sign-in was retired in Oct 2026 (the provider was never enabled in
-Supabase). Accounts that already have a Google identity keep it and still
-see it listed under sign-in methods; nobody can add one.
+sign-in methods with Link buttons (`linkIdentity`, manual linking enabled
+in the auth config) so an email-and-password user can add Apple or Google
+without creating a second account. An account can have all three.
 
 ## No local-only mode
 

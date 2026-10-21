@@ -31,8 +31,20 @@ friends.
   deno eval 'import { consentPage } from "./supabase/functions/ontrack-mcp/consent.ts"; await Deno.writeTextFile("../consent/index.html", consentPage({ supabaseUrl: "https://plwzrlwwqyrcvhaehrzm.supabase.co", anonKey: Deno.env.get("ANON_KEY")! }))'
   ```
 
+- **Public site**: <https://ontrackorg.github.io/> (repo
+  `OnTrackOrg/ontrackorg.github.io`, plain HTML) hosts the home page,
+  privacy policy, terms and support page that Google's OAuth consent screen
+  and the App Store listing link to.
+
+- **Google on the consent page and in the app**: Google Cloud project
+  `ontrack-512318` → Google Auth Platform. Web client "OnTrack (Supabase
+  Auth)" with redirect `https://<project-ref>.supabase.co/auth/v1/callback`;
+  its id + secret are set on Supabase Auth → Google (no expiry). The OAuth
+  app is published to production with only the email/profile scopes, so no
+  Google verification is needed; uploading a logo would trigger it.
+
 - **Sign-in options on the consent page**: email/password, or Sign in with
-  Apple through Supabase's web OAuth flow (PKCE; Apple posts back to
+  Apple or Google through Supabase's web OAuth flow (PKCE; Apple posts back to
   `https://<project-ref>.supabase.co/auth/v1/callback`, which redirects to
   the consent page with `?code=`). The web flow needs more than the native
   app's id-token flow:
@@ -54,16 +66,42 @@ friends.
 
 ## Tools
 
+Everything a signed-in user can do in the app has a tool, so an assistant
+can set someone up from scratch and backfill their history. All writes are
+owner-only (RLS); friends' public goals are read-only.
+
 | Tool | What it does |
 | --- | --- |
-| `list_goals` | Own + friends' public goals, with tasks and lifecycle status |
-| `get_goal` | One goal in detail: owner, tasks, the owner's last-30-day completions |
-| `create_goal` | Create a goal (optionally with tasks, drafts, weekday schedules) |
-| `log_task_completion` | Log a task done for a day (own completions only) |
-| `undo_task_completion` | Remove a previously logged completion |
-| `list_friends` | Accepted friends |
-| `nudge_friend` | Push-notification nudge via the `send-nudge` function |
+| `list_goals` | Own goals (in the user's personal order) + friends' public goals, each with tasks, structured `schedule`, color, visibility, lifecycle status |
+| `get_goal` | One goal in detail with completions per day (`since`/`until`, default last 30 days) |
+| `list_completions` | `{task_id, day, count}` rows for a goal or task over a date range |
+| `create_goal` | Create a goal (title, target, start/due day, draft, color, public) with up to 20 tasks |
+| `update_goal` | Edit title/target/start/due/color/visibility; `is_draft: false` starts a draft |
+| `set_goal_achieved` | Achieve or reactivate a goal |
+| `delete_goal` | Delete a goal and everything under it (`confirm: true`) |
+| `set_goal_order` | The user's personal goal order (`user_orderings`) |
+| `add_task` / `update_task` / `delete_task` | Tasks with frequency, custom cadence, pinned weekdays, doses per day, reminders (`HH:mm`), one-off day |
+| `set_task_order` | Personal task order inside a goal |
+| `log_task_completion` / `undo_task_completion` | One dose for a day (today or past) |
+| `backfill_task_completions` | Set the exact dose count for up to 500 task-days in one call — the backfill tool |
+| `list_friends` | Accepted friends plus incoming and outgoing requests |
+| `search_people` / `send_friend_request` / `respond_to_friend_request` / `unfriend` | The whole friend-request flow |
+| `nudge_friend` | Push-notification nudge about a friend's public goal via `send-nudge` |
+| `get_profile` / `update_profile` | Display name and username |
 | `search` / `fetch` | ChatGPT connector contract (also used by deep research) |
+
+Dates are the user's local calendar days (`yyyy-MM-dd`); the server never
+converts timezones. Completions are stored as the app writes them (one row
+per dose, `occurrence` 0..n-1, matched on `completed_day`), so backfilled
+history renders in the app's heatmaps and streaks. A goal's history view
+starts at its `start_day`, so backfills should move `start_day` back to the
+earliest logged day.
+
+**Sync caveat.** The app pushes its whole local copy on every local change
+and only pulls on a clean foreground refresh. If the app is open with a
+stale copy while an assistant writes, the next local edit can overwrite
+those writes. Every mutating tool's description tells the assistant to ask
+the user to reopen the app; closing and reopening it pulls the new data.
 
 ## Deploying
 

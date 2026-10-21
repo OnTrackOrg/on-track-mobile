@@ -42,7 +42,9 @@ import {
   ensureProfileForUser,
   isAppleSignInAvailable,
   signInWithApple,
+  signInWithGoogle,
   SsoCancelledError,
+  SsoProvider,
   getPersistedSession,
   requestPasswordReset,
   signInWithEmail,
@@ -795,13 +797,17 @@ function ThemedNavigation() {
     [authMode],
   );
 
-  const handleAppleSignIn = React.useCallback(async () => {
+  const handleSso = React.useCallback(async (provider: SsoProvider) => {
     setIsSubmittingAuth(true);
     setAuthErrorMessage(null);
     setAuthInfoMessage(null);
 
     try {
-      await signInWithApple();
+      if (provider === "apple") {
+        await signInWithApple();
+      } else {
+        await signInWithGoogle();
+      }
     } catch (error) {
       if (error instanceof SsoCancelledError) return;
       setAuthErrorMessage(
@@ -906,7 +912,7 @@ function ThemedNavigation() {
             setAuthInfoMessage(null);
           }}
           onSubmit={handleAuthSubmit}
-          onAppleSignIn={handleAppleSignIn}
+          onSso={handleSso}
           onPasswordResetRequest={handlePasswordResetRequest}
         />
         <StatusBar style={isDark ? "light" : "dark"} />

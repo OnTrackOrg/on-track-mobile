@@ -23,7 +23,7 @@ export const buildMcpConnectPrompt = (supabaseUrl: string): string => {
     "- Claude (web or desktop): Settings → Connectors → Add custom connector, paste the URL above, then connect and sign in when prompted.",
     `- Claude Code: run \`claude mcp add ontrack -t http ${endpoint}\`, then use /mcp to sign in.`,
     "",
-    "Once connected you'll have these tools: list_goals, get_goal, create_goal, log_task_completion, undo_task_completion, list_friends, and nudge_friend. Everything runs as my account, so you'll only see data I can already see. When I describe something I want to achieve, you can draft it yourself and save it with create_goal (use is_draft when I should review it first).",
+    "Once connected you'll have tools for everything the app can do: list_goals, get_goal, list_completions, create_goal, update_goal, set_goal_achieved, delete_goal, set_goal_order, add_task, update_task, delete_task, set_task_order, log_task_completion, undo_task_completion, backfill_task_completions, list_friends, search_people, send_friend_request, respond_to_friend_request, unfriend, nudge_friend, get_profile, and update_profile. Everything runs as my account, so you'll only see data I can already see. When I describe something I want to achieve, you can draft it yourself and save it with create_goal (use is_draft when I should review it first). When I tell you about things I already did, backfill them with backfill_task_completions and set the goal's start_day to the earliest day so the history shows. After you change anything, remind me to reopen the app so it refreshes.",
     "",
     "To confirm it works, connect and then list my goals.",
   ].join("\n");

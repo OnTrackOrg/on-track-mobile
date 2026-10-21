@@ -2,6 +2,8 @@ import { Session, User } from "@supabase/supabase-js";
 import { Platform } from "react-native";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
+import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
 import {
   buildDefaultUsername,
   normalizeAccountDraft,
@@ -17,8 +19,18 @@ export type AuthFormPayload = {
 };
 
 export type AuthMode = "sign-up" | "sign-in";
+export type SsoProvider = "apple" | "google";
 
 export const AUTH_CALLBACK_URL = "ontrack://auth/callback";
+
+/**
+ * Where OAuth / email links come back to. A release build gets the custom
+ * scheme; Expo Go gets exp://<host>/--/auth/callback so Google sign-in can
+ * be exercised in development too (both must be in Supabase's redirect
+ * allow list).
+ */
+export const getAuthRedirectUrl = (): string =>
+  Linking.createURL("auth/callback");
 
 type ProfileRow = {
   id: string;
@@ -142,7 +154,7 @@ export const signInWithEmail = async ({ email, password }: AuthFormPayload) => {
 };
 
 // ---------------------------------------------------------------------------
-// Sign in with Apple (native)
+// Sign in with Apple (native) and Google (system browser)
 // ---------------------------------------------------------------------------
 
 export const isAppleSignInAvailable = async (): Promise<boolean> => {
@@ -240,6 +252,40 @@ export const signInWithApple = async () => {
   return data;
 };
 
+const finishOAuthRedirect = async (url: string): Promise<Session | null> => {
+  const parsed = new URL(url);
+  const code = parsed.searchParams.get("code");
+  if (code) return exchangeAuthCodeForSession(code);
+  const description =
+    parsed.searchParams.get("error_description") ??
+    parsed.searchParams.get("error");
+  throw new Error(
+    description
+      ? description.replace(/\+/g, " ")
+      : "Google sign-in didn't complete. Try again.",
+  );
+};
+
+/**
+ * Sign in (or sign up) with Google through Supabase's OAuth flow in the
+ * system browser. Supabase links the sign-in to an existing account when
+ * the verified email matches, so an email-and-password user who taps this
+ * lands in their own account.
+ */
+export const signInWithGoogle = async (): Promise<Session | null> => {
+  const redirectTo = getAuthRedirectUrl();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo, skipBrowserRedirect: true },
+  });
+  if (error) throw error;
+  if (!data.url) throw new Error("Could not start Google sign-in.");
+
+  const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+  if (result.type !== "success") throw new SsoCancelledError();
+  return finishOAuthRedirect(result.url);
+};
+
 // ---------------------------------------------------------------------------
 // Linked sign-in methods (Profile → Account)
 // ---------------------------------------------------------------------------
@@ -259,6 +305,21 @@ export const linkAppleAccount = async (): Promise<void> => {
     nonce: rawNonce,
   });
   if (error) throw error;
+};
+
+/** Add Google as a sign-in method for the signed-in account. */
+export const linkGoogleAccount = async (): Promise<void> => {
+  const redirectTo = getAuthRedirectUrl();
+  const { data, error } = await supabase.auth.linkIdentity({
+    provider: "google",
+    options: { redirectTo, skipBrowserRedirect: true },
+  });
+  if (error) throw error;
+  if (!data.url) throw new Error("Could not start Google sign-in.");
+
+  const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+  if (result.type !== "success") throw new SsoCancelledError();
+  await finishOAuthRedirect(result.url);
 };
 
 export const resendSignupVerification = async (email: string) => {

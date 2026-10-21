@@ -9,13 +9,14 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import * as AppleAuthentication from "expo-apple-authentication";
 import { useTheme } from "../contexts/ThemeContext";
 import { haptics } from "../utils/haptics";
 import LabeledTextField from "./LabeledTextField";
 import BrandMark from "./BrandMark";
 import { isValidEmail, isValidPassword } from "../account";
-import { AuthMode } from "../lib/auth";
+import { AuthMode, SsoProvider } from "../lib/auth";
 
 type AuthScreenProps = {
   mode: AuthMode;
@@ -25,12 +26,13 @@ type AuthScreenProps = {
   appleAvailable: boolean;
   onModeChange: (mode: AuthMode) => void;
   onSubmit: (input: { email: string; password: string }) => void;
-  onAppleSignIn: () => void;
+  onSso: (provider: SsoProvider) => void;
   onPasswordResetRequest?: (email: string) => void;
 };
 
 /**
- * Sign-in is provider-first: Apple takes one tap and needs no form. Email + password stays as the fallback below the divider. Names
+ * Sign-in is provider-first: Apple and Google take one tap and need no
+ * form. Email + password stays as the fallback below the divider. Names
  * and usernames are derived and editable later from Profile, so nothing
  * here asks for them.
  */
@@ -42,7 +44,7 @@ export default function AuthScreen({
   appleAvailable,
   onModeChange,
   onSubmit,
-  onAppleSignIn,
+  onSso,
   onPasswordResetRequest,
 }: AuthScreenProps) {
   const { theme, isDark } = useTheme();
@@ -72,10 +74,10 @@ export default function AuthScreen({
     onSubmit({ email, password });
   };
 
-  const appleSignIn = () => {
+  const sso = (provider: SsoProvider) => {
     if (isSubmitting) return;
     void haptics.press();
-    onAppleSignIn();
+    onSso(provider);
   };
 
   return (
@@ -108,9 +110,9 @@ export default function AuthScreen({
             </Text>
           </View>
 
-          {/* Apple first; email is the fallback below the divider. */}
-          {appleAvailable ? (
-            <>
+          {/* Providers first; email is the fallback below the divider. */}
+          <View style={{ gap: 10 }}>
+            {appleAvailable ? (
               <AppleAuthentication.AppleAuthenticationButton
                 // The native label only updates on remount.
                 key={mode}
@@ -126,28 +128,50 @@ export default function AuthScreen({
                 }
                 cornerRadius={999}
                 style={{ height: 50, opacity: isSubmitting ? 0.6 : 1 }}
-                onPress={appleSignIn}
+                onPress={() => sso("apple")}
               />
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 12,
-                  marginVertical: 22,
-                }}
+            ) : null}
+            <Pressable
+              onPress={() => sso("google")}
+              disabled={isSubmitting}
+              accessibilityRole="button"
+              style={{
+                height: 50,
+                borderRadius: 999,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                backgroundColor: theme.surface,
+                borderWidth: 1,
+                borderColor: theme.border,
+                opacity: isSubmitting ? 0.6 : 1,
+              }}
+            >
+              <Ionicons name="logo-google" size={18} color={theme.text} />
+              <Text
+                style={{ color: theme.text, fontWeight: "600", fontSize: 16 }}
               >
-                <View
-                  style={{ flex: 1, height: 1, backgroundColor: theme.border }}
-                />
-                <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-                  or
-                </Text>
-                <View
-                  style={{ flex: 1, height: 1, backgroundColor: theme.border }}
-                />
-              </View>
-            </>
-          ) : null}
+                {isSignUp ? "Sign up with Google" : "Sign in with Google"}
+              </Text>
+            </Pressable>
+          </View>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
+              marginVertical: 22,
+            }}
+          >
+            <View
+              style={{ flex: 1, height: 1, backgroundColor: theme.border }}
+            />
+            <Text style={{ color: theme.textSecondary, fontSize: 12 }}>or</Text>
+            <View
+              style={{ flex: 1, height: 1, backgroundColor: theme.border }}
+            />
+          </View>
 
           <View style={{ gap: 12 }}>
             <LabeledTextField
