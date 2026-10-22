@@ -1,6 +1,7 @@
 import React from "react";
 import {
   Alert,
+  Keyboard,
   Linking,
   Modal,
   Platform,
@@ -13,9 +14,11 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import Animated, {
   SlideInDown,
-  useAnimatedKeyboard,
   useAnimatedStyle,
+  useSharedValue,
+  withSpring,
 } from "react-native-reanimated";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { addDays, format } from "date-fns";
 import { useTheme } from "../contexts/ThemeContext";
@@ -23,7 +26,6 @@ import { haptics } from "../utils/haptics";
 import { CustomFrequency, Frequency, TaskTiming } from "../types";
 import {
   MAX_TIMES_PER_DAY,
-  QUICK_TIMES,
   WEEKDAY_LETTERS,
   describeTaskCadence,
   formatClock,
@@ -44,7 +46,17 @@ export type TaskEditorValue = {
 
 const MAX_WEEKLY_CUSTOM_TARGET = 7;
 const MAX_MONTHLY_CUSTOM_TARGET = 31;
-const NUDGE_MINUTES = 15;
+
+// iOS moves the keyboard with a spring that is mostly done by the 250ms its
+// notification reports but keeps settling for about twice that. A critically
+// damped spring on the same scale keeps the sheet glued to it in both
+// directions instead of landing early or snapping.
+const KEYBOARD_SPRING = {
+  mass: 1,
+  stiffness: 144,
+  damping: 24,
+  overshootClamping: true,
+};
 
 // How the custom frequency is being edited: a floating per-period target or
 // explicit weekdays (issue #162).
@@ -70,6 +82,77 @@ const normalizeCustomTarget = (target: number, type: CustomFrequency["type"]) =>
 
 const sortTimes = (times: string[]) => [...times].sort();
 
+// "HH:mm" → a Date today at that time, for the native time wheel.
+const timeToDate = (at: string): Date => {
+  const date = new Date();
+  date.setHours(0, timeToMinutes(at), 0, 0);
+  return date;
+};
+
+// Everything the editor lets you change, in one place so the fields can be
+// seeded on open and compared against that seed to spot unsaved changes.
+type EditorState = {
+  title: string;
+  frequency: Frequency;
+  customMode: CustomMode;
+  customTarget: number;
+  weekdays: number[];
+  perDay: number;
+  reminders: string[];
+  onDay: string | null;
+};
+
+const seedState = (initial?: TaskEditorValue): EditorState => {
+  const custom = initial?.customFrequency;
+  const weekdays =
+    custom?.weekdays && custom.weekdays.length > 0
+      ? normalizeWeekdays(custom.weekdays)
+      : [];
+  return {
+    title: initial?.title ?? "",
+    frequency: initial?.frequency ?? "daily",
+    customMode: weekdays.length > 0 ? "weekdays" : (custom?.type ?? "weekly"),
+    customTarget: custom?.target ?? 3,
+    weekdays,
+    perDay: initial?.timing?.timesPerDay ?? 1,
+    reminders: initial?.timing?.reminders ?? [],
+    onDay: initial?.timing?.onDay ?? null,
+  };
+};
+
+// The value the editor would submit for a given state. Also what "unsaved
+// changes" means: two states are the same if they submit the same thing.
+const toValue = (state: EditorState): TaskEditorValue => {
+  const isOnce = state.frequency === "once";
+  let customFrequency: CustomFrequency | undefined;
+  if (state.frequency === "custom") {
+    customFrequency =
+      state.customMode === "weekdays"
+        ? {
+            type: "weekly",
+            target: state.weekdays.length,
+            weekdays: normalizeWeekdays(state.weekdays),
+          }
+        : {
+            type: state.customMode,
+            target: normalizeCustomTarget(state.customTarget, state.customMode),
+          };
+  }
+  return {
+    title: state.title.trim(),
+    frequency: state.frequency,
+    customFrequency,
+    timing: {
+      timesPerDay: isOnce ? 1 : state.perDay,
+      reminders:
+        state.reminders.length > 0 ? sortTimes(state.reminders) : undefined,
+      onDay: isOnce ? (state.onDay ?? undefined) : undefined,
+    },
+  };
+};
+
+const fingerprint = (state: EditorState) => JSON.stringify(toValue(state));
+
 const describeDay = (day: string): string => {
   const today = new Date();
   if (day === format(today, "yyyy-MM-dd")) return "Today";
@@ -91,17 +174,42 @@ export default function TaskEditorModal({
   onClose,
   onDelete,
 }: TaskEditorModalProps) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   // KeyboardAvoidingView never lifts this sheet inside the Modal on iOS, so
-  // the keyboard covered the whole editor. Track the keyboard frame directly;
-  // the sheet's home-indicator padding can tuck behind the keyboard.
-  const keyboard = useAnimatedKeyboard();
+  // the keyboard covered the whole editor. Pad the sheet up by the keyboard
+  // height instead, sprung on the keyboard's own timing so the sheet rides up
+  // and flows back down with it; the home-indicator padding tucks behind it.
+  const keyboardHeight = useSharedValue(0);
+  const [isKeyboardShown, setIsKeyboardShown] = React.useState(false);
+  React.useEffect(() => {
+    if (!visible) return;
+    const ios = Platform.OS === "ios";
+    const animateTo = (height: number) => {
+      if (!ios) return;
+      keyboardHeight.value = withSpring(height, KEYBOARD_SPRING);
+    };
+    const subscriptions = [
+      Keyboard.addListener(
+        ios ? "keyboardWillShow" : "keyboardDidShow",
+        (e) => {
+          setIsKeyboardShown(true);
+          animateTo(e.endCoordinates.height);
+        },
+      ),
+      Keyboard.addListener(ios ? "keyboardWillHide" : "keyboardDidHide", () => {
+        setIsKeyboardShown(false);
+        animateTo(0);
+      }),
+    ];
+    return () => {
+      subscriptions.forEach((subscription) => subscription.remove());
+      keyboardHeight.value = 0;
+      setIsKeyboardShown(false);
+    };
+  }, [keyboardHeight, visible]);
   const keyboardLift = useAnimatedStyle(() => ({
-    paddingBottom:
-      Platform.OS === "ios"
-        ? Math.max(keyboard.height.value - insets.bottom, 0)
-        : 0,
+    paddingBottom: Math.max(keyboardHeight.value - insets.bottom, 0),
   }));
 
   const [title, setTitle] = React.useState("");
@@ -115,32 +223,39 @@ export default function TaskEditorModal({
   const [isRepeatOpen, setIsRepeatOpen] = React.useState(false);
   const [openReminder, setOpenReminder] = React.useState<number | null>(null);
   const [isDayPickerOpen, setIsDayPickerOpen] = React.useState(false);
+  // What the fields looked like when the editor opened, to tell whether
+  // closing would lose anything.
+  const baseline = React.useRef(fingerprint(seedState()));
 
   // Re-seed the fields each time the modal opens for a (possibly different)
   // task.
   React.useEffect(() => {
     if (!visible) return;
-    setTitle(initial?.title ?? "");
-    setFrequency(initial?.frequency ?? "daily");
-    const custom = initial?.customFrequency;
-    const initialWeekdays =
-      custom?.weekdays && custom.weekdays.length > 0
-        ? normalizeWeekdays(custom.weekdays)
-        : [];
-    if (initialWeekdays.length > 0) {
-      setCustomMode("weekdays");
-    } else {
-      setCustomMode(custom?.type ?? "weekly");
-    }
-    setCustomTarget(custom?.target ?? 3);
-    setWeekdays(initialWeekdays);
-    const timing = initial?.timing;
-    setPerDay(timing?.timesPerDay ?? 1);
-    setReminders(timing?.reminders ?? []);
-    setOnDay(timing?.onDay ?? null);
+    const seed = seedState(initial);
+    setTitle(seed.title);
+    setFrequency(seed.frequency);
+    setCustomMode(seed.customMode);
+    setCustomTarget(seed.customTarget);
+    setWeekdays(seed.weekdays);
+    setPerDay(seed.perDay);
+    setReminders(seed.reminders);
+    setOnDay(seed.onDay);
     setIsRepeatOpen(false);
     setOpenReminder(null);
+    baseline.current = fingerprint(seed);
   }, [initial, visible]);
+
+  const state: EditorState = {
+    title,
+    frequency,
+    customMode,
+    customTarget,
+    weekdays,
+    perDay,
+    reminders,
+    onDay,
+  };
+  const hasUnsavedChanges = fingerprint(state) !== baseline.current;
 
   const isOnce = frequency === "once";
   const doses = isOnce ? 1 : perDay;
@@ -241,69 +356,64 @@ export default function TaskEditorModal({
     setOpenReminder((current) => (current === index ? null : index));
   };
 
-  const pickQuickTime = (index: number, at: string) => {
-    void haptics.toggle();
+  // The wheel reports every tick; keep the row in place while it spins and
+  // let toggleReminderRow re-sort once it closes.
+  const setReminderTime = (index: number, date: Date) => {
+    const at = minutesToTime(date.getHours() * 60 + date.getMinutes());
     setReminders((prev) =>
-      sortTimes(prev.map((time, i) => (i === index ? at : time))),
-    );
-    setOpenReminder(null);
-  };
-
-  const nudgeReminder = (index: number, delta: number) => {
-    const minutes = timeToMinutes(reminders[index]) + delta;
-    if (minutes < 0 || minutes > 23 * 60 + 59) {
-      void haptics.warning();
-      return;
-    }
-    void haptics.toggle();
-    setReminders((prev) =>
-      prev.map((time, i) => (i === index ? minutesToTime(minutes) : time)),
+      prev[index] === at
+        ? prev
+        : prev.map((time, i) => (i === index ? at : time)),
     );
   };
 
   const submit = () => {
-    const trimmedTitle = title.trim();
-    if (!trimmedTitle) {
+    const value = toValue(state);
+    if (!value.title) {
       void haptics.error();
       return;
     }
-
-    let customFrequency: CustomFrequency | undefined;
-    if (frequency === "custom") {
-      if (customMode === "weekdays") {
-        if (weekdays.length === 0) {
-          void haptics.error();
-          setIsRepeatOpen(true);
-          return;
-        }
-        customFrequency = {
-          type: "weekly",
-          target: weekdays.length,
-          weekdays: normalizeWeekdays(weekdays),
-        };
-      } else {
-        customFrequency = {
-          type: customMode,
-          target: normalizeCustomTarget(customTarget, customMode),
-        };
-      }
+    if (
+      frequency === "custom" &&
+      customMode === "weekdays" &&
+      weekdays.length === 0
+    ) {
+      void haptics.error();
+      setIsRepeatOpen(true);
+      return;
     }
-
-    onSubmit({
-      title: trimmedTitle,
-      frequency,
-      customFrequency,
-      timing: {
-        timesPerDay: doses,
-        reminders: reminders.length > 0 ? sortTimes(reminders) : undefined,
-        onDay: isOnce ? (onDay ?? undefined) : undefined,
-      },
-    });
+    onSubmit(value);
   };
 
   const close = () => {
     void haptics.tap();
     onClose();
+  };
+
+  // Closing with edits in flight asks first, so a stray tap can't throw away
+  // a half-built task.
+  const requestClose = () => {
+    if (!hasUnsavedChanges) {
+      close();
+      return;
+    }
+    void haptics.warning();
+    Alert.alert("Discard changes?", undefined, [
+      { text: "Save", onPress: submit },
+      { text: "Discard", style: "destructive", onPress: close },
+      { text: "Keep editing", style: "cancel" },
+    ]);
+  };
+
+  // Tapping outside the sheet while typing just puts the keyboard away — the
+  // most common reason to tap there — and only closes once the keyboard is
+  // already down.
+  const pressBackdrop = () => {
+    if (isKeyboardShown) {
+      Keyboard.dismiss();
+      return;
+    }
+    requestClose();
   };
 
   const pillStyle = (active: boolean) => ({
@@ -540,64 +650,23 @@ export default function TaskEditorModal({
           </Pressable>
         </View>
         {isOpen ? (
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 6,
-              paddingLeft: 42,
-              paddingRight: 14,
-              paddingBottom: 12,
-            }}
-          >
-            {QUICK_TIMES.map((at) => {
-              const active = at === time;
-              return (
-                <Pressable
-                  key={at}
-                  onPress={() => pickQuickTime(index, at)}
-                  style={{
-                    ...pillStyle(active),
-                    paddingHorizontal: 9,
-                    paddingVertical: 5,
-                  }}
-                >
-                  <Text
-                    style={{
-                      ...pillText(active),
-                      fontSize: 13,
-                      fontVariant: ["tabular-nums"],
-                    }}
-                  >
-                    {formatClock(at)}
-                  </Text>
-                </Pressable>
-              );
-            })}
-            {[-NUDGE_MINUTES, NUDGE_MINUTES].map((delta) => (
-              <Pressable
-                key={delta}
-                onPress={() => nudgeReminder(index, delta)}
-                accessibilityLabel={
-                  delta < 0 ? "15 minutes earlier" : "15 minutes later"
-                }
-                style={{
-                  ...pillStyle(false),
-                  paddingHorizontal: 9,
-                  paddingVertical: 5,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 2,
-                }}
-              >
-                <Ionicons
-                  name={delta < 0 ? "remove" : "add"}
-                  size={13}
-                  color={theme.text}
-                />
-                <Text style={{ ...pillText(false), fontSize: 13 }}>15m</Text>
-              </Pressable>
-            ))}
+          <View style={{ paddingHorizontal: 14, paddingBottom: 6 }}>
+            <DateTimePicker
+              value={timeToDate(time)}
+              mode="time"
+              display="spinner"
+              minuteInterval={1}
+              onChange={(_event, date) => {
+                if (date) setReminderTime(index, date);
+                // Android shows the picker as a dialog; close the row once
+                // it returns so it doesn't pop straight back open.
+                if (Platform.OS === "android") setOpenReminder(null);
+              }}
+              themeVariant={isDark ? "dark" : "light"}
+              textColor={theme.text}
+              accentColor={theme.primary}
+              style={{ alignSelf: "stretch" }}
+            />
           </View>
         ) : null}
       </View>
@@ -611,7 +680,7 @@ export default function TaskEditorModal({
       animationType="fade"
       transparent={true}
       visible={visible}
-      onRequestClose={close}
+      onRequestClose={requestClose}
     >
       <Animated.View
         style={[
@@ -624,7 +693,7 @@ export default function TaskEditorModal({
         ]}
       >
         <Pressable
-          onPress={close}
+          onPress={pressBackdrop}
           style={{
             position: "absolute",
             top: 0,
@@ -662,7 +731,7 @@ export default function TaskEditorModal({
               justifyContent: "space-between",
             }}
           >
-            <Pressable onPress={close} hitSlop={10}>
+            <Pressable onPress={requestClose} hitSlop={10}>
               <Text
                 style={{
                   fontWeight: "600",
