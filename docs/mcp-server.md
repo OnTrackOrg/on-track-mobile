@@ -103,6 +103,14 @@ stale copy while an assistant writes, the next local edit can overwrite
 those writes. Every mutating tool's description tells the assistant to ask
 the user to reopen the app; closing and reopening it pulls the new data.
 
+**Tool metadata.** Every tool declares a display `title` and the MCP
+behaviour hints: `readOnlyHint` on the read tools, and for writes
+`destructiveHint` (true for deletes, unfriend, undo and backfill, which
+remove or overwrite data), `idempotentHint`, and `openWorldHint: false`
+(nothing leaves OnTrack). The Claude Connectors Directory and the
+ChatGPT/Codex plugin directory both require these, and clients use them to
+decide when to confirm with the user before a call.
+
 ## Deploying
 
 1. Deploy the function (config.toml already sets `verify_jwt = false` for it):
