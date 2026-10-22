@@ -33,18 +33,6 @@ export const formatWeekdays = (weekdays: number[]): string => {
 
 export const MAX_TIMES_PER_DAY = 24;
 
-/** Quick picks offered under each reminder row. */
-export const QUICK_TIMES = [
-  "07:00",
-  "08:00",
-  "09:00",
-  "12:00",
-  "13:00",
-  "18:00",
-  "20:00",
-  "21:00",
-] as const;
-
 export const timeToMinutes = (at: string): number => {
   const [hours, minutes] = at.split(":").map(Number);
   return hours * 60 + minutes;
