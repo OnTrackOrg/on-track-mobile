@@ -124,14 +124,15 @@ the user to reopen the app; closing and reopening it pulls the new data.
 
 ## Connecting a client
 
-- **ChatGPT**: Settings → Apps & Connectors → Advanced settings → Developer
-  mode on, then Settings → Apps & Connectors → Create: name OnTrack, the
-  `/mcp` URL above, OAuth authentication. Upload `assets/icon.png` as the
-  connector icon there — ChatGPT shows its own placeholder otherwise and does
-  not read `serverInfo.icons`. ChatGPT walks the user through the OnTrack
-  sign-in and consent page; the app's Profile → "AI assistant" prompt
-  carries the same steps for end users. (Custom connectors require a paid
-  ChatGPT plan.)
+- **ChatGPT**: open [Plugins](https://chatgpt.com/plugins) in a browser →
+  Add → Add custom MCP server. Name it OnTrack, paste the `/mcp` URL above
+  into Connection → Server URL, and keep OAuth selected. Review the warning
+  and choose Create as a plugin, then install OnTrack and complete sign-in
+  and consent. In a new chat, type `@` and select OnTrack. Profile settings
+  show these steps and a screenshot above **Copy MCP URL**, which copies only
+  the endpoint. See the [official setup guide](https://developers.openai.com/api/docs/guides/custom-mcp-server).
+  The bundled `assets/setup/chatgpt-custom-mcp.jpg` is a screenshot of the
+  ChatGPT form captured on November 9, 2026, with the Server URL field focused.
 - **Claude** (web/desktop): Settings → Connectors → Add custom connector with
   the `/mcp` URL.
 - **Claude Code**:

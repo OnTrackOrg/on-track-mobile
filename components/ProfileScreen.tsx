@@ -50,7 +50,7 @@ import {
 import { importLocalDataToCloud } from "../lib/importLocal";
 import { clearMyAvatar, saveMyAvatar, useMyAvatar } from "../lib/avatar";
 import { supabase, supabaseBaseUrl } from "../lib/supabase";
-import { buildMcpConnectPrompt } from "../lib/mcpPrompt";
+import { mcpEndpointForSupabaseUrl } from "../lib/mcp";
 import { getFriendPublicGoals } from "../lib/nudges";
 import * as Clipboard from "expo-clipboard";
 import {
@@ -82,8 +82,8 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
   const setAccount = useStore((s) => s.setAccount);
   const setCloudSyncEnabled = useStore((s) => s.setCloudSyncEnabled);
   const { theme, isDark, toggleTheme, themeId, setThemeId } = useTheme();
-  // "Copied" feedback for the AI-assistant setup prompt.
-  const [copiedMcpPrompt, setCopiedMcpPrompt] = useState(false);
+  // "Copied" feedback for the MCP endpoint URL.
+  const [copiedMcpUrl, setCopiedMcpUrl] = useState(false);
   // Pending "Copied" reset; cleared before rescheduling and on unmount so a
   // quick second tap keeps its full feedback window.
   const copiedMcpTimer = React.useRef<ReturnType<typeof setTimeout> | null>(
@@ -1284,61 +1284,129 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                 </Text>
               </Pressable>
 
-              {/* AI assistant: copies the MCP setup prompt to the clipboard. */}
-              <Pressable
-                accessibilityLabel={
-                  copiedMcpPrompt
-                    ? "Copied. Paste it to your assistant."
-                    : "Copy AI assistant setup prompt"
-                }
-                onPress={() => {
-                  void (async () => {
-                    await Clipboard.setStringAsync(
-                      buildMcpConnectPrompt(supabaseBaseUrl),
-                    );
-                    void haptics.success();
-                    setCopiedMcpPrompt(true);
-                    AccessibilityInfo.announceForAccessibility(
-                      "Copied. Paste it to your assistant.",
-                    );
-                    if (copiedMcpTimer.current) {
-                      clearTimeout(copiedMcpTimer.current);
-                    }
-                    copiedMcpTimer.current = setTimeout(() => {
-                      copiedMcpTimer.current = null;
-                      setCopiedMcpPrompt(false);
-                    }, 2500);
-                  })();
-                }}
-                style={{
-                  ...settingsCardStyle,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text
-                    style={{
-                      color: theme.text,
-                      fontWeight: "600",
-                      fontSize: 16,
-                    }}
-                  >
-                    {copiedMcpPrompt ? "Copied" : "AI assistant"}
-                  </Text>
-                  <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
-                    {copiedMcpPrompt
-                      ? "Paste it to your assistant."
-                      : "Copy the setup prompt for Claude, ChatGPT, or any MCP client."}
-                  </Text>
+              <View style={settingsCardStyle}>
+                <Text
+                  style={{ color: theme.text, fontWeight: "600", fontSize: 16 }}
+                >
+                  Connect to ChatGPT
+                </Text>
+                <Text style={{ color: theme.textSecondary, marginTop: 4 }}>
+                  Add OnTrack as a custom plugin to manage your goals in chat.
+                </Text>
+                <View style={{ gap: 10, marginVertical: 14 }}>
+                  {[
+                    "Open chatgpt.com/plugins in a browser. Choose Add → Add custom MCP server.",
+                    "Name it OnTrack. Paste the MCP URL below into Server URL and keep OAuth selected.",
+                    "Review the warning and choose Create as a plugin. Install OnTrack and sign in to your OnTrack account when prompted.",
+                    "In a new chat, type @ and select OnTrack.",
+                  ].map((step, index) => (
+                    <View key={step} style={{ flexDirection: "row", gap: 8 }}>
+                      <Text style={{ color: theme.primary, fontWeight: "700" }}>
+                        {index + 1}.
+                      </Text>
+                      <Text
+                        style={{
+                          color: theme.text,
+                          flex: 1,
+                          fontSize: 14,
+                          lineHeight: 20,
+                        }}
+                      >
+                        {step}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
-                <Ionicons
-                  name={copiedMcpPrompt ? "checkmark" : "copy-outline"}
-                  size={16}
-                  color={copiedMcpPrompt ? theme.success : theme.textSecondary}
+                <Image
+                  source={require("../assets/setup/chatgpt-custom-mcp.jpg")}
+                  accessibilityLabel="ChatGPT Add custom MCP server form. Enter OnTrack as the name, paste the MCP URL into the Server URL field under Connection, and select OAuth authentication."
+                  resizeMode="contain"
+                  style={{
+                    width: "100%",
+                    aspectRatio: 600 / 611,
+                    borderRadius: 8,
+                    backgroundColor: "#fafafa",
+                  }}
                 />
-              </Pressable>
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontSize: 12,
+                    lineHeight: 18,
+                    marginTop: 6,
+                    marginBottom: 14,
+                  }}
+                >
+                  In ChatGPT, paste the URL under Connection → Server URL.
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    copiedMcpUrl ? "MCP URL copied" : "Copy MCP URL"
+                  }
+                  accessibilityHint="Paste this URL into ChatGPT’s Server URL field."
+                  onPress={() => {
+                    void (async () => {
+                      try {
+                        await Clipboard.setStringAsync(
+                          mcpEndpointForSupabaseUrl(supabaseBaseUrl),
+                        );
+                        void haptics.success();
+                        setCopiedMcpUrl(true);
+                        AccessibilityInfo.announceForAccessibility(
+                          "MCP URL copied.",
+                        );
+                        if (copiedMcpTimer.current) {
+                          clearTimeout(copiedMcpTimer.current);
+                        }
+                        copiedMcpTimer.current = setTimeout(() => {
+                          copiedMcpTimer.current = null;
+                          setCopiedMcpUrl(false);
+                        }, 2500);
+                      } catch {
+                        Alert.alert("Couldn’t copy URL", "Please try again.");
+                      }
+                    })();
+                  }}
+                  style={{
+                    padding: 12,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                    backgroundColor: theme.surface,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        color: copiedMcpUrl ? theme.success : theme.text,
+                        fontWeight: "600",
+                        fontSize: 16,
+                      }}
+                    >
+                      {copiedMcpUrl ? "URL copied" : "Copy MCP URL"}
+                    </Text>
+                    <Text
+                      style={{
+                        color: theme.textSecondary,
+                        marginTop: 4,
+                        fontSize: 12,
+                        lineHeight: 18,
+                      }}
+                    >
+                      {mcpEndpointForSupabaseUrl(supabaseBaseUrl)}
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name={copiedMcpUrl ? "checkmark" : "copy-outline"}
+                    size={18}
+                    color={copiedMcpUrl ? theme.success : theme.textSecondary}
+                  />
+                </Pressable>
+              </View>
 
               <Pressable
                 onPress={() => {
