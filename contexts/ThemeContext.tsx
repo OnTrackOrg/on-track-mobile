@@ -20,25 +20,28 @@ export interface ThemeColors {
   completionCardBorder: string;
 }
 
-// Accent themes from the redesign mockups (Settings > Appearance).
-export interface ThemeOption {
-  id: string;
-  name: string;
-  accent: string;
-}
+// Preserved for preferences saved before the gradient picker.
+const LEGACY_ACCENTS: Record<string, string> = {
+  ocean: "#3b82f6",
+  tide: "#0d9488",
+  forest: "#059669",
+  honey: "#d97706",
+  sunset: "#f43f5e",
+  rose: "#ec4899",
+  lavender: "#8b5cf6",
+  graphite: "#475569",
+};
 
-export const THEME_OPTIONS: ThemeOption[] = [
-  { id: "ocean", name: "Ocean", accent: "#3b82f6" },
-  { id: "tide", name: "Tidepool", accent: "#0d9488" },
-  { id: "forest", name: "Forest", accent: "#059669" },
-  { id: "honey", name: "Honey", accent: "#d97706" },
-  { id: "sunset", name: "Sunset", accent: "#f43f5e" },
-  { id: "rose", name: "Rose", accent: "#ec4899" },
-  { id: "lavender", name: "Lavender", accent: "#8b5cf6" },
-  { id: "graphite", name: "Graphite", accent: "#475569" },
-];
+export const DEFAULT_ACCENT_COLOR = "#3b82f6";
+const isHexColor = (color: string) => /^#[0-9a-f]{6}$/i.test(color);
 
-const DEFAULT_THEME_ID = "ocean";
+// Older versions stored a named preset; custom colors use the same key.
+const resolveAccent = (saved: string): string | undefined =>
+  isHexColor(saved)
+    ? saved.toLowerCase()
+    : Object.hasOwn(LEGACY_ACCENTS, saved)
+      ? LEGACY_ACCENTS[saved]
+      : undefined;
 
 // The whole palette is tinted toward the accent, mirroring the mockups'
 // color-mix() derivations. 6-digit hex only: call sites build #rrggbbaa via
@@ -81,8 +84,7 @@ const buildTheme = (accent: string, isDark: boolean): ThemeColors =>
 interface ThemeContextType {
   theme: ThemeColors;
   isDark: boolean;
-  themeId: string;
-  setThemeId: (id: string) => void;
+  setAccentColor: (color: string) => void;
   toggleTheme: () => void;
   resetThemePreference: () => void;
 }
@@ -93,7 +95,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const [isDark, setIsDark] = useState(false);
-  const [themeId, setThemeIdState] = useState(DEFAULT_THEME_ID);
+  const [accent, setAccent] = useState(DEFAULT_ACCENT_COLOR);
 
   useEffect(() => {
     // Load theme preference from storage
@@ -108,12 +110,10 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
         const savedAccent = await AsyncStorage.getItem(
           STORAGE_KEYS.accentTheme,
         );
-        if (
-          savedAccent &&
-          THEME_OPTIONS.some((option) => option.id === savedAccent)
-        ) {
-          setThemeIdState(savedAccent);
-        }
+        const resolvedAccent = savedAccent
+          ? resolveAccent(savedAccent)
+          : undefined;
+        if (resolvedAccent) setAccent(resolvedAccent);
       } catch (error) {
         console.log("Error loading theme:", error);
       }
@@ -135,11 +135,12 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  const setThemeId = async (id: string) => {
-    if (!THEME_OPTIONS.some((option) => option.id === id)) return;
-    setThemeIdState(id);
+  const setAccentColor = async (color: string) => {
+    if (!isHexColor(color)) return;
+    const nextAccent = color.toLowerCase();
+    setAccent(nextAccent);
     try {
-      await AsyncStorage.setItem(STORAGE_KEYS.accentTheme, id);
+      await AsyncStorage.setItem(STORAGE_KEYS.accentTheme, nextAccent);
     } catch (error) {
       console.log("Error saving theme:", error);
     }
@@ -147,7 +148,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const resetThemePreference = async () => {
     setIsDark(false);
-    setThemeIdState(DEFAULT_THEME_ID);
+    setAccent(DEFAULT_ACCENT_COLOR);
     try {
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.themePreference,
@@ -159,9 +160,6 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  const accent =
-    THEME_OPTIONS.find((option) => option.id === themeId)?.accent ??
-    THEME_OPTIONS[0].accent;
   const theme = React.useMemo(
     () => buildTheme(accent, isDark),
     [accent, isDark],
@@ -172,8 +170,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
       value={{
         theme,
         isDark,
-        themeId,
-        setThemeId,
+        setAccentColor,
         toggleTheme,
         resetThemePreference,
       }}
