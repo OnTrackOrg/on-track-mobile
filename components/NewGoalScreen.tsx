@@ -27,6 +27,7 @@ import DatePickerModal from "./DatePickerModal";
 import TaskEditorModal, { TaskEditorValue } from "./TaskEditorModal";
 import GoalColorPicker from "./GoalColorPicker";
 import OptionPair from "./OptionPair";
+import NavigationBackButton from "./NavigationBackButton";
 import { GOAL_PALETTE } from "../utils/goalColors";
 import { describeTaskSchedule } from "../lib/taskSchedule";
 
@@ -97,7 +98,6 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
   React.useEffect(() => {
     const onBack = () => {
       if (step > 0) {
-        void haptics.navigate();
         goToStep(step - 1);
       } else {
         navigation.goBack();
@@ -107,14 +107,11 @@ export default function NewGoalScreen({ navigation }: NewGoalProps) {
       title: "New Goal",
       gestureEnabled: step === 0,
       headerLeft: () => (
-        <Pressable
+        <NavigationBackButton
           onPress={onBack}
-          hitSlop={10}
-          accessibilityRole="button"
+          tintColor={theme.text}
           accessibilityLabel={step > 0 ? "Previous step" : "Back"}
-        >
-          <Ionicons name="chevron-back" size={24} color={theme.text} />
-        </Pressable>
+        />
       ),
     });
   }, [navigation, step, theme.text]);
