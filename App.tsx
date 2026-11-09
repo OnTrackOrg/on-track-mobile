@@ -66,6 +66,7 @@ import { registerPushTokenForCurrentUser } from "./lib/pushNotifications";
 import { initTaskReminders } from "./lib/taskReminders";
 import { useWidgetSync } from "./lib/widgetSync";
 import { WidgetLink, parseWidgetLink } from "./lib/widgetLinks";
+import { getStackScreenOptions } from "./lib/navigationOptions";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -973,15 +974,9 @@ function ThemedNavigation() {
       onStateChange={syncRootRoute}
     >
       <Stack.Navigator
-        screenOptions={{
-          headerStyle: {
-            backgroundColor: theme.surface,
-          },
-          headerTintColor: theme.text,
-          headerTitleStyle: {
-            color: theme.text,
-          },
-        }}
+        screenOptions={({ navigation }) =>
+          getStackScreenOptions(theme, navigation)
+        }
       >
         <Stack.Screen
           name="Tabs"
