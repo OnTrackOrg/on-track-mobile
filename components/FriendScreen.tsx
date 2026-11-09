@@ -17,10 +17,12 @@ import { RootStackParamList } from "../navigation";
 import {
   getGoalProgress,
   getGoalStartDate,
+  getDosesOnDate,
   getTaskBucketsForDate,
+  getTaskTimesPerDay,
   useStore,
 } from "../store";
-import { FriendProfile, Goal } from "../types";
+import { FriendProfile, Goal, Task } from "../types";
 import { haptics } from "../utils/haptics";
 import { getGoalColor } from "../utils/goalColors";
 import { mix, withAlpha } from "../utils/color";
@@ -75,6 +77,9 @@ export default function FriendScreen({ route }: FriendScreenProps) {
 
   // Selected day per goal, as days back from today (0 = today).
   const [daysBack, setDaysBack] = React.useState<Record<string, number>>({});
+  const [taskIds, setTaskIds] = React.useState<Record<string, string | null>>(
+    {},
+  );
   // Bumped after a nudge so the card's "Nudged" chip appears right away.
   const [, setNudgeTick] = React.useState(0);
 
@@ -99,7 +104,12 @@ export default function FriendScreen({ route }: FriendScreenProps) {
 
   const today = startOfDay(new Date());
 
-  const renderGrid = (goal: Goal, color: string, selectedBack: number) => {
+  const renderGrid = (
+    goal: Goal,
+    color: string,
+    selectedBack: number,
+    selectedTask?: Task,
+  ) => {
     const start = startOfDay(getGoalStartDate(goal));
     const todayWeekday = today.getDay();
     const rows = Array.from({ length: WEEKS }, (_, row) =>
@@ -123,12 +133,26 @@ export default function FriendScreen({ route }: FriendScreenProps) {
         }
         const day = addDays(today, -back);
         const beforeStart = day < start;
-        const ratio = beforeStart ? 0 : getGoalProgress(goal, day).percent;
+        const ratio = beforeStart
+          ? 0
+          : selectedTask
+            ? Math.min(
+                1,
+                getDosesOnDate(selectedTask, day) /
+                  getTaskTimesPerDay(selectedTask),
+              )
+            : getGoalProgress(goal, day).percent;
         const isSelected = back === selectedBack;
         const isToday = back === 0;
         return (
           <Pressable
             key={column}
+            accessibilityRole="button"
+            accessibilityLabel={format(day, "EEEE, MMMM d, yyyy")}
+            accessibilityState={{ selected: isSelected }}
+            accessibilityValue={{
+              text: `${Math.round(ratio * 100)}% complete`,
+            }}
             onPress={() => {
               void haptics.tap();
               setDaysBack((prev) => ({ ...prev, [goal.id]: back }));
@@ -195,6 +219,13 @@ export default function FriendScreen({ route }: FriendScreenProps) {
 
   const renderCard = (goal: Goal) => {
     const color = getGoalColor(goal);
+    const selectedTask = goal.tasks.find(
+      (task) => task.id === taskIds[goal.id],
+    );
+    const clearTask = () => {
+      void haptics.toggle();
+      setTaskIds((prev) => ({ ...prev, [goal.id]: null }));
+    };
     const back = daysBack[goal.id] ?? 0;
     const day = addDays(today, -back);
     const buckets = getTaskBucketsForDate(goal, day);
@@ -298,11 +329,35 @@ export default function FriendScreen({ route }: FriendScreenProps) {
               <Text style={sectionLabel(theme.textSecondary)}>
                 LAST 4 WEEKS
               </Text>
-              <Text style={{ fontSize: 12, color: theme.textSecondary }}>
-                Tap a day
-              </Text>
+              {selectedTask ? (
+                <Pressable
+                  onPress={clearTask}
+                  accessibilityRole="button"
+                  accessibilityLabel="Show all tasks"
+                  hitSlop={6}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                    flexShrink: 1,
+                    marginLeft: 8,
+                  }}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={{ fontSize: 12, color, flexShrink: 1 }}
+                  >
+                    {selectedTask.title}
+                  </Text>
+                  <Ionicons name="close-circle" size={16} color={color} />
+                </Pressable>
+              ) : (
+                <Text style={{ fontSize: 12, color: theme.textSecondary }}>
+                  Tap a day
+                </Text>
+              )}
             </View>
-            {renderGrid(goal, color, back)}
+            {renderGrid(goal, color, back, selectedTask)}
           </View>
 
           <View style={{ gap: 2 }}>
@@ -326,14 +381,34 @@ export default function FriendScreen({ route }: FriendScreenProps) {
             {dayTasks.length > 0 ? (
               dayTasks.map((task) => {
                 const done = doneIds.has(task.id);
+                const selected = selectedTask?.id === task.id;
                 return (
-                  <View
+                  <Pressable
                     key={task.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={task.title}
+                    accessibilityState={{ selected }}
+                    onPress={() => {
+                      void haptics.toggle();
+                      setTaskIds((prev) => ({
+                        ...prev,
+                        [goal.id]: selected ? null : task.id,
+                      }));
+                    }}
                     style={{
                       flexDirection: "row",
                       alignItems: "center",
                       gap: 10,
                       paddingVertical: 7,
+                      paddingHorizontal: 8,
+                      borderRadius: 10,
+                      borderWidth: 1.5,
+                      borderColor: selected
+                        ? withAlpha(color, 0.55)
+                        : "transparent",
+                      backgroundColor: selected
+                        ? mix(color, 0.06, theme.surface)
+                        : "transparent",
                     }}
                   >
                     <Ionicons
@@ -359,7 +434,7 @@ export default function FriendScreen({ route }: FriendScreenProps) {
                         {describeTaskSchedule(task)}
                       </Text>
                     </View>
-                  </View>
+                  </Pressable>
                 );
               })
             ) : (
