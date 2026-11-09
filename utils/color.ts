@@ -38,3 +38,43 @@ export const withAlpha = (hex: string, alpha: number): string => {
     .padStart(2, "0");
   return hex + a;
 };
+
+export type HSV = { h: number; s: number; v: number };
+
+/** Hue in degrees; saturation and brightness in 0..1. */
+export const hexToHsv = (hex: string): HSV => {
+  const [r, g, b] = parseHex(hex).map((channel) => channel / 255);
+  const v = Math.max(r, g, b);
+  const delta = v - Math.min(r, g, b);
+  let h = 0;
+  if (delta > 0) {
+    if (v === r) h = ((g - b) / delta) % 6;
+    else if (v === g) h = (b - r) / delta + 2;
+    else h = (r - g) / delta + 4;
+    h = (h * 60 + 360) % 360;
+  }
+  return { h, s: v === 0 ? 0 : delta / v, v };
+};
+
+export const hsvToHex = ({ h, s, v }: HSV): string => {
+  const hue = (((h % 360) + 360) % 360) / 60;
+  const brightness = Math.max(0, Math.min(1, v));
+  const chroma = brightness * Math.max(0, Math.min(1, s));
+  const x = chroma * (1 - Math.abs((hue % 2) - 1));
+  const channels =
+    hue < 1
+      ? [chroma, x, 0]
+      : hue < 2
+        ? [x, chroma, 0]
+        : hue < 3
+          ? [0, chroma, x]
+          : hue < 4
+            ? [0, x, chroma]
+            : hue < 5
+              ? [x, 0, chroma]
+              : [chroma, 0, x];
+  const [r, g, b] = channels.map(
+    (channel) => (channel + brightness - chroma) * 255,
+  );
+  return toHex(r, g, b);
+};
