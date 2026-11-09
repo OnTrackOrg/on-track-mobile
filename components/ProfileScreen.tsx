@@ -20,9 +20,10 @@ import { CompositeScreenProps, useFocusEffect } from "@react-navigation/native";
 import { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useStore, getGoalLifecycleStatus, getGoalStreak } from "../store";
-import { useTheme, THEME_OPTIONS } from "../contexts/ThemeContext";
+import { useTheme, DEFAULT_ACCENT_COLOR } from "../contexts/ThemeContext";
 import Avatar from "./Avatar";
 import IconButton from "./IconButton";
+import ColorPicker from "./ColorPicker";
 import { card } from "./ui";
 import { haptics } from "../utils/haptics";
 import { mix, withAlpha } from "../utils/color";
@@ -81,7 +82,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
   const setSocialGraph = useStore((s) => s.setSocialGraph);
   const setAccount = useStore((s) => s.setAccount);
   const setCloudSyncEnabled = useStore((s) => s.setCloudSyncEnabled);
-  const { theme, isDark, toggleTheme, themeId, setThemeId } = useTheme();
+  const { theme, isDark, toggleTheme, setAccentColor } = useTheme();
   // "Copied" feedback for the MCP endpoint URL.
   const [copiedMcpUrl, setCopiedMcpUrl] = useState(false);
   // Pending "Copied" reset; cleared before rescheduling and on unmount so a
@@ -96,6 +97,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
     [],
   );
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [isThemeColorPickerOpen, setIsThemeColorPickerOpen] = useState(false);
   // Account card: rename + linked sign-in methods.
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
@@ -947,73 +949,41 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                 >
                   Appearance
                 </Text>
-                <Text
-                  style={{
-                    color: theme.textSecondary,
-                    fontSize: 13,
-                    marginTop: 2,
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Change theme color"
+                  accessibilityValue={{ text: theme.primary.toUpperCase() }}
+                  onPress={() => {
+                    void haptics.tap();
+                    setIsThemeColorPickerOpen(true);
                   }}
-                >
-                  Colour theme
-                </Text>
-                <View
                   style={{
                     flexDirection: "row",
-                    flexWrap: "wrap",
+                    alignItems: "center",
+                    gap: 12,
+                    minHeight: 56,
                     marginTop: 8,
                   }}
                 >
-                  {THEME_OPTIONS.map((option) => {
-                    const selected = option.id === themeId;
-                    return (
-                      <Pressable
-                        key={option.id}
-                        onPress={() => {
-                          void haptics.toggle();
-                          setThemeId(option.id);
-                        }}
-                        style={{
-                          width: "25%",
-                          alignItems: "center",
-                          gap: 3,
-                          marginTop: 8,
-                        }}
-                      >
-                        <View
-                          style={{
-                            width: 42,
-                            height: 42,
-                            borderRadius: 21,
-                            borderWidth: 2,
-                            borderColor: selected
-                              ? option.accent
-                              : "transparent",
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <View
-                            style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 16,
-                              backgroundColor: option.accent,
-                            }}
-                          />
-                        </View>
-                        <Text
-                          style={{
-                            fontSize: 10,
-                            fontWeight: "600",
-                            color: selected ? theme.text : theme.textSecondary,
-                          }}
-                        >
-                          {option.name}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                  <View
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
+                      backgroundColor: theme.primary,
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                    }}
+                  />
+                  <Text style={{ flex: 1, color: theme.text, fontSize: 15 }}>
+                    Colour theme
+                  </Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={theme.textSecondary}
+                  />
+                </Pressable>
                 <View
                   style={{
                     flexDirection: "row",
@@ -1035,6 +1005,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
                     Dark Mode
                   </Text>
                   <Switch
+                    accessibilityLabel="Dark Mode"
                     value={isDark}
                     onValueChange={() => {
                       void haptics.toggle();
@@ -1445,6 +1416,16 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
             </ScrollView>
           </View>
         </View>
+        <ColorPicker
+          visible={isThemeColorPickerOpen}
+          title="Theme color"
+          selected={
+            theme.primary === DEFAULT_ACCENT_COLOR ? undefined : theme.primary
+          }
+          autoColor={DEFAULT_ACCENT_COLOR}
+          onSelect={(color) => setAccentColor(color ?? DEFAULT_ACCENT_COLOR)}
+          onClose={() => setIsThemeColorPickerOpen(false)}
+        />
         {/* Inside the settings modal: iOS will not present a second
             sibling modal over one that is already showing. */}
         <Modal
