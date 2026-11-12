@@ -224,6 +224,8 @@ function PickerContent({
       <View accessibilityViewIsModal style={[card(theme, isDark), styles.card]}>
         <ScrollView
           key={editing ? "editor" : "palette"}
+          scrollEnabled={!editing}
+          bounces={!editing}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ gap: 20 }}
