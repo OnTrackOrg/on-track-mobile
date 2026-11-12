@@ -3,11 +3,18 @@ import {
   AccessibilityActionEvent,
   GestureResponderEvent,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  TextInput,
   Pressable,
   StyleSheet,
   Text,
   View,
+  Keyboard,
+  useWindowDimensions,
 } from "react-native";
+import { useCustomColors } from "../lib/customColors";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
@@ -17,13 +24,27 @@ import { card } from "./ui";
 
 export type ColorPickerProps = {
   title: string;
-  automaticLabel?: string;
-  automaticAccessibilityLabel?: string;
+  presets?: readonly { color: string; label?: string }[];
   visible: boolean;
   selected?: string;
   autoColor: string;
   onSelect: (color: string | null) => void;
   onClose: () => void;
+};
+
+const normalizeHex = (input: string): string | null => {
+  const hex = input.trim().replace(/^#/, "");
+  if (/^[0-9a-f]{6}$/i.test(hex)) return "#" + hex.toLowerCase();
+  if (/^[0-9a-f]{3}$/i.test(hex))
+    return (
+      "#" +
+      hex
+        .split("")
+        .map((digit) => digit + digit)
+        .join("")
+        .toLowerCase()
+    );
+  return null;
 };
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
@@ -106,25 +127,94 @@ function ColorControl({
 
 function PickerContent({
   selected,
+  presets = [],
   autoColor,
   onSelect,
   onClose,
   title,
-  automaticLabel = "Default",
-  automaticAccessibilityLabel = "Use default color",
 }: Omit<ColorPickerProps, "visible">) {
   const { theme, isDark } = useTheme();
-  const [hsv, setHsv] = useState(() => hexToHsv(selected ?? autoColor));
-  const [automatic, setAutomatic] = useState(selected === undefined);
+  const { width } = useWindowDimensions();
+  const columns = Math.min(
+    6,
+    Math.max(4, Math.floor((Math.min(width - 48, 420) - 44) / 44)),
+  );
+  const { colors: savedColors, addColor } = useCustomColors();
+  const [picked, setPicked] = useState(selected ?? autoColor);
+  const [changed, setChanged] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [hsv, setHsv] = useState(() => hexToHsv(picked));
+  const [hexDraft, setHexDraft] = useState(picked.toUpperCase());
+  const validHex = normalizeHex(hexDraft);
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
   const color = hsvToHex(hsv);
   const hueColor = hsvToHex({ h: hsv.h, s: 1, v: 1 });
+  const presetColors = presets.map((preset) => preset.color.toLowerCase());
+  const customColors = [
+    ...new Set([...savedColors, ...(selected ? [selected.toLowerCase()] : [])]),
+  ].filter((value) => !presetColors.includes(value));
   const change = (next: Partial<typeof hsv>) => {
-    setAutomatic(false);
-    setHsv((previous) => ({ ...previous, ...next }));
+    const updated = { ...hsv, ...next };
+    setHsv(updated);
+    setHexDraft(hsvToHex(updated).toUpperCase());
   };
+  const editHex = (value: string) => {
+    setHexDraft(value);
+    const normalized = normalizeHex(value);
+    if (normalized) setHsv(hexToHsv(normalized));
+  };
+  const pick = (value: string) => {
+    setPicked(value.toLowerCase());
+    setChanged(true);
+    setEditing(false);
+    Keyboard.dismiss();
+    void haptics.toggle();
+  };
+  const swatch = (value: string, label?: string, named = false) => (
+    <Pressable
+      key={value}
+      accessibilityRole="button"
+      accessibilityLabel={label ?? value}
+      accessibilityState={{
+        selected: picked.toLowerCase() === value.toLowerCase(),
+      }}
+      onPress={() => pick(value)}
+      style={[styles.preset, { width: named ? "25%" : `${100 / columns}%` }]}
+    >
+      <View
+        style={[
+          styles.swatchRing,
+          {
+            borderColor:
+              picked.toLowerCase() === value.toLowerCase()
+                ? theme.text
+                : "transparent",
+          },
+        ]}
+      >
+        <View style={[styles.colorDot, { backgroundColor: value }]}>
+          {picked.toLowerCase() === value.toLowerCase() ? (
+            <Ionicons
+              name="checkmark"
+              size={18}
+              color="#ffffff"
+              style={{ textShadowColor: "#000000", textShadowRadius: 3 }}
+            />
+          ) : null}
+        </View>
+      </View>
+      {label ? (
+        <Text style={{ color: theme.textSecondary, fontSize: 11 }}>
+          {label}
+        </Text>
+      ) : null}
+    </Pressable>
+  );
   return (
-    <View style={styles.backdrop}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      style={styles.backdrop}
+    >
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Cancel color selection"
@@ -132,179 +222,328 @@ function PickerContent({
         style={StyleSheet.absoluteFill}
       />
       <View accessibilityViewIsModal style={[card(theme, isDark), styles.card]}>
-        <View style={styles.row}>
-          <Text
-            accessibilityRole="header"
-            style={{ fontWeight: "700", fontSize: 20, color: theme.text }}
-          >
-            {title}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close color picker"
-            onPress={onClose}
-            style={styles.close}
-          >
-            <Ionicons name="close" size={24} color={theme.textSecondary} />
-          </Pressable>
-        </View>
-        <ColorControl
-          field
-          label="Color saturation and brightness"
-          value={`Saturation ${Math.round(hsv.s * 100)}%, brightness ${Math.round(hsv.v * 100)}%`}
-          x={hsv.s}
-          y={1 - hsv.v}
-          color={color}
-          onChange={(s, y) => change({ s, v: 1 - y })}
-          onAccessibilityAction={({ nativeEvent: { actionName } }) => {
-            if (actionName === "lighter" || actionName === "darker") {
-              change({
-                v: clamp(hsv.v + (actionName === "lighter" ? 0.05 : -0.05)),
-              });
-            } else {
-              change({
-                s: clamp(hsv.s + (actionName === "increment" ? 0.05 : -0.05)),
-              });
-            }
-          }}
+        <ScrollView
+          key={editing ? "editor" : "palette"}
+          scrollEnabled={!editing}
+          bounces={!editing}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ gap: 20 }}
         >
-          <Svg width="100%" height="100%">
-            <Defs>
-              <LinearGradient
-                id={`${id}white`}
-                x1="0%"
-                y1="0%"
-                x2="100%"
-                y2="0%"
+          {!editing ? (
+            <>
+              <View style={styles.row}>
+                <Text
+                  accessibilityRole="header"
+                  style={{ fontWeight: "700", fontSize: 20, color: theme.text }}
+                >
+                  {title}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    void haptics.toggle();
+                    onSelect(changed ? picked : (selected ?? null));
+                    onClose();
+                  }}
+                  style={[
+                    styles.done,
+                    {
+                      backgroundColor: theme.background,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: theme.text,
+                      fontWeight: "600",
+                      fontSize: 15,
+                    }}
+                  >
+                    Done
+                  </Text>
+                </Pressable>
+              </View>
+              <View style={styles.presets}>
+                {presets.map((preset) =>
+                  swatch(
+                    preset.color,
+                    preset.label,
+                    presets.some((item) => Boolean(item.label)),
+                  ),
+                )}
+              </View>
+              <View style={{ height: 1, backgroundColor: theme.border }} />
+              <View style={{ gap: 10 }}>
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontWeight: "600",
+                    fontSize: 11,
+                    letterSpacing: 1,
+                  }}
+                >
+                  CUSTOM
+                </Text>
+                <View style={styles.presets}>
+                  {customColors.map((value) => swatch(value))}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Add custom color"
+                    accessibilityState={{ expanded: editing }}
+                    onPress={() => {
+                      setHsv(hexToHsv(picked));
+                      setHexDraft(picked.toUpperCase());
+                      setEditing(true);
+                    }}
+                    style={[styles.add, { width: `${100 / columns}%` }]}
+                  >
+                    <Ionicons
+                      name="add-circle-outline"
+                      size={30}
+                      color={theme.textSecondary}
+                    />
+                  </Pressable>
+                </View>
+              </View>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
               >
-                <Stop offset="0%" stopColor="#ffffff" />
-                <Stop offset="100%" stopColor={hueColor} />
-              </LinearGradient>
-              <LinearGradient
-                id={`${id}black`}
-                x1="0%"
-                y1="0%"
-                x2="0%"
-                y2="100%"
+                <View
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 6,
+                    backgroundColor: picked,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                  }}
+                />
+                <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                  {picked.toUpperCase()}
+                </Text>
+              </View>
+            </>
+          ) : (
+            <View key="editor" style={{ gap: 16 }}>
+              <View style={styles.row}>
+                <Text
+                  accessibilityRole="header"
+                  style={{ color: theme.text, fontWeight: "700", fontSize: 20 }}
+                >
+                  New custom color
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setEditing(false);
+                    Keyboard.dismiss();
+                  }}
+                  style={{
+                    minHeight: 44,
+                    justifyContent: "center",
+                    paddingLeft: 12,
+                  }}
+                >
+                  <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
+                    Cancel
+                  </Text>
+                </Pressable>
+              </View>
+              <ColorControl
+                field
+                label="Color saturation and brightness"
+                value={`Saturation ${Math.round(hsv.s * 100)}%, brightness ${Math.round(hsv.v * 100)}%`}
+                x={hsv.s}
+                y={1 - hsv.v}
+                color={color}
+                onChange={(s, y) => change({ s, v: 1 - y })}
+                onAccessibilityAction={({ nativeEvent: { actionName } }) => {
+                  if (actionName === "lighter" || actionName === "darker") {
+                    change({
+                      v: clamp(
+                        hsv.v + (actionName === "lighter" ? 0.05 : -0.05),
+                      ),
+                    });
+                  } else {
+                    change({
+                      s: clamp(
+                        hsv.s + (actionName === "increment" ? 0.05 : -0.05),
+                      ),
+                    });
+                  }
+                }}
               >
-                <Stop offset="0%" stopColor="#000000" stopOpacity={0} />
-                <Stop offset="100%" stopColor="#000000" />
-              </LinearGradient>
-            </Defs>
-            <Rect
-              width="100%"
-              height="100%"
-              rx={12}
-              fill={`url(#${id}white)`}
-            />
-            <Rect
-              width="100%"
-              height="100%"
-              rx={12}
-              fill={`url(#${id}black)`}
-            />
-          </Svg>
-        </ColorControl>
-        <ColorControl
-          label="Hue"
-          value={`${Math.round(hsv.h)} degrees`}
-          x={hsv.h / 360}
-          color={hueColor}
-          onChange={(x) => change({ h: x * 360 })}
-          onAccessibilityAction={({ nativeEvent: { actionName } }) =>
-            change({
-              h:
-                clamp((hsv.h + (actionName === "increment" ? 5 : -5)) / 360) *
-                360,
-            })
-          }
-        >
-          <Svg width="100%" height="16" style={styles.hueTrack}>
-            <Defs>
-              <LinearGradient id={`${id}hue`} x1="0%" y1="0%" x2="100%" y2="0%">
-                {[
-                  "#ff0000",
-                  "#ffff00",
-                  "#00ff00",
-                  "#00ffff",
-                  "#0000ff",
-                  "#ff00ff",
-                  "#ff0000",
-                ].map((stopColor, index) => (
-                  <Stop
-                    key={index}
-                    offset={`${(index / 6) * 100}%`}
-                    stopColor={stopColor}
+                <Svg width="100%" height="100%">
+                  <Defs>
+                    <LinearGradient
+                      id={`${id}white`}
+                      x1="0%"
+                      y1="0%"
+                      x2="100%"
+                      y2="0%"
+                    >
+                      <Stop offset="0%" stopColor="#ffffff" />
+                      <Stop offset="100%" stopColor={hueColor} />
+                    </LinearGradient>
+                    <LinearGradient
+                      id={`${id}black`}
+                      x1="0%"
+                      y1="0%"
+                      x2="0%"
+                      y2="100%"
+                    >
+                      <Stop offset="0%" stopColor="#000000" stopOpacity={0} />
+                      <Stop offset="100%" stopColor="#000000" />
+                    </LinearGradient>
+                  </Defs>
+                  <Rect
+                    width="100%"
+                    height="100%"
+                    rx={12}
+                    fill={`url(#${id}white)`}
                   />
-                ))}
-              </LinearGradient>
-            </Defs>
-            <Rect width="100%" height="16" rx={8} fill={`url(#${id}hue)`} />
-          </Svg>
-        </ColorControl>
-        <View style={[styles.preview, { borderColor: theme.border }]}>
-          <View
-            style={[
-              styles.swatch,
-              { backgroundColor: color, borderColor: theme.border },
-            ]}
-          />
-          <Text
-            style={{
-              color: theme.text,
-              fontSize: 16,
-              fontWeight: "600",
-              fontVariant: ["tabular-nums"],
-            }}
-          >
-            {color.toUpperCase()}
-          </Text>
-        </View>
-        <View style={styles.row}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={automaticAccessibilityLabel}
-            accessibilityState={{ selected: automatic }}
-            onPress={() => {
-              setHsv(hexToHsv(autoColor));
-              setAutomatic(true);
-              void haptics.toggle();
-            }}
-            style={styles.automatic}
-          >
-            <Text
-              style={{
-                color: theme.textSecondary,
-                fontWeight: "600",
-                fontSize: 15,
-              }}
-            >
-              {automaticLabel}
-            </Text>
-            {automatic ? (
-              <Ionicons
-                name="checkmark"
-                size={16}
-                color={theme.textSecondary}
-              />
-            ) : null}
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              void haptics.toggle();
-              onSelect(automatic ? null : color);
-              onClose();
-            }}
-            style={[styles.done, { backgroundColor: theme.primary }]}
-          >
-            <Text style={{ color: "#ffffff", fontWeight: "700", fontSize: 16 }}>
-              Done
-            </Text>
-          </Pressable>
-        </View>
+                  <Rect
+                    width="100%"
+                    height="100%"
+                    rx={12}
+                    fill={`url(#${id}black)`}
+                  />
+                </Svg>
+              </ColorControl>
+              <ColorControl
+                label="Hue"
+                value={`${Math.round(hsv.h)} degrees`}
+                x={hsv.h / 360}
+                color={hueColor}
+                onChange={(x) => change({ h: x * 360 })}
+                onAccessibilityAction={({ nativeEvent: { actionName } }) =>
+                  change({
+                    h:
+                      clamp(
+                        (hsv.h + (actionName === "increment" ? 5 : -5)) / 360,
+                      ) * 360,
+                  })
+                }
+              >
+                <Svg width="100%" height="16" style={styles.hueTrack}>
+                  <Defs>
+                    <LinearGradient
+                      id={`${id}hue`}
+                      x1="0%"
+                      y1="0%"
+                      x2="100%"
+                      y2="0%"
+                    >
+                      {[
+                        "#ff0000",
+                        "#ffff00",
+                        "#00ff00",
+                        "#00ffff",
+                        "#0000ff",
+                        "#ff00ff",
+                        "#ff0000",
+                      ].map((stopColor, index) => (
+                        <Stop
+                          key={index}
+                          offset={`${(index / 6) * 100}%`}
+                          stopColor={stopColor}
+                        />
+                      ))}
+                    </LinearGradient>
+                  </Defs>
+                  <Rect
+                    width="100%"
+                    height="16"
+                    rx={8}
+                    fill={`url(#${id}hue)`}
+                  />
+                </Svg>
+              </ColorControl>
+
+              <View style={{ gap: 8 }}>
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontSize: 11,
+                    letterSpacing: 1,
+                  }}
+                >
+                  HEX
+                </Text>
+                <View
+                  style={[
+                    styles.preview,
+                    { backgroundColor: theme.background },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.swatch,
+                      { backgroundColor: color, borderColor: theme.border },
+                    ]}
+                  />
+                  <TextInput
+                    accessibilityLabel="Hex color"
+                    value={hexDraft}
+                    onChangeText={editHex}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    spellCheck={false}
+                    keyboardAppearance={isDark ? "dark" : "light"}
+                    returnKeyType="done"
+                    onSubmitEditing={() => {
+                      if (validHex) setHexDraft(validHex.toUpperCase());
+                    }}
+                    selectTextOnFocus
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      minHeight: 44,
+                      color: theme.text,
+                      fontSize: 16,
+                      fontWeight: "600",
+                    }}
+                  />
+                </View>
+                {!validHex ? (
+                  <Text
+                    accessibilityRole="alert"
+                    style={{ color: theme.danger }}
+                  >
+                    Enter 3 or 6 hex digits.
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                disabled={!validHex}
+                accessibilityState={{ disabled: !validHex }}
+                onPress={() => {
+                  if (!validHex) return;
+                  if (!presetColors.includes(validHex)) addColor(validHex);
+                  pick(validHex);
+                }}
+                style={[
+                  styles.save,
+                  { backgroundColor: theme.text, opacity: validHex ? 1 : 0.4 },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: theme.surface,
+                    fontSize: 15,
+                    fontWeight: "600",
+                  }}
+                >
+                  Save color
+                </Text>
+              </Pressable>
+            </View>
+          )}
+        </ScrollView>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -332,23 +571,16 @@ const styles = StyleSheet.create({
   card: {
     width: "100%",
     maxWidth: 420,
-    padding: 20,
-    gap: 16,
-    borderRadius: 20,
+    maxHeight: "90%",
+    padding: 22,
+    borderRadius: 26,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  close: {
-    width: 44,
-    height: 44,
-    marginRight: -10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  field: { width: "100%", aspectRatio: 1.35 },
+  field: { width: "100%", aspectRatio: 1.7 },
   hueControl: { width: "100%", height: 44 },
   hueTrack: { position: "absolute", top: 14 },
   thumb: {
@@ -370,21 +602,42 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    padding: 12,
-    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     borderRadius: 12,
   },
-  swatch: { width: 32, height: 32, borderRadius: 8, borderWidth: 1 },
-  automatic: {
-    flexDirection: "row",
-    gap: 6,
-    alignItems: "center",
+  presets: { flexDirection: "row", flexWrap: "wrap", rowGap: 10 },
+  preset: {
     minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+  },
+  swatchRing: { padding: 3, borderRadius: 24, borderWidth: 2 },
+  colorDot: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  swatch: { width: 28, height: 28, borderRadius: 7, borderWidth: 1 },
+  add: {
+    width: "16.666%",
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
   done: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     minHeight: 44,
     borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  save: {
+    minHeight: 44,
+    borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
   },

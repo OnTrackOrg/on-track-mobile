@@ -32,6 +32,17 @@ const LEGACY_ACCENTS: Record<string, string> = {
   graphite: "#475569",
 };
 
+export const THEME_PRESETS = [
+  { label: "Ocean", color: LEGACY_ACCENTS.ocean },
+  { label: "Tidepool", color: LEGACY_ACCENTS.tide },
+  { label: "Forest", color: LEGACY_ACCENTS.forest },
+  { label: "Honey", color: LEGACY_ACCENTS.honey },
+  { label: "Sunset", color: LEGACY_ACCENTS.sunset },
+  { label: "Rose", color: LEGACY_ACCENTS.rose },
+  { label: "Lavender", color: LEGACY_ACCENTS.lavender },
+  { label: "Graphite", color: LEGACY_ACCENTS.graphite },
+];
+
 export const DEFAULT_ACCENT_COLOR = "#3b82f6";
 const isHexColor = (color: string) => /^#[0-9a-f]{6}$/i.test(color);
 

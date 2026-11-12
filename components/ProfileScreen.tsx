@@ -20,7 +20,11 @@ import { CompositeScreenProps, useFocusEffect } from "@react-navigation/native";
 import { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useStore, getGoalLifecycleStatus, getGoalStreak } from "../store";
-import { useTheme, DEFAULT_ACCENT_COLOR } from "../contexts/ThemeContext";
+import {
+  useTheme,
+  DEFAULT_ACCENT_COLOR,
+  THEME_PRESETS,
+} from "../contexts/ThemeContext";
 import Avatar from "./Avatar";
 import IconButton from "./IconButton";
 import ColorPicker from "./ColorPicker";
@@ -1419,6 +1423,7 @@ export default function ProfileScreen({ navigation }: ProfileProps) {
         <ColorPicker
           visible={isThemeColorPickerOpen}
           title="Theme color"
+          presets={THEME_PRESETS}
           selected={
             theme.primary === DEFAULT_ACCENT_COLOR ? undefined : theme.primary
           }

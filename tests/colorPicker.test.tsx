@@ -1,5 +1,8 @@
 import React from "react";
-import { fireEvent, render } from "@testing-library/react-native";
+import { fireEvent, render, waitFor } from "@testing-library/react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useCustomColors } from "../lib/customColors";
+import { STORAGE_KEYS } from "../lib/persistence";
 import GoalColorPicker from "../components/GoalColorPicker";
 import { hexToHsv, hsvToHex } from "../utils/color";
 
@@ -31,7 +34,12 @@ it.each([
   expect(hsvToHex(hexToHsv(hex))).toBe(hex);
 });
 
-const setup = (selected?: string) => {
+beforeEach(async () => {
+  await AsyncStorage.clear();
+  useCustomColors.setState({ colors: [] });
+});
+
+const setup = (selected = "#ff0000") => {
   const props = {
     visible: true,
     selected,
@@ -40,6 +48,8 @@ const setup = (selected?: string) => {
     onClose: jest.fn(),
   };
   const screen = render(<GoalColorPicker {...props} />);
+  const openEditor = () =>
+    fireEvent.press(screen.getByLabelText("Add custom color"));
   const layout = (label: string, width: number, height: number) =>
     fireEvent(screen.getByLabelText(label), "layout", {
       nativeEvent: { layout: { width, height } },
@@ -53,60 +63,126 @@ const setup = (selected?: string) => {
         pageY: y + 200,
       },
     });
-  return { ...screen, props, layout, touch };
+  return { ...screen, props, openEditor, layout, touch };
 };
 
-it("previews tap and drag selections and only saves the final color on Done", () => {
-  const screen = setup("#ff0000");
+it("shows presets and plus without tabs, Automatic, or Paste", () => {
+  const screen = setup("#3b82f6");
+  expect(screen.getByLabelText("#3b82f6")).toHaveAccessibilityState({
+    selected: true,
+  });
+  expect(screen.queryByRole("tab")).toBeNull();
+  expect(screen.queryByText("Automatic")).toBeNull();
+  expect(screen.queryByText("Paste")).toBeNull();
+  fireEvent.press(screen.getByLabelText("#ec4899"));
+  expect(screen.props.onSelect).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByText("Done"));
+  expect(screen.props.onSelect).toHaveBeenCalledWith("#ec4899");
+});
+
+it("previews tap and drag selections, saves a reusable swatch, and applies only on Done", () => {
+  const screen = setup();
+  screen.openEditor();
   screen.layout("Hue", 360, 44);
   screen.touch("Hue", "responderGrant", 120, 22);
   screen.layout("Color saturation and brightness", 300, 200);
   screen.touch("Color saturation and brightness", "responderGrant", 150, 100);
-  expect(screen.getByText("#408040")).toBeTruthy();
-  // iOS can retain the initial local coordinates as the finger moves.
+  expect(screen.getByDisplayValue("#408040")).toBeTruthy();
   fireEvent(
     screen.getByLabelText("Color saturation and brightness"),
     "responderMove",
-    {
-      nativeEvent: { locationX: 150, locationY: 100, pageX: 340, pageY: 200 },
-    },
+    { nativeEvent: { locationX: 150, locationY: 100, pageX: 340, pageY: 200 } },
   );
-  expect(screen.getByText("#00FF00")).toBeTruthy();
+  expect(screen.getByDisplayValue("#00FF00")).toBeTruthy();
+  expect(screen.queryByText("Done")).toBeNull();
+  expect(screen.queryByText("Goal color")).toBeNull();
+  expect(screen.queryByText("CUSTOM")).toBeNull();
+  expect(screen.queryByLabelText("#ef4444")).toBeNull();
+  expect(screen.queryByLabelText("Add custom color")).toBeNull();
+  expect(screen.getByRole("header", { name: "New custom color" })).toBeTruthy();
+  expect(screen.props.onSelect).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByText("Save color"));
+  expect(screen.getByLabelText("#00ff00")).toHaveAccessibilityState({
+    selected: true,
+  });
+  expect(useCustomColors.getState().colors).toEqual(["#00ff00"]);
   expect(screen.props.onSelect).not.toHaveBeenCalled();
   fireEvent.press(screen.getByText("Done"));
   expect(screen.props.onSelect).toHaveBeenCalledWith("#00ff00");
-  expect(screen.props.onClose).toHaveBeenCalledTimes(1);
 });
 
-it("clamps drags outside the field and discards them when dismissed", () => {
-  const screen = setup("#ff0000");
+it("clamps drags and discards editor changes on Cancel", () => {
+  const screen = setup();
+  screen.openEditor();
   screen.layout("Color saturation and brightness", 300, 200);
   screen.touch("Color saturation and brightness", "responderGrant", 150, 100);
   screen.touch("Color saturation and brightness", "responderMove", -50, -20);
-  expect(screen.getByText("#FFFFFF")).toBeTruthy();
+  expect(screen.getByDisplayValue("#FFFFFF")).toBeTruthy();
   screen.touch("Color saturation and brightness", "responderMove", 500, 300);
-  expect(screen.getByText("#000000")).toBeTruthy();
-  fireEvent.press(screen.getByLabelText("Close color picker"));
+  expect(screen.getByDisplayValue("#000000")).toBeTruthy();
+  fireEvent.press(screen.getByText("Cancel"));
+  expect(useCustomColors.getState().colors).toEqual([]);
+  fireEvent.press(
+    screen.getByLabelText("Cancel color selection", {
+      includeHiddenElements: true,
+    }),
+  );
   expect(screen.props.onSelect).not.toHaveBeenCalled();
   screen.rerender(<GoalColorPicker {...screen.props} visible={false} />);
   screen.rerender(<GoalColorPicker {...screen.props} />);
-  expect(screen.getByText("#FF0000")).toBeTruthy();
+  screen.openEditor();
+  expect(screen.getByDisplayValue("#FF0000")).toBeTruthy();
 });
 
-it("can restore automatic color and adjust hue and brightness accessibly", () => {
-  const screen = setup("#ff0000");
+it("validates hex, supports native pasted text, expands shorthand, and deduplicates saved colors", async () => {
+  const screen = setup();
+  screen.openEditor();
+  fireEvent.changeText(screen.getByLabelText("Hex color"), "12");
+  expect(screen.getByText("Save color")).toBeDisabled();
+  fireEvent.press(screen.getByText("Save color"));
+  expect(useCustomColors.getState().colors).toEqual([]);
+  fireEvent.changeText(screen.getByLabelText("Hex color"), "  #aBc  ");
+  fireEvent.press(screen.getByText("Save color"));
+  expect(useCustomColors.getState().colors).toEqual(["#aabbcc"]);
+  screen.openEditor();
+  fireEvent.changeText(screen.getByLabelText("Hex color"), "AABBCC");
+  fireEvent.press(screen.getByText("Save color"));
+  expect(useCustomColors.getState().colors).toEqual(["#aabbcc"]);
+  await waitFor(() =>
+    expect(AsyncStorage.getItem(STORAGE_KEYS.customColors)).resolves.toContain(
+      "#aabbcc",
+    ),
+  );
+});
+
+it("restores persisted colors, rejects corrupt values, and keeps colors added during hydration", async () => {
+  useCustomColors.getState().addColor("#112233");
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.customColors,
+    JSON.stringify({
+      state: { colors: ["#ABCDEF", "bad", "#abcdef", 3] },
+      version: 0,
+    }),
+  );
+  await useCustomColors.persist.rehydrate();
+  expect(useCustomColors.getState().colors).toEqual(["#abcdef", "#112233"]);
+  const screen = setup("#3b82f6");
+  fireEvent.press(screen.getByLabelText("#abcdef"));
+  fireEvent.press(screen.getByText("Done"));
+  expect(screen.props.onSelect).toHaveBeenCalledWith("#abcdef");
+});
+
+it("supports accessible hue and brightness adjustments", () => {
+  const screen = setup();
+  screen.openEditor();
   fireEvent(screen.getByLabelText("Hue"), "accessibilityAction", {
     nativeEvent: { actionName: "increment" },
   });
-  expect(screen.getByText("#FF1500")).toBeTruthy();
+  expect(screen.getByDisplayValue("#FF1500")).toBeTruthy();
   fireEvent(
     screen.getByLabelText("Color saturation and brightness"),
     "accessibilityAction",
     { nativeEvent: { actionName: "darker" } },
   );
-  expect(screen.getByText("#F21400")).toBeTruthy();
-  fireEvent.press(screen.getByLabelText("Use automatic goal color"));
-  expect(screen.getByText("#EC4899")).toBeTruthy();
-  fireEvent.press(screen.getByText("Done"));
-  expect(screen.props.onSelect).toHaveBeenCalledWith(null);
+  expect(screen.getByDisplayValue("#F21400")).toBeTruthy();
 });
