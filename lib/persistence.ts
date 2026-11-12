@@ -6,6 +6,7 @@ export const STORAGE_KEYS = {
   storeDev: "ontrack-store-dev",
   storeProd: "ontrack-store-prod",
   themePreference: "ontrack-theme",
+  customColors: "ontrack-custom-colors",
   accentTheme: "ontrack-accent-theme",
   avatar: "ontrack-avatar",
   // Set while a picked photo hasn't reached profiles.avatar_uri yet.

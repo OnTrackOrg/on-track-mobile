@@ -11,8 +11,10 @@ import {
   StyleSheet,
   Text,
   View,
+  Keyboard,
+  useWindowDimensions,
 } from "react-native";
-import * as Clipboard from "expo-clipboard";
+import { useCustomColors } from "../lib/customColors";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
@@ -23,8 +25,6 @@ import { card } from "./ui";
 export type ColorPickerProps = {
   title: string;
   presets?: readonly { color: string; label?: string }[];
-  automaticLabel?: string;
-  automaticAccessibilityLabel?: string;
   visible: boolean;
   selected?: string;
   autoColor: string;
@@ -132,43 +132,84 @@ function PickerContent({
   onSelect,
   onClose,
   title,
-  automaticLabel = "Default",
-  automaticAccessibilityLabel = "Use default color",
 }: Omit<ColorPickerProps, "visible">) {
   const { theme, isDark } = useTheme();
-  const [hsv, setHsv] = useState(() => hexToHsv(selected ?? autoColor));
-  const [automatic, setAutomatic] = useState(selected === undefined);
-  const [custom, setCustom] = useState(
-    () =>
-      !presets.some(
-        (preset) =>
-          preset.color.toLowerCase() === (selected ?? autoColor).toLowerCase(),
-      ),
+  const { width } = useWindowDimensions();
+  const columns = Math.min(
+    6,
+    Math.max(4, Math.floor((Math.min(width - 48, 420) - 44) / 44)),
   );
-  const [hexDraft, setHexDraft] = useState(
-    (selected ?? autoColor).toUpperCase(),
-  );
-  const [pasteError, setPasteError] = useState<string | null>(null);
+  const { colors: savedColors, addColor } = useCustomColors();
+  const [picked, setPicked] = useState(selected ?? autoColor);
+  const [changed, setChanged] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [hsv, setHsv] = useState(() => hexToHsv(picked));
+  const [hexDraft, setHexDraft] = useState(picked.toUpperCase());
   const validHex = normalizeHex(hexDraft);
-  const editHex = (value: string) => {
-    setHexDraft(value);
-    setPasteError(null);
-    const normalized = normalizeHex(value);
-    if (normalized) {
-      setHsv(hexToHsv(normalized));
-      setAutomatic(false);
-    }
-  };
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
   const color = hsvToHex(hsv);
   const hueColor = hsvToHex({ h: hsv.h, s: 1, v: 1 });
+  const presetColors = presets.map((preset) => preset.color.toLowerCase());
+  const customColors = [
+    ...new Set([...savedColors, ...(selected ? [selected.toLowerCase()] : [])]),
+  ].filter((value) => !presetColors.includes(value));
   const change = (next: Partial<typeof hsv>) => {
-    setAutomatic(false);
     const updated = { ...hsv, ...next };
     setHsv(updated);
     setHexDraft(hsvToHex(updated).toUpperCase());
-    setPasteError(null);
   };
+  const editHex = (value: string) => {
+    setHexDraft(value);
+    const normalized = normalizeHex(value);
+    if (normalized) setHsv(hexToHsv(normalized));
+  };
+  const pick = (value: string) => {
+    setPicked(value.toLowerCase());
+    setChanged(true);
+    setEditing(false);
+    Keyboard.dismiss();
+    void haptics.toggle();
+  };
+  const swatch = (value: string, label?: string, named = false) => (
+    <Pressable
+      key={value}
+      accessibilityRole="button"
+      accessibilityLabel={label ?? value}
+      accessibilityState={{
+        selected: picked.toLowerCase() === value.toLowerCase(),
+      }}
+      onPress={() => pick(value)}
+      style={[styles.preset, { width: named ? "25%" : `${100 / columns}%` }]}
+    >
+      <View
+        style={[
+          styles.swatchRing,
+          {
+            borderColor:
+              picked.toLowerCase() === value.toLowerCase()
+                ? theme.text
+                : "transparent",
+          },
+        ]}
+      >
+        <View style={[styles.colorDot, { backgroundColor: value }]}>
+          {picked.toLowerCase() === value.toLowerCase() ? (
+            <Ionicons
+              name="checkmark"
+              size={18}
+              color="#ffffff"
+              style={{ textShadowColor: "#000000", textShadowRadius: 3 }}
+            />
+          ) : null}
+        </View>
+      </View>
+      {label ? (
+        <Text style={{ color: theme.textSecondary, fontSize: 11 }}>
+          {label}
+        </Text>
+      ) : null}
+    </Pressable>
+  );
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -184,7 +225,7 @@ function PickerContent({
         <ScrollView
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ gap: 16 }}
+          contentContainerStyle={{ gap: 20 }}
         >
           <View style={styles.row}>
             <Text
@@ -195,83 +236,113 @@ function PickerContent({
             </Text>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Close color picker"
-              onPress={onClose}
-              style={styles.close}
+              disabled={editing}
+              accessibilityState={{ disabled: editing }}
+              onPress={() => {
+                void haptics.toggle();
+                onSelect(changed ? picked : (selected ?? null));
+                onClose();
+              }}
+              style={[
+                styles.done,
+                {
+                  backgroundColor: theme.background,
+                  opacity: editing ? 0.4 : 1,
+                },
+              ]}
             >
-              <Ionicons name="close" size={24} color={theme.textSecondary} />
+              <Text
+                style={{ color: theme.text, fontWeight: "600", fontSize: 15 }}
+              >
+                Done
+              </Text>
             </Pressable>
           </View>
-          {presets.length > 0 ? (
-            <View style={[styles.tabs, { backgroundColor: theme.background }]}>
-              {[false, true].map((isCustom) => (
-                <Pressable
-                  key={String(isCustom)}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: custom === isCustom }}
-                  onPress={() => setCustom(isCustom)}
-                  style={[
-                    styles.tab,
-                    custom === isCustom && { backgroundColor: theme.surface },
-                  ]}
-                >
-                  <Text style={{ color: theme.text, fontWeight: "600" }}>
-                    {isCustom ? "Custom" : "Presets"}
-                  </Text>
-                </Pressable>
-              ))}
+          <View style={styles.presets}>
+            {presets.map((preset) =>
+              swatch(
+                preset.color,
+                preset.label,
+                presets.some((item) => Boolean(item.label)),
+              ),
+            )}
+          </View>
+          <View style={{ height: 1, backgroundColor: theme.border }} />
+          <View style={{ gap: 10 }}>
+            <Text
+              style={{
+                color: theme.textSecondary,
+                fontWeight: "600",
+                fontSize: 11,
+                letterSpacing: 1,
+              }}
+            >
+              CUSTOM
+            </Text>
+            <View style={styles.presets}>
+              {customColors.map((value) => swatch(value))}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Add custom color"
+                accessibilityState={{ expanded: editing }}
+                onPress={() => {
+                  setHsv(hexToHsv(picked));
+                  setHexDraft(picked.toUpperCase());
+                  setEditing(true);
+                }}
+                style={[styles.add, { width: `${100 / columns}%` }]}
+              >
+                <Ionicons
+                  name="add-circle-outline"
+                  size={30}
+                  color={theme.textSecondary}
+                />
+              </Pressable>
             </View>
-          ) : null}
-          {!custom ? (
-            <View key="presets" style={styles.presets}>
-              {presets.map((preset) => (
-                <Pressable
-                  key={preset.color}
-                  accessibilityRole="button"
-                  accessibilityLabel={preset.label ?? preset.color}
-                  accessibilityState={{
-                    selected:
-                      !automatic && color === preset.color.toLowerCase(),
-                  }}
-                  onPress={() => {
-                    setHsv(hexToHsv(preset.color));
-                    setHexDraft(preset.color.toUpperCase());
-                    setAutomatic(false);
-                    setPasteError(null);
-                    void haptics.toggle();
-                  }}
-                  style={styles.preset}
-                >
-                  <View
-                    style={{
-                      padding: 4,
-                      borderRadius: 26,
-                      borderWidth: 2,
-                      borderColor:
-                        !automatic && color === preset.color.toLowerCase()
-                          ? theme.text
-                          : "transparent",
-                    }}
-                  >
-                    <View
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 16,
-                        backgroundColor: preset.color,
-                      }}
-                    />
-                  </View>
-                  {preset.label ? (
-                    <Text style={{ color: theme.textSecondary, fontSize: 11 }}>
-                      {preset.label}
-                    </Text>
-                  ) : null}
-                </Pressable>
-              ))}
+          </View>
+          {!editing ? (
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+            >
+              <View
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 6,
+                  backgroundColor: picked,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                }}
+              />
+              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                {picked.toUpperCase()}
+              </Text>
             </View>
           ) : (
-            <View key="custom" style={{ gap: 16 }}>
+            <View key="editor" style={{ gap: 16 }}>
+              <View style={styles.row}>
+                <Text
+                  style={{ color: theme.text, fontWeight: "600", fontSize: 14 }}
+                >
+                  New custom color
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setEditing(false);
+                    Keyboard.dismiss();
+                  }}
+                  style={{
+                    minHeight: 44,
+                    justifyContent: "center",
+                    paddingLeft: 12,
+                  }}
+                >
+                  <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
+                    Cancel
+                  </Text>
+                </Pressable>
+              </View>
               <ColorControl
                 field
                 label="Color saturation and brightness"
@@ -382,126 +453,87 @@ function PickerContent({
                   />
                 </Svg>
               </ColorControl>
-              <View style={[styles.preview, { borderColor: theme.border }]}>
+
+              <View style={{ gap: 8 }}>
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontSize: 11,
+                    letterSpacing: 1,
+                  }}
+                >
+                  HEX
+                </Text>
                 <View
                   style={[
-                    styles.swatch,
-                    { backgroundColor: color, borderColor: theme.border },
+                    styles.preview,
+                    { backgroundColor: theme.background },
                   ]}
-                />
-                <TextInput
-                  accessibilityLabel="Hex color"
-                  value={hexDraft}
-                  onChangeText={editHex}
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  spellCheck={false}
-                  keyboardAppearance={isDark ? "dark" : "light"}
-                  returnKeyType="done"
-                  onSubmitEditing={() => {
-                    if (validHex) setHexDraft(validHex.toUpperCase());
-                  }}
-                  selectTextOnFocus
+                >
+                  <View
+                    style={[
+                      styles.swatch,
+                      { backgroundColor: color, borderColor: theme.border },
+                    ]}
+                  />
+                  <TextInput
+                    accessibilityLabel="Hex color"
+                    value={hexDraft}
+                    onChangeText={editHex}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    spellCheck={false}
+                    keyboardAppearance={isDark ? "dark" : "light"}
+                    returnKeyType="done"
+                    onSubmitEditing={() => {
+                      if (validHex) setHexDraft(validHex.toUpperCase());
+                    }}
+                    selectTextOnFocus
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      minHeight: 44,
+                      color: theme.text,
+                      fontSize: 16,
+                      fontWeight: "600",
+                    }}
+                  />
+                </View>
+                {!validHex ? (
+                  <Text
+                    accessibilityRole="alert"
+                    style={{ color: theme.danger }}
+                  >
+                    Enter 3 or 6 hex digits.
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                disabled={!validHex}
+                accessibilityState={{ disabled: !validHex }}
+                onPress={() => {
+                  if (!validHex) return;
+                  if (!presetColors.includes(validHex)) addColor(validHex);
+                  pick(validHex);
+                }}
+                style={[
+                  styles.save,
+                  { backgroundColor: theme.text, opacity: validHex ? 1 : 0.4 },
+                ]}
+              >
+                <Text
                   style={{
-                    flex: 1,
-                    minWidth: 0,
-                    minHeight: 44,
-                    color: theme.text,
-                    fontSize: 16,
+                    color: theme.surface,
+                    fontSize: 15,
                     fontWeight: "600",
                   }}
-                />
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Paste hex color"
-                  onPress={async () => {
-                    try {
-                      const value = await Clipboard.getStringAsync();
-                      const normalized = normalizeHex(value);
-                      if (normalized) editHex(normalized.toUpperCase());
-                      else setPasteError("Clipboard needs a valid hex color.");
-                    } catch {
-                      setPasteError(
-                        "Couldn’t read the clipboard. Try pasting into the field.",
-                      );
-                    }
-                  }}
-                  style={{
-                    minHeight: 44,
-                    justifyContent: "center",
-                    paddingHorizontal: 4,
-                  }}
                 >
-                  <Text style={{ color: theme.text, fontWeight: "600" }}>
-                    Paste
-                  </Text>
-                </Pressable>
-              </View>
-              {pasteError || !validHex ? (
-                <Text
-                  accessibilityRole="alert"
-                  style={{ color: theme.danger ?? theme.textSecondary }}
-                >
-                  {pasteError ?? "Enter 3 or 6 hex digits."}
+                  Save color
                 </Text>
-              ) : null}
+              </Pressable>
             </View>
           )}
-          <View style={styles.row}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={automaticAccessibilityLabel}
-              accessibilityState={{ selected: automatic }}
-              onPress={() => {
-                setHsv(hexToHsv(autoColor));
-                setHexDraft(autoColor.toUpperCase());
-                setPasteError(null);
-                setAutomatic(true);
-                void haptics.toggle();
-              }}
-              style={styles.automatic}
-            >
-              <Text
-                style={{
-                  color: theme.textSecondary,
-                  fontWeight: "600",
-                  fontSize: 15,
-                }}
-              >
-                {automaticLabel}
-              </Text>
-              {automatic ? (
-                <Ionicons
-                  name="checkmark"
-                  size={16}
-                  color={theme.textSecondary}
-                />
-              ) : null}
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              disabled={custom && !validHex}
-              accessibilityState={{ disabled: custom && !validHex }}
-              onPress={() => {
-                void haptics.toggle();
-                onSelect(automatic ? null : color);
-                onClose();
-              }}
-              style={[
-                styles.done,
-                {
-                  backgroundColor: theme.primary,
-                  opacity: custom && !validHex ? 0.4 : 1,
-                },
-              ]}
-            >
-              <Text
-                style={{ color: "#ffffff", fontWeight: "700", fontSize: 16 }}
-              >
-                Done
-              </Text>
-            </Pressable>
-          </View>
         </ScrollView>
       </View>
     </KeyboardAvoidingView>
@@ -533,23 +565,15 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 420,
     maxHeight: "90%",
-    padding: 20,
-    gap: 16,
-    borderRadius: 20,
+    padding: 22,
+    borderRadius: 26,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  close: {
-    width: 44,
-    height: 44,
-    marginRight: -10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  field: { width: "100%", aspectRatio: 1.35 },
+  field: { width: "100%", aspectRatio: 1.7 },
   hueControl: { width: "100%", height: 44 },
   hueTrack: { position: "absolute", top: 14 },
   thumb: {
@@ -573,30 +597,40 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderWidth: 1,
     borderRadius: 12,
   },
-  tabs: { flexDirection: "row", padding: 4, borderRadius: 12 },
-  tab: {
-    flex: 1,
-    minHeight: 40,
+  presets: { flexDirection: "row", flexWrap: "wrap", rowGap: 10 },
+  preset: {
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 8,
+    gap: 3,
   },
-  presets: { flexDirection: "row", flexWrap: "wrap", rowGap: 12 },
-  preset: { width: "25%", minHeight: 48, alignItems: "center", gap: 3 },
-  swatch: { width: 32, height: 32, borderRadius: 8, borderWidth: 1 },
-  automatic: {
-    flexDirection: "row",
-    gap: 6,
+  swatchRing: { padding: 3, borderRadius: 24, borderWidth: 2 },
+  colorDot: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: "center",
+    justifyContent: "center",
+  },
+  swatch: { width: 28, height: 28, borderRadius: 7, borderWidth: 1 },
+  add: {
+    width: "16.666%",
     minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
   done: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     minHeight: 44,
     borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  save: {
+    minHeight: 44,
+    borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
   },

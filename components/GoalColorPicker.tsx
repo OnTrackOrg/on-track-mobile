@@ -2,10 +2,7 @@ import React from "react";
 import { GOAL_PALETTE } from "../utils/goalColors";
 import ColorPicker, { ColorPickerProps } from "./ColorPicker";
 
-type GoalColorPickerProps = Omit<
-  ColorPickerProps,
-  "title" | "automaticLabel" | "automaticAccessibilityLabel"
->;
+type GoalColorPickerProps = Omit<ColorPickerProps, "title" | "presets">;
 
 export default function GoalColorPicker(props: GoalColorPickerProps) {
   return (
@@ -13,8 +10,6 @@ export default function GoalColorPicker(props: GoalColorPickerProps) {
       {...props}
       presets={GOAL_PALETTE.map((color) => ({ color }))}
       title="Goal color"
-      automaticLabel="Automatic"
-      automaticAccessibilityLabel="Use automatic goal color"
     />
   );
 }

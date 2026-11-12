@@ -78,12 +78,14 @@ it("saves a custom color on Done and restores it after remounting in dark mode",
     expect(screen.getByTestId("mode")).toHaveTextContent("dark"),
   );
   fireEvent.press(screen.getByText("Choose theme"));
+  fireEvent.press(screen.getByLabelText("Add custom color"));
   fireEvent(screen.getByLabelText("Hue"), "accessibilityAction", {
     nativeEvent: { actionName: "increment" },
   });
   const chosen = screen.getByLabelText("Hex color").props.value.toLowerCase();
   expect(chosen).not.toBe(DEFAULT_ACCENT_COLOR);
   expect(screen.getByTestId("accent")).toHaveTextContent(DEFAULT_ACCENT_COLOR);
+  fireEvent.press(screen.getByText("Save color"));
   fireEvent.press(screen.getByText("Done"));
   await waitFor(() =>
     expect(AsyncStorage.getItem(STORAGE_KEYS.accentTheme)).resolves.toBe(
@@ -101,28 +103,18 @@ it("saves a custom color on Done and restores it after remounting in dark mode",
   expect(restored.getByTestId("accent")).toHaveTextContent(chosen);
 });
 
-it("discards cancelled changes and can restore the default color", async () => {
+it("discards cancelled custom edits without changing the saved theme", async () => {
   await AsyncStorage.setItem(STORAGE_KEYS.accentTheme, "#ab12ef");
   const screen = show();
   await waitFor(() =>
     expect(screen.getByTestId("accent")).toHaveTextContent("#ab12ef"),
   );
   fireEvent.press(screen.getByText("Choose theme"));
-  fireEvent(screen.getByLabelText("Hue"), "accessibilityAction", {
-    nativeEvent: { actionName: "increment" },
-  });
-  fireEvent.press(screen.getByLabelText("Close color picker"));
+  fireEvent.press(screen.getByLabelText("Add custom color"));
+  fireEvent.changeText(screen.getByLabelText("Hex color"), "#12abef");
+  fireEvent.press(screen.getByText("Cancel"));
   expect(screen.getByTestId("accent")).toHaveTextContent("#ab12ef");
   expect(await AsyncStorage.getItem(STORAGE_KEYS.accentTheme)).toBe("#ab12ef");
-  fireEvent.press(screen.getByText("Choose theme"));
-  fireEvent.press(screen.getByLabelText("Use default color"));
-  fireEvent.press(screen.getByText("Done"));
-  await waitFor(() =>
-    expect(AsyncStorage.getItem(STORAGE_KEYS.accentTheme)).resolves.toBe(
-      DEFAULT_ACCENT_COLOR,
-    ),
-  );
-  expect(screen.getByTestId("accent")).toHaveTextContent(DEFAULT_ACCENT_COLOR);
 });
 
 it("clears custom color and dark mode when preferences are reset", async () => {
