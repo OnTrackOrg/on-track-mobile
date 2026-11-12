@@ -263,6 +263,14 @@ export const consentPage = (config: {
       $("consent-error").textContent = error.message;
       return;
     }
+    // Already approved for this app earlier: Supabase skips consent and
+    // returns just the redirect (no authorization_id). Posting a consent
+    // for it would 400, so go straight back to the app.
+    if (data?.redirect_url && !data.authorization_id) {
+      clientName = "This app";
+      showDone(true, data.redirect_url);
+      return;
+    }
     clientName = data?.client?.name || "An app";
     $("client-name").textContent = clientName;
     $("consent-error").textContent = "";
