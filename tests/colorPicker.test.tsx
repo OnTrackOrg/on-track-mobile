@@ -94,7 +94,12 @@ it("previews tap and drag selections, saves a reusable swatch, and applies only 
     { nativeEvent: { locationX: 150, locationY: 100, pageX: 340, pageY: 200 } },
   );
   expect(screen.getByDisplayValue("#00FF00")).toBeTruthy();
-  fireEvent.press(screen.getByText("Done"));
+  expect(screen.queryByText("Done")).toBeNull();
+  expect(screen.queryByText("Goal color")).toBeNull();
+  expect(screen.queryByText("CUSTOM")).toBeNull();
+  expect(screen.queryByLabelText("#ef4444")).toBeNull();
+  expect(screen.queryByLabelText("Add custom color")).toBeNull();
+  expect(screen.getByRole("header", { name: "New custom color" })).toBeTruthy();
   expect(screen.props.onSelect).not.toHaveBeenCalled();
   fireEvent.press(screen.getByText("Save color"));
   expect(screen.getByLabelText("#00ff00")).toHaveAccessibilityState({

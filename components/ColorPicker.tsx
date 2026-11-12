@@ -223,106 +223,111 @@ function PickerContent({
       />
       <View accessibilityViewIsModal style={[card(theme, isDark), styles.card]}>
         <ScrollView
+          key={editing ? "editor" : "palette"}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ gap: 20 }}
         >
-          <View style={styles.row}>
-            <Text
-              accessibilityRole="header"
-              style={{ fontWeight: "700", fontSize: 20, color: theme.text }}
-            >
-              {title}
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              disabled={editing}
-              accessibilityState={{ disabled: editing }}
-              onPress={() => {
-                void haptics.toggle();
-                onSelect(changed ? picked : (selected ?? null));
-                onClose();
-              }}
-              style={[
-                styles.done,
-                {
-                  backgroundColor: theme.background,
-                  opacity: editing ? 0.4 : 1,
-                },
-              ]}
-            >
-              <Text
-                style={{ color: theme.text, fontWeight: "600", fontSize: 15 }}
-              >
-                Done
-              </Text>
-            </Pressable>
-          </View>
-          <View style={styles.presets}>
-            {presets.map((preset) =>
-              swatch(
-                preset.color,
-                preset.label,
-                presets.some((item) => Boolean(item.label)),
-              ),
-            )}
-          </View>
-          <View style={{ height: 1, backgroundColor: theme.border }} />
-          <View style={{ gap: 10 }}>
-            <Text
-              style={{
-                color: theme.textSecondary,
-                fontWeight: "600",
-                fontSize: 11,
-                letterSpacing: 1,
-              }}
-            >
-              CUSTOM
-            </Text>
-            <View style={styles.presets}>
-              {customColors.map((value) => swatch(value))}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Add custom color"
-                accessibilityState={{ expanded: editing }}
-                onPress={() => {
-                  setHsv(hexToHsv(picked));
-                  setHexDraft(picked.toUpperCase());
-                  setEditing(true);
-                }}
-                style={[styles.add, { width: `${100 / columns}%` }]}
-              >
-                <Ionicons
-                  name="add-circle-outline"
-                  size={30}
-                  color={theme.textSecondary}
-                />
-              </Pressable>
-            </View>
-          </View>
           {!editing ? (
-            <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
-            >
+            <>
+              <View style={styles.row}>
+                <Text
+                  accessibilityRole="header"
+                  style={{ fontWeight: "700", fontSize: 20, color: theme.text }}
+                >
+                  {title}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    void haptics.toggle();
+                    onSelect(changed ? picked : (selected ?? null));
+                    onClose();
+                  }}
+                  style={[
+                    styles.done,
+                    {
+                      backgroundColor: theme.background,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: theme.text,
+                      fontWeight: "600",
+                      fontSize: 15,
+                    }}
+                  >
+                    Done
+                  </Text>
+                </Pressable>
+              </View>
+              <View style={styles.presets}>
+                {presets.map((preset) =>
+                  swatch(
+                    preset.color,
+                    preset.label,
+                    presets.some((item) => Boolean(item.label)),
+                  ),
+                )}
+              </View>
+              <View style={{ height: 1, backgroundColor: theme.border }} />
+              <View style={{ gap: 10 }}>
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontWeight: "600",
+                    fontSize: 11,
+                    letterSpacing: 1,
+                  }}
+                >
+                  CUSTOM
+                </Text>
+                <View style={styles.presets}>
+                  {customColors.map((value) => swatch(value))}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Add custom color"
+                    accessibilityState={{ expanded: editing }}
+                    onPress={() => {
+                      setHsv(hexToHsv(picked));
+                      setHexDraft(picked.toUpperCase());
+                      setEditing(true);
+                    }}
+                    style={[styles.add, { width: `${100 / columns}%` }]}
+                  >
+                    <Ionicons
+                      name="add-circle-outline"
+                      size={30}
+                      color={theme.textSecondary}
+                    />
+                  </Pressable>
+                </View>
+              </View>
               <View
-                style={{
-                  width: 12,
-                  height: 12,
-                  borderRadius: 6,
-                  backgroundColor: picked,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                }}
-              />
-              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-                {picked.toUpperCase()}
-              </Text>
-            </View>
+                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+              >
+                <View
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 6,
+                    backgroundColor: picked,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                  }}
+                />
+                <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                  {picked.toUpperCase()}
+                </Text>
+              </View>
+            </>
           ) : (
             <View key="editor" style={{ gap: 16 }}>
               <View style={styles.row}>
                 <Text
-                  style={{ color: theme.text, fontWeight: "600", fontSize: 14 }}
+                  accessibilityRole="header"
+                  style={{ color: theme.text, fontWeight: "700", fontSize: 20 }}
                 >
                   New custom color
                 </Text>
