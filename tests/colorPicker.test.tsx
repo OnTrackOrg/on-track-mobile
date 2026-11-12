@@ -1,8 +1,10 @@
 import React from "react";
-import { fireEvent, render } from "@testing-library/react-native";
+import { fireEvent, render, waitFor } from "@testing-library/react-native";
+import * as Clipboard from "expo-clipboard";
 import GoalColorPicker from "../components/GoalColorPicker";
 import { hexToHsv, hsvToHex } from "../utils/color";
 
+jest.mock("expo-clipboard", () => ({ getStringAsync: jest.fn() }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("../contexts/ThemeContext", () => ({
   useTheme: () => ({
@@ -62,7 +64,7 @@ it("previews tap and drag selections and only saves the final color on Done", ()
   screen.touch("Hue", "responderGrant", 120, 22);
   screen.layout("Color saturation and brightness", 300, 200);
   screen.touch("Color saturation and brightness", "responderGrant", 150, 100);
-  expect(screen.getByText("#408040")).toBeTruthy();
+  expect(screen.getByDisplayValue("#408040")).toBeTruthy();
   // iOS can retain the initial local coordinates as the finger moves.
   fireEvent(
     screen.getByLabelText("Color saturation and brightness"),
@@ -71,7 +73,7 @@ it("previews tap and drag selections and only saves the final color on Done", ()
       nativeEvent: { locationX: 150, locationY: 100, pageX: 340, pageY: 200 },
     },
   );
-  expect(screen.getByText("#00FF00")).toBeTruthy();
+  expect(screen.getByDisplayValue("#00FF00")).toBeTruthy();
   expect(screen.props.onSelect).not.toHaveBeenCalled();
   fireEvent.press(screen.getByText("Done"));
   expect(screen.props.onSelect).toHaveBeenCalledWith("#00ff00");
@@ -83,14 +85,14 @@ it("clamps drags outside the field and discards them when dismissed", () => {
   screen.layout("Color saturation and brightness", 300, 200);
   screen.touch("Color saturation and brightness", "responderGrant", 150, 100);
   screen.touch("Color saturation and brightness", "responderMove", -50, -20);
-  expect(screen.getByText("#FFFFFF")).toBeTruthy();
+  expect(screen.getByDisplayValue("#FFFFFF")).toBeTruthy();
   screen.touch("Color saturation and brightness", "responderMove", 500, 300);
-  expect(screen.getByText("#000000")).toBeTruthy();
+  expect(screen.getByDisplayValue("#000000")).toBeTruthy();
   fireEvent.press(screen.getByLabelText("Close color picker"));
   expect(screen.props.onSelect).not.toHaveBeenCalled();
   screen.rerender(<GoalColorPicker {...screen.props} visible={false} />);
   screen.rerender(<GoalColorPicker {...screen.props} />);
-  expect(screen.getByText("#FF0000")).toBeTruthy();
+  expect(screen.getByDisplayValue("#FF0000")).toBeTruthy();
 });
 
 it("can restore automatic color and adjust hue and brightness accessibly", () => {
@@ -98,15 +100,60 @@ it("can restore automatic color and adjust hue and brightness accessibly", () =>
   fireEvent(screen.getByLabelText("Hue"), "accessibilityAction", {
     nativeEvent: { actionName: "increment" },
   });
-  expect(screen.getByText("#FF1500")).toBeTruthy();
+  expect(screen.getByDisplayValue("#FF1500")).toBeTruthy();
   fireEvent(
     screen.getByLabelText("Color saturation and brightness"),
     "accessibilityAction",
     { nativeEvent: { actionName: "darker" } },
   );
-  expect(screen.getByText("#F21400")).toBeTruthy();
+  expect(screen.getByDisplayValue("#F21400")).toBeTruthy();
   fireEvent.press(screen.getByLabelText("Use automatic goal color"));
-  expect(screen.getByText("#EC4899")).toBeTruthy();
+  expect(screen.getByDisplayValue("#EC4899")).toBeTruthy();
   fireEvent.press(screen.getByText("Done"));
   expect(screen.props.onSelect).toHaveBeenCalledWith(null);
+});
+
+it("starts with goal presets and lets users switch to Custom without losing the draft", () => {
+  const screen = setup("#3b82f6");
+  expect(screen.queryByLabelText("Hue")).toBeNull();
+  fireEvent.press(screen.getByLabelText("#ef4444"));
+  expect(screen.props.onSelect).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByText("Custom"));
+  expect(screen.getByDisplayValue("#EF4444")).toBeTruthy();
+  fireEvent.press(screen.getByText("Presets"));
+  fireEvent.press(screen.getByText("Done"));
+  expect(screen.props.onSelect).toHaveBeenCalledWith("#ef4444");
+});
+
+it("accepts typed hex, expands short hex, and blocks incomplete input", () => {
+  const screen = setup("#ff0000");
+  fireEvent.changeText(screen.getByLabelText("Hex color"), "ab");
+  fireEvent.press(screen.getByText("Done"));
+  expect(screen.props.onSelect).not.toHaveBeenCalled();
+  expect(screen.getByRole("alert")).toBeTruthy();
+  fireEvent.changeText(screen.getByLabelText("Hex color"), "#aBc");
+  fireEvent.press(screen.getByText("Done"));
+  expect(screen.props.onSelect).toHaveBeenCalledWith("#aabbcc");
+});
+
+it("pastes a hex color and leaves the current draft intact for invalid clipboard text", async () => {
+  const screen = setup("#ff0000");
+  jest.mocked(Clipboard.getStringAsync).mockResolvedValueOnce("  12AbEF\n");
+  fireEvent.press(screen.getByLabelText("Paste hex color"));
+  await waitFor(() => expect(screen.getByDisplayValue("#12ABEF")).toBeTruthy());
+  jest.mocked(Clipboard.getStringAsync).mockResolvedValueOnce("hello");
+  fireEvent.press(screen.getByLabelText("Paste hex color"));
+  await waitFor(() =>
+    expect(screen.getByText("Clipboard needs a valid hex color.")).toBeTruthy(),
+  );
+  expect(screen.getByDisplayValue("#12ABEF")).toBeTruthy();
+  jest
+    .mocked(Clipboard.getStringAsync)
+    .mockRejectedValueOnce(new Error("unavailable"));
+  fireEvent.press(screen.getByLabelText("Paste hex color"));
+  await waitFor(() =>
+    expect(screen.getByText(/Couldn’t read the clipboard/)).toBeTruthy(),
+  );
+  fireEvent.press(screen.getByText("Done"));
+  expect(screen.props.onSelect).toHaveBeenCalledWith("#12abef");
 });

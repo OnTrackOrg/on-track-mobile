@@ -81,9 +81,7 @@ it("saves a custom color on Done and restores it after remounting in dark mode",
   fireEvent(screen.getByLabelText("Hue"), "accessibilityAction", {
     nativeEvent: { actionName: "increment" },
   });
-  const chosen = screen
-    .getByText(/^#[A-F0-9]{6}$/)
-    .props.children.toLowerCase();
+  const chosen = screen.getByLabelText("Hex color").props.value.toLowerCase();
   expect(chosen).not.toBe(DEFAULT_ACCENT_COLOR);
   expect(screen.getByTestId("accent")).toHaveTextContent(DEFAULT_ACCENT_COLOR);
   fireEvent.press(screen.getByText("Done"));
