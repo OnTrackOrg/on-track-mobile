@@ -8,6 +8,7 @@ import type { User } from "@supabase/supabase-js";
 import { Goal } from "../types";
 import {
   __internal,
+  fetchAccessibleGoals,
   replaceRemoteGoalsForUser,
   taskScheduleColumns,
 } from "./dataSync";
@@ -24,7 +25,7 @@ type QueryLog = {
 // args; awaiting the chain resolves with the next queued response (queued in
 // `from()` call order).
 const setupSupabaseQueries = (
-  responses: Array<{ data?: unknown; error?: unknown }>,
+  responses: Array<{ data?: unknown; error?: unknown; count?: number | null }>,
 ): QueryLog[] => {
   const log: QueryLog[] = [];
   let queryIndex = 0;
@@ -36,7 +37,12 @@ const setupSupabaseQueries = (
 
     const chain: Record<string, unknown> = {
       then: (resolve: (value: unknown) => unknown) =>
-        resolve({ data: null, error: null, ...response }),
+        resolve({
+          data: null,
+          error: null,
+          count: Array.isArray(response.data) ? response.data.length : 0,
+          ...response,
+        }),
     };
     for (const method of [
       "select",
@@ -46,6 +52,7 @@ const setupSupabaseQueries = (
       "upsert",
       "insert",
       "delete",
+      "range",
     ]) {
       chain[method] = (...args: unknown[]) => {
         entry.steps.push({ method, args });
@@ -273,9 +280,130 @@ describe("multi-dose sync", () => {
   });
 });
 
+describe("complete remote history", () => {
+  afterEach(() => mockFrom.mockReset());
+
+  const goalRows = [
+    { id: "mine", owner_user_id: ME, title: "Fitness" },
+    { id: "friend", owner_user_id: FRIEND, title: "Friend fitness" },
+  ];
+  const taskRows = [
+    { id: "workout", goal_id: "mine", title: "Workout", frequency: "daily" },
+    { id: "friend-task", goal_id: "friend", title: "Walk", frequency: "daily" },
+  ];
+  const oldHistory = Array.from({ length: 1000 }, (_, index) => ({
+    id: `completion-${index}`,
+    task_id: "friend-task",
+    completed_by_user_id: FRIEND,
+    completed_day: "2026-11-01",
+  }));
+  const recentHistory = [12, 13, 14, 14].map((day, index) => ({
+    id: `recent-${index}`,
+    task_id: "workout",
+    completed_by_user_id: ME,
+    completed_day: `2026-11-${day}`,
+  }));
+
+  it("keeps recent workouts and every dose beyond 1,000 visible rows through the next sync", async () => {
+    const log = setupSupabaseQueries([
+      { data: goalRows },
+      { data: taskRows },
+      { data: oldHistory.slice(0, 500), count: 1004 },
+      { data: oldHistory.slice(500), count: 1004 },
+      { data: recentHistory, count: 1004 },
+      { data: [{ id: "mine" }] },
+      { data: [{ id: "workout" }] },
+      {},
+      {},
+      {},
+      {},
+    ]);
+
+    const result = await fetchAccessibleGoals({ id: ME } as User);
+    expect(result.friendsPublic[0].tasks[0].completions).toHaveLength(1000);
+    expect(
+      result.owned[0].tasks[0].completions.map(__internal.toCompletedDay),
+    ).toEqual(["2026-11-12", "2026-11-13", "2026-11-14", "2026-11-14"]);
+
+    await replaceRemoteGoalsForUser({ id: ME } as User, result.owned);
+    const insert = log.find(
+      (query) =>
+        query.table === "task_completions" &&
+        query.steps[0]?.method === "insert",
+    );
+    expect(insert?.steps[0].args[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ completed_day: "2026-11-12", occurrence: 0 }),
+        expect.objectContaining({ completed_day: "2026-11-13", occurrence: 0 }),
+        expect.objectContaining({ completed_day: "2026-11-14", occurrence: 1 }),
+      ]),
+    );
+    expect(
+      log
+        .filter(
+          (q) =>
+            q.table === "task_completions" && q.steps[0]?.method === "select",
+        )
+        .map((q) => q.steps.find((step) => step.method === "range")?.args),
+    ).toEqual([
+      [0, 499],
+      [500, 999],
+      [1000, 1499],
+    ]);
+  });
+
+  it("continues short pages when the server cap is smaller than the requested page", async () => {
+    setupSupabaseQueries([
+      { data: [goalRows[0]], count: 2 },
+      { data: [goalRows[1]], count: 2 },
+      { data: [taskRows[0]], count: 2 },
+      { data: [taskRows[1]], count: 2 },
+      { data: recentHistory.slice(0, 1), count: 4 },
+      { data: recentHistory.slice(1), count: 4 },
+    ]);
+    const result = await fetchAccessibleGoals({ id: ME } as User);
+    expect(result.owned[0].tasks[0].completions).toHaveLength(4);
+    expect(result.friendsPublic).toHaveLength(1);
+  });
+
+  it.each([
+    { data: [], count: 1004 },
+    { data: recentHistory, count: 1005 },
+    { data: recentHistory, count: null },
+    { error: new Error("Network disconnected") },
+  ])(
+    "rejects an incomplete or changing history instead of returning a destructive partial snapshot: %j",
+    async (lastPage) => {
+      const log = setupSupabaseQueries([
+        { data: goalRows },
+        { data: taskRows },
+        { data: oldHistory.slice(0, 500), count: 1004 },
+        lastPage,
+      ]);
+      await expect(fetchAccessibleGoals({ id: ME } as User)).rejects.toThrow();
+      expect(log.every((query) => query.steps[0]?.method === "select")).toBe(
+        true,
+      );
+    },
+  );
+});
+
 describe("replaceRemoteGoalsForUser", () => {
   afterEach(() => {
     mockFrom.mockReset();
+  });
+
+  it("does not start replacing history if the remote graph is incomplete", async () => {
+    const log = setupSupabaseQueries([
+      { data: [{ id: "mine" }] },
+      { data: [], count: 1 },
+    ]);
+    await expect(
+      replaceRemoteGoalsForUser({ id: ME } as User, []),
+    ).rejects.toThrow("Incomplete remote history");
+    expect(log.every((query) => query.steps[0]?.method === "select")).toBe(
+      true,
+    );
   });
 
   it("replaces my completion rows on my tasks and deletes what's gone locally", async () => {

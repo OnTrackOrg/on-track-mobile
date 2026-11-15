@@ -79,6 +79,47 @@ The store keeps two slices:
    accept/decline/unfriend, search, nudges, and template commits call
    Supabase directly with optimistic UI where cheap and an error toast
    otherwise. They do not ride the revision flush.
+6. **A remote snapshot must contain every row.** Goal, task, completion,
+   and existing-graph reads paginate with a unique ordering and an exact
+   count. URL chunking alone does not avoid the API row limit. If any page
+   fails, the count changes, or the result is incomplete, reject the read
+   and keep the local copy; never adopt a partial graph.
+
+### November 2026 history truncation
+
+Completion reads previously combined owned and friends' history, sorted
+oldest first, without pagination. Once that result exceeded the API's
+1,000-row cap, recent history was omitted. Adopting that partial snapshot
+and subsequently flushing it deleted the omitted owned completions.
+
+The permanent client fix pages all sync reads in batches of 500 and checks
+the exact row count before returning a snapshot. Same-day doses use the
+completion ID as an ordering tie-breaker. The existing UI position/creation
+ordering is still applied by the mappers after all pages are loaded.
+
+An incident mitigation was applied to the hosted OnTrack database on
+November 15, 2026, for installed clients that still issue unpaginated reads:
+
+```sql
+alter role authenticator set pgrst.db_max_rows = '10000';
+notify pgrst, 'reload config';
+```
+
+This is temporary headroom, not a replacement for client pagination. Keep
+the local API cap at 1,000 to exercise pagination. Verify the hosted setting
+with a real API request returning more than 1,000 rows and an exact count.
+Once affected installed clients have been replaced, remove the override:
+
+```sql
+alter role authenticator reset pgrst.db_max_rows;
+notify pgrst, 'reload config';
+```
+
+Restore confirmed missing days only after the device is fully closed, so
+an in-flight stale flush cannot overwrite the repair. On reopening, a clean
+device fetches the repaired remote history. Other offline devices with
+unsynced edits still require reconciliation; this fix does not change the
+existing whole-snapshot write protocol.
 
 ## Edge cases
 
