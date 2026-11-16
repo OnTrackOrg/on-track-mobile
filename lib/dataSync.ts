@@ -61,6 +61,46 @@ export type AccessibleGoals = {
 // ponytail: .in() id lists ride the request URL; 150 ids ≈ 6KB keeps every
 // query safely under edge URL limits no matter how many tasks accumulate.
 const IN_CHUNK_SIZE = 150;
+const READ_PAGE_SIZE = 500;
+
+/**
+ * URL chunking does not bypass PostgREST's row cap. Read every page, checking
+ * the exact count so a short/failed response can never become a full snapshot
+ * and later erase history in replaceRemoteGoalsForUser. Callers must order by
+ * a unique key to keep page boundaries deterministic, including same-day doses.
+ */
+const readAllRows = async <R>(
+  readPage: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{
+    data: R[] | null;
+    error: unknown;
+    count: number | null;
+  }>,
+): Promise<R[]> => {
+  const rows: R[] = [];
+  let expectedCount: number | undefined;
+  while (true) {
+    const { data, error, count } = await readPage(
+      rows.length,
+      rows.length + READ_PAGE_SIZE - 1,
+    );
+    if (error) throw error;
+    if (count === null || !Number.isSafeInteger(count) || count < 0) {
+      throw new Error("Cannot verify that the remote history is complete");
+    }
+    if (expectedCount !== undefined && count !== expectedCount) {
+      throw new Error("Remote history changed during sync; retry the read");
+    }
+    expectedCount = count;
+    rows.push(...(data ?? []));
+    if (rows.length === expectedCount) return rows;
+    if (!data?.length || rows.length > expectedCount) {
+      throw new Error("Incomplete remote history; keeping the local copy");
+    }
+  }
+};
 
 const inChunks = async <R>(
   ids: string[],
@@ -272,18 +312,16 @@ const buildCompletionPayload = (
 export const fetchAccessibleGoals = async (
   user: User,
 ): Promise<AccessibleGoals> => {
-  const { data: goalRows, error: goalsError } = await supabase
-    .from("goals")
-    .select(
-      "id, owner_user_id, title, target, position, created_at, completed_at, is_draft, start_day, due_day, color, visibility",
-    )
-    .order("created_at", { ascending: true });
-
-  if (goalsError) {
-    throw goalsError;
-  }
-
-  const typedGoalRows = (goalRows ?? []) as GoalRow[];
+  const typedGoalRows = await readAllRows<GoalRow>((from, to) =>
+    supabase
+      .from("goals")
+      .select(
+        "id, owner_user_id, title, target, position, created_at, completed_at, is_draft, start_day, due_day, color, visibility",
+        { count: "exact" },
+      )
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
 
   if (typedGoalRows.length === 0) {
     return { owned: [], friendsPublic: [] };
@@ -291,37 +329,34 @@ export const fetchAccessibleGoals = async (
 
   const goalIds = typedGoalRows.map((goal) => goal.id);
 
-  const typedTaskRows = await inChunks(goalIds, async (chunk) => {
-    const { data: taskRows, error: tasksError } = await supabase
-      .from("tasks")
-      .select(
-        "id, goal_id, title, frequency, custom_type, custom_target, custom_weekdays, times_per_day, times, reminder_lead_min, once_day, position, created_at",
-      )
-      .in("goal_id", chunk)
-      .order("position", { ascending: true })
-      .order("created_at", { ascending: true });
-
-    if (tasksError) {
-      throw tasksError;
-    }
-
-    return (taskRows ?? []) as TaskRow[];
-  });
+  const typedTaskRows = await inChunks(goalIds, (chunk) =>
+    readAllRows<TaskRow>((from, to) =>
+      supabase
+        .from("tasks")
+        .select(
+          "id, goal_id, title, frequency, custom_type, custom_target, custom_weekdays, times_per_day, times, reminder_lead_min, once_day, position, created_at",
+          { count: "exact" },
+        )
+        .in("goal_id", chunk)
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+  );
   const taskIds = typedTaskRows.map((task) => task.id);
 
-  const typedCompletionRows = await inChunks(taskIds, async (chunk) => {
-    const { data: completionRows, error: completionsError } = await supabase
-      .from("task_completions")
-      .select("task_id, completed_by_user_id, completed_day")
-      .in("task_id", chunk)
-      .order("completed_day", { ascending: true });
-
-    if (completionsError) {
-      throw completionsError;
-    }
-
-    return (completionRows ?? []) as CompletionRow[];
-  });
+  const typedCompletionRows = await inChunks(taskIds, (chunk) =>
+    readAllRows<CompletionRow>((from, to) =>
+      supabase
+        .from("task_completions")
+        .select("task_id, completed_by_user_id, completed_day", {
+          count: "exact",
+        })
+        .in("task_id", chunk)
+        .order("completed_day", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+  );
 
   const allGoals = buildGoals(
     typedGoalRows,
@@ -338,14 +373,14 @@ export const fetchAccessibleGoals = async (
 const loadExistingRemoteGraph = async (
   user: User,
 ): Promise<ExistingRemoteGraph> => {
-  const { data: goalRows, error: goalsError } = await supabase
-    .from("goals")
-    .select("id")
-    .eq("owner_user_id", user.id);
-
-  if (goalsError) {
-    throw goalsError;
-  }
+  const goalRows = await readAllRows<{ id: string }>((from, to) =>
+    supabase
+      .from("goals")
+      .select("id", { count: "exact" })
+      .eq("owner_user_id", user.id)
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
 
   const goalIds = (goalRows ?? []).map((goal) => goal.id as string);
 
@@ -353,18 +388,16 @@ const loadExistingRemoteGraph = async (
     return { goalIds: [], taskIds: [] };
   }
 
-  const taskRows = await inChunks(goalIds, async (chunk) => {
-    const { data, error: tasksError } = await supabase
-      .from("tasks")
-      .select("id")
-      .in("goal_id", chunk);
-
-    if (tasksError) {
-      throw tasksError;
-    }
-
-    return (data ?? []) as Array<{ id: string }>;
-  });
+  const taskRows = await inChunks(goalIds, (chunk) =>
+    readAllRows<{ id: string }>((from, to) =>
+      supabase
+        .from("tasks")
+        .select("id", { count: "exact" })
+        .in("goal_id", chunk)
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+  );
 
   return {
     goalIds,
