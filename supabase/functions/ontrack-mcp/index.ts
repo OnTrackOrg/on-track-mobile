@@ -19,7 +19,7 @@
 //   GET /consent           login + consent page for the OAuth flow (OnTrack
 //                          has no web frontend, so it lives here)
 import { createClient, SupabaseClient, User } from "npm:@supabase/supabase-js@2";
-import { McpServer, StreamableHttpTransport } from "npm:mcp-lite@0.8.2";
+import { McpServer, StreamableHttpTransport } from "npm:mcp-lite@0.10.0";
 import { z } from "npm:zod@4";
 import { consentPage } from "./consent.ts";
 
@@ -638,10 +638,10 @@ const REOPEN_NOTE =
 const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   const mcp = new McpServer({
     name: "ontrack",
-    version: "1.1.0",
+    version: "1.2.0",
     schemaAdapter: (schema) => z.toJSONSchema(schema as z.ZodType),
   });
-  // mcp-lite 0.8 only forwards name/version in `serverInfo`; the MCP spec
+  // mcp-lite 0.10 only forwards name/version in `serverInfo`; the MCP spec
   // (2025-11-25) also lets a server advertise a title, website and icons,
   // which clients use for the connector listing. Clients that predate it
   // ignore the extra fields. (ChatGPT's connector icon is uploaded in its own
@@ -649,7 +649,7 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   (mcp as unknown as { serverInfo: Record<string, unknown> }).serverInfo = {
     name: "ontrack",
     title: "OnTrack",
-    version: "1.1.0",
+    version: "1.2.0",
     websiteUrl: "https://ontrackorg.github.io/consent/",
     icons: [
       {
@@ -660,6 +660,18 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
     ],
   };
 
+  // Every tool carries a display `title` and the MCP behaviour hints
+  // (readOnlyHint / destructiveHint / idempotentHint / openWorldHint). The
+  // Claude and ChatGPT/Codex directories require them, and clients use them
+  // to decide when to ask the user before calling a tool. (mcp-lite doesn't
+  // re-export its ToolAnnotations type, hence the local shape.)
+  type ToolAnnotations = {
+    readOnlyHint: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint: boolean;
+  };
+
   // A handler that throws (bad input, not found, RLS refusal) is a tool
   // error the assistant should read and act on, so it goes back as an
   // isError result with the message — not as a JSON-RPC "Internal error"
@@ -668,6 +680,8 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   const defineTool = (
     name: string,
     def: {
+      title: string;
+      annotations: ToolAnnotations;
       description: string;
       // deno-lint-ignore no-explicit-any
       inputSchema: any;
@@ -676,6 +690,8 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
     },
   ) =>
     mcp.tool(name, {
+      title: def.title,
+      annotations: def.annotations,
       description: def.description,
       inputSchema: def.inputSchema,
       handler: async (args: unknown) => {
@@ -692,6 +708,8 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   // ---- Reading --------------------------------------------------------------
 
   defineTool("list_goals", {
+    title: "List goals",
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description:
       "List the goals visible to the signed-in user: their own goals (in " +
       "their personal order) plus accepted friends' public goals. Each goal " +
@@ -717,6 +735,8 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("get_goal", {
+    title: "Get goal",
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description:
       "Get one goal in detail: its owner, tasks with schedules, and the " +
       "owner's completions per day (default: the last 30 days; pass since/" +
@@ -733,6 +753,8 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("list_completions", {
+    title: "List completions",
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description:
       "The user's completion history for one goal or one task over a date " +
       "range, as {task_id, day, count} rows (count = doses logged that " +
@@ -775,6 +797,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   // ---- Completions ------------------------------------------------------------
 
   defineTool("log_task_completion", {
+    title: "Log task completion",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
     description:
       "Log one dose of one of the user's tasks for a day (today or any past " +
       "day). Pass the user's local calendar date; it defaults to today in " +
@@ -834,6 +863,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("undo_task_completion", {
+    title: "Undo task completion",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
     description:
       "Remove the latest dose the user logged for a task on a day. To clear " +
       "or set an exact number of doses, use backfill_task_completions with " +
@@ -874,6 +910,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("backfill_task_completions", {
+    title: "Backfill task completions",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description:
       "Set the user's completions for many task-days in one call — the way " +
       "to backfill history. Each entry sets the exact number of doses logged " +
@@ -972,6 +1015,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   // ---- Goals ------------------------------------------------------------------
 
   defineTool("create_goal", {
+    title: "Create goal",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
     description:
       "Create a new goal owned by the signed-in user, optionally with " +
       "tasks. Use this to set goals up on their behalf — e.g. turning 'get " +
@@ -1074,6 +1124,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("update_goal", {
+    title: "Update goal",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description:
       "Edit one of the user's goals: title, target, start/due day, color, " +
       "public/private, or start a draft (is_draft false). Only the fields " +
@@ -1148,6 +1205,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("set_goal_achieved", {
+    title: "Set goal achieved",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description:
       "Mark one of the user's goals as achieved (it moves to the achieved " +
       "stack and stops counting) or reactivate an achieved goal." + REOPEN_NOTE,
@@ -1174,6 +1238,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("delete_goal", {
+    title: "Delete goal",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description:
       "Permanently delete one of the user's goals with all its tasks and " +
       "completion history. Irreversible: confirm with the user first and " +
@@ -1198,6 +1269,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("set_goal_order", {
+    title: "Set goal order",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description:
       "Set the order the user's own goals appear in (their personal order, " +
       "top to bottom). Goals not listed keep their place after the listed " +
@@ -1217,6 +1295,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   // ---- Tasks ------------------------------------------------------------------
 
   defineTool("add_task", {
+    title: "Add task",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
     description:
       "Add a task to one of the user's goals, with its schedule, doses per " +
       "day and reminders." + REOPEN_NOTE,
@@ -1241,6 +1326,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("update_task", {
+    title: "Update task",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description:
       "Edit a task on one of the user's goals: title, schedule (frequency, " +
       "custom cadence, pinned weekdays), doses per day, reminders, or the " +
@@ -1272,6 +1364,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("delete_task", {
+    title: "Delete task",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description:
       "Permanently delete a task and its completion history from one of the " +
       "user's goals." + REOPEN_NOTE,
@@ -1287,6 +1386,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("set_task_order", {
+    title: "Set task order",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description:
       "Set the order of the tasks inside one of the user's goals (top to " +
       "bottom). Tasks not listed keep their place after the listed ones." +
@@ -1332,6 +1438,8 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
     row.requester_user_id === user.id ? row.addressee_user_id : row.requester_user_id;
 
   defineTool("list_friends", {
+    title: "List friends",
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description:
       "The user's accepted friends (whose public goals they can see and " +
       "nudge), plus pending friend requests they received and sent.",
@@ -1360,6 +1468,8 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("search_people", {
+    title: "Search people",
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description:
       "Find OnTrack users by username or display name, to send a friend " +
       "request. Returns up to 50 matches with mutual-friend counts.",
@@ -1400,6 +1510,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("send_friend_request", {
+    title: "Send friend request",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description: "Send a friend request to another OnTrack user (from search_people).",
     inputSchema: z.object({
       user_id: z.string().describe("Their user id (uuid)."),
@@ -1429,6 +1546,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("respond_to_friend_request", {
+    title: "Respond to friend request",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description:
       "Accept or decline a friend request the user received (friendship_id " +
       "from list_friends.incoming_requests).",
@@ -1456,6 +1580,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("unfriend", {
+    title: "Unfriend",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description:
       "Remove a friend, or cancel a friend request the user sent. Confirm " +
       "with the user first.",
@@ -1477,6 +1608,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("nudge_friend", {
+    title: "Nudge friend",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
     description:
       "Send a push-notification nudge to an accepted friend about one of " +
       "their public goals. The notification just says who nudged them and " +
@@ -1518,6 +1656,8 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   // ---- Profile ----------------------------------------------------------------
 
   defineTool("get_profile", {
+    title: "Get profile",
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description: "The signed-in user's own profile: display name, username, email.",
     inputSchema: z.object({}),
     handler: async () => {
@@ -1537,6 +1677,13 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("update_profile", {
+    title: "Update profile",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description:
       "Change the user's display name and/or username (3-32 characters: " +
       "lowercase letters, digits, '.', '_' or '-'; must be unique).",
@@ -1583,6 +1730,8 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   // `search` and `fetch` follow ChatGPT's connector contract so the server
   // also works with deep research, which only calls these two tools.
   defineTool("search", {
+    title: "Search",
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description:
       "Search the user's visible goals and tasks by keyword. Returns goal " +
       "results; pass a result id to fetch for full detail.",
@@ -1618,6 +1767,8 @@ const buildServer = (db: SupabaseClient, user: User, authorization: string) => {
   });
 
   defineTool("fetch", {
+    title: "Fetch",
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description:
       "Fetch the full detail of one goal by id, as returned by search.",
     inputSchema: z.object({
